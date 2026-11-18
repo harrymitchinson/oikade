@@ -20,6 +20,8 @@ type Column struct {
 	Shrink bool
 	// Dim is for a column of what's secondary, such as refs.
 	Dim bool
+	// DimIf dims the cells it's true of, in a column where only some cells are secondary.
+	DimIf func(cell string) bool
 }
 
 // Table is rows under a bold header, fitted to the stream's width. An empty cell stays blank.
@@ -82,7 +84,7 @@ func (p *Printer) Table(t Table) (dropped []string) {
 	line(headers, func(_ int, s string) string { return p.Bold(s) })
 	for _, row := range t.Rows {
 		line(row, func(i int, s string) string {
-			if t.Columns[i].Dim {
+			if c := t.Columns[i]; c.Dim || c.DimIf != nil && c.DimIf(s) {
 				return p.Dim(s)
 			}
 			return s

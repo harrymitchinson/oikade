@@ -69,7 +69,7 @@ func TestNoDevicesSaysWhatReportsThem(t *testing.T) {
 
 func TestStatusWithNothingDeployedNamesDeploy(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	printStatus(&stdout, &stderr, &api.Status{}, nil, true, time.Now())
+	printStatus(cli.Plain(&stdout, 0), cli.Plain(&stderr, 0), &api.Status{}, nil, true, false, time.Now())
 	if !strings.Contains(stderr.String(), "No home deployed. Run oikade deploy from your home's module.") {
 		t.Errorf("stderr %q", stderr.String())
 	}
@@ -78,28 +78,23 @@ func TestStatusWithNothingDeployedNamesDeploy(t *testing.T) {
 	}
 	stdout.Reset()
 	stderr.Reset()
-	printStatus(&stdout, &stderr, &api.Status{Deploying: true}, nil, true, time.Now())
+	printStatus(cli.Plain(&stdout, 0), cli.Plain(&stderr, 0), &api.Status{Deploying: true}, nil, true, false, time.Now())
 	if !strings.Contains(stdout.String(), "while a deploy is under way") || stderr.Len() != 0 {
 		t.Errorf("during a deploy: stdout %q, stderr %q", stdout.String(), stderr.String())
 	}
 }
 
-func TestStatusSaysSinceWhenAutomationsAreDown(t *testing.T) {
+func TestStatusSaysWhenAutomationsWentDown(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	at := time.Now().Add(-time.Minute)
-	printStatus(&stdout, &stderr, &api.Status{Version: "v3", Since: &at}, nil, true, time.Now())
-	want := "Version v3, automations down" + since(&at, time.Now())
-	if !strings.Contains(stdout.String(), want) {
+	now := time.Date(2026, 11, 18, 14, 0, 0, 0, time.Local)
+	at := now.Add(-3 * time.Minute)
+	st := &api.Status{Version: "v3", Since: &at}
+	printStatus(cli.Plain(&stdout, 0), cli.Plain(&stderr, 0), st, nil, true, false, now)
+	if want := "Home v3 · automations went down 3 min ago\n"; !strings.HasPrefix(stdout.String(), want) {
 		t.Errorf("stdout %q, want %q", stdout.String(), want)
-	}
-	if got := since(&at, at); got != " since "+at.Local().Format("15:04") {
-		t.Errorf("today: %q", got)
 	}
 	if !strings.Contains(stderr.String(), "oikade tail") {
 		t.Errorf("stderr %q", stderr.String())
-	}
-	if got := since(&at, at.AddDate(0, 0, 1)); got != " since "+at.Local().Format(time.DateTime) {
-		t.Errorf("a day later: %q", got)
 	}
 }
 
@@ -110,7 +105,7 @@ func TestStatusStartsWithWhatsLeftToSetUp(t *testing.T) {
 		{Name: "desk-lamp", Capabilities: []api.Capability{{Name: "on"}}},
 		{Name: "shed-relay", PluginNotImported: true, Capabilities: []api.Capability{{Name: "on"}}},
 	}}
-	printStatus(&stdout, &stderr, st, &api.Matter{Serving: true}, true, time.Now())
+	printStatus(cli.Plain(&stdout, 0), cli.Plain(&stderr, 0), st, &api.Matter{Serving: true}, true, false, time.Now())
 	want := []string{
 		"No home deployed. Run oikade deploy from your home's module.",
 		"The Matter bridge has no controller. oikade matter says how to pair one.",
@@ -127,7 +122,7 @@ func TestStatusStartsWithWhatsLeftToSetUp(t *testing.T) {
 
 	// Asked about devices, it says only what it was asked.
 	stderr.Reset()
-	printStatus(io.Discard, &stderr, st, &api.Matter{}, false, time.Now())
+	printStatus(cli.Plain(io.Discard, 0), cli.Plain(&stderr, 0), st, &api.Matter{}, false, false, time.Now())
 	if stderr.Len() != 0 {
 		t.Errorf("for some devices: %q", stderr.String())
 	}
@@ -203,5 +198,28 @@ func TestAPluginThatNeedsItsSetupSaysHowToRunIt(t *testing.T) {
 	want := []string{"Plugin ewelink-lan needs setup: run oikade setup ewelink-lan"}
 	if !slices.Equal(got, want) {
 		t.Errorf("got %q", got)
+	}
+}
+
+// A deployed home with no devices says what would report them. A deploy restarting the automations
+// isn't news, and a device's state says each thing that's wrong with it.
+func TestStatusSaysWhatsMissingAndOnlyThat(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	now := time.Now()
+	out, errs := cli.Plain(&stdout, 0), cli.Plain(&stderr, 0)
+	printStatus(out, errs, &api.Status{Version: "v3", Process: true}, nil, true, false, now)
+	if !strings.Contains(stderr.String(), "No devices.") {
+		t.Errorf("no devices: stderr %q", stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	printStatus(out, errs, &api.Status{Version: "v3", Deploying: true}, nil, true, false, now)
+	if !strings.HasPrefix(stdout.String(), "Home v3 · automations down · a deploy is under way\n") || stderr.Len() != 0 {
+		t.Errorf("during a deploy: stdout %q, stderr %q", stdout.String(), stderr.String())
+	}
+	off := false
+	both := api.Device{PluginNotImported: true, Problem: "not seen on the LAN", Online: &off, Declare: "home.Device(…)"}
+	if got := deviceState(both); got != "plugin not imported, not seen on the LAN, not in your code" {
+		t.Errorf("deviceState = %q", got)
 	}
 }

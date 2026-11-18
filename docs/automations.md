@@ -368,11 +368,14 @@ A helper can be tested on its own, in a home of its own.
 
 ### Reading status
 
-`oikade status` shows each capability, and the line that won it:
+`oikade status DEVICE` shows each of its capabilities, and the line that won it:
 
 ```console
-$ oikade status pool-pump
-pool-pump  on  true  case/pool-pump/on/frost wants true
+$ oikade status towel-rail
+towel-rail in bathroom
+
+CAPABILITY  VALUE  WHY
+on          true   case/towel-rail/on/after-shower wants true
 ```
 
 Its rules say what each case is doing, and why one doesn't apply:

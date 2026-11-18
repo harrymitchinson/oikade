@@ -94,7 +94,7 @@ var groups = []group{
 		{
 			Name:    "oikade status",
 			Summary: "Show each device's values, and the rules that set them.",
-			Usage:   []string{"oikade status [DEVICE] [--json]"},
+			Usage:   []string{"oikade status [DEVICE...] [--wide] [--json]"},
 			Example: []string{"oikade status desk-plug"},
 		},
 		{

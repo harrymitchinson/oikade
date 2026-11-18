@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 )
 
@@ -56,11 +57,11 @@ func TestSetSaysWhatTheDeviceWasLeftAt(t *testing.T) {
 // A driver's rounding isn't news: 33.1 is the 33 asked for, but 30 isn't.
 func TestSetDoesntCallARoundedValueADifferentOne(t *testing.T) {
 	got := outcome("lamp", "brightness", 33.0, &api.Capability{Name: "brightness", Value: 33.1})
-	if got != "device/lamp/brightness is 33.1" {
+	if got != "device/lamp/brightness is 33.1%" {
 		t.Errorf("got %q", got)
 	}
 	got = outcome("lamp", "brightness", 33.0, &api.Capability{Name: "brightness", Value: 30.0})
-	if got != "device/lamp/brightness is 30, not 33" {
+	if got != "device/lamp/brightness is 30%, not 33%" {
 		t.Errorf("got %q", got)
 	}
 }
@@ -179,7 +180,7 @@ func TestStatusSaysWhatEachHoldIsDoing(t *testing.T) {
 		{Name: "garden-lights", Kind: "hold", Active: &no, OnAt: at("06:30:00").AddDate(0, 0, 1)},
 	}}
 	var out bytes.Buffer
-	printStatus(&out, io.Discard, st, nil, true, now)
+	printStatus(cli.Plain(&out, 0), cli.Plain(io.Discard, 0), st, nil, true, false, now)
 	want := []string{
 		"flow/desk-fan  hold  inactive, on at 23:08",
 		"case/pool-pump/on/frost  case  Safety  inactive: device/pool-water/temperature is 5, not below 3",

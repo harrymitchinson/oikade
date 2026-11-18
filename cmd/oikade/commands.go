@@ -15,7 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"text/tabwriter"
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
@@ -120,6 +119,7 @@ func runStatus(ctx context.Context, args []string) error {
 	fs := newFlags("status")
 	target := addTarget(fs)
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
+	wide := fs.Bool("wide", false, "Show every column, however wide the terminal.")
 	devices, err := namesOf(ident.Device, cli.Parse(fs, args))
 	if err != nil {
 		return err
@@ -150,7 +150,7 @@ func runStatus(ctx context.Context, args []string) error {
 	if summary {
 		bridge = matterOf(ctx, transport)
 	}
-	printStatus(os.Stdout, os.Stderr, st, bridge, summary, time.Now())
+	printStatus(std.out, std.err, st, bridge, summary, *wide, time.Now())
 	return nil
 }
 
@@ -164,59 +164,52 @@ func matterOf(ctx context.Context, t api.Transport) *api.Matter {
 	return resp.Matter
 }
 
-// printStatus prints a host's status. A summary, which is the whole home rather than the devices
-// asked for, starts with what's left to set up, on stderr, and bridge is the host's Matter bridge, if
-// it has one.
-func printStatus(out, stderr io.Writer, st *api.Status, bridge *api.Matter, summary bool, now time.Time) {
-	if summary {
-		for _, gap := range setupGaps(st, bridge) {
-			_, _ = fmt.Fprintln(stderr, gap)
-		}
-		switch {
-		case st.Version == "" && st.Deploying:
-			_, _ = fmt.Fprintf(out, "Version unknown while a deploy is under way, automations %s\n\n",
-				map[bool]string{true: "connected", false: "down"}[st.Process])
-		case undeployed(st):
-		case st.Process:
-			_, _ = fmt.Fprintf(out, "Version %s, automations connected\n\n", or(st.Version, "unknown"))
-		default:
-			_, _ = fmt.Fprintf(out, "Version %s, automations down%s\n\n", st.Version, since(st.Since, now))
-			_, _ = fmt.Fprintln(stderr, "oikade tail shows when they come back, and the host's log says why they went.")
-		}
-	}
-	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	var declare []string
+// printStatus prints the home and host on a line, then a device a line with its values, fitted to
+// out's width unless wide, and the rules. Asked about some devices (not summary), it shows each in
+// full, a capability a line with why it has its value.
+func printStatus(out, stderr *cli.Printer, st *api.Status, bridge *api.Matter, summary, wide bool, now time.Time) {
+	var undeclared []string
 	for _, d := range st.Devices {
 		if d.Declare != "" {
-			declare = append(declare, d.Declare)
-		}
-		for i, c := range d.Capabilities {
-			state := why(c)
-			if d.PluginNotImported {
-				state = strings.TrimSpace(notImported + "  " + state)
-			}
-			if d.Declare != "" && i == 0 {
-				state = strings.TrimSpace(notInYourCode + "  " + state)
-			}
-			if d.Problem != "" {
-				state = strings.TrimSpace(d.Problem + "  " + state)
-			}
-			_, _ = fmt.Fprintf(w, "%s\t%s\t%v\t%s\n", d.Name, c.Name, display(c.Value), state)
-		}
-		if len(d.Capabilities) == 0 && (d.Problem != "" || d.Declare != "") {
-			state := d.Problem
-			if d.Declare != "" {
-				state = strings.TrimSpace(notInYourCode + "  " + state)
-			}
-			_, _ = fmt.Fprintf(w, "%s\t-\t-\t%s\n", d.Name, state)
+			undeclared = append(undeclared, d.Name)
 		}
 	}
-	_ = w.Flush()
 	if !summary {
+		for i, d := range st.Devices {
+			if i > 0 {
+				out.Println()
+			}
+			printDevice(out, d)
+		}
+		countUndeclared(stderr, undeclared)
 		return
 	}
-	printUndeclared(stderr, declare)
-	_, _ = fmt.Fprintln(out)
+	for _, gap := range setupGaps(st, bridge) {
+		stderr.Println(gap)
+	}
+	if line, down := homeLine(st, now); line != "" {
+		out.Println(line)
+		out.Println()
+		if down && !st.Deploying { // A deploy restarts them.
+			stderr.Println("oikade tail shows when they come back, and the host's log says why they went.")
+		}
+	}
+	if len(st.Devices) > 0 {
+		dropped, decided := printDeviceLines(out, st.Devices, wide)
+		if len(dropped) > 0 {
+			stderr.Hint("--wide shows %s", strings.Join(dropped, " and "))
+		}
+		countUndeclared(stderr, undeclared)
+		if decided != "" {
+			stderr.Hint("oikade status %s says why each of its values is what it is", decided)
+		}
+	}
+	if len(st.Devices) == 0 && !undeployed(st) && !st.Deploying {
+		noDevices(stderr, 0)
+	}
+	if len(st.Rules) > 0 {
+		out.Println()
+	}
 	for _, r := range st.Rules {
 		line := []string{or(r.Ref, r.Name), or(r.Kind, "gone")}
 		if r.Safety {
@@ -226,8 +219,144 @@ func printStatus(out, stderr io.Writer, st *api.Status, bridge *api.Matter, summ
 			line = append(line, "paused")
 		}
 		line = append(line, holdState(r, now)...)
-		_, _ = fmt.Fprintln(out, strings.Join(line, "  "))
+		out.Println(strings.Join(line, "  "))
 	}
+}
+
+// countUndeclared says, once, how many devices aren't in your code, naming one if it's alone, and
+// where to read how to declare them.
+func countUndeclared(stderr *cli.Printer, undeclared []string) {
+	switch len(undeclared) {
+	case 0:
+	case 1:
+		stderr.Println(stderr.Dim(undeclared[0] + " isn't in your code: oikade devices shows how to declare it"))
+	default:
+		stderr.Println(stderr.Dim(fmt.Sprintf("%d devices aren't in your code: oikade devices shows how to declare them",
+			len(undeclared))))
+	}
+}
+
+// homeLine is the home's version and its automations', such as "Home f113018 · automations
+// connected 8 min ago", and whether they're down. A host with no home deployed has none.
+func homeLine(st *api.Status, now time.Time) (line string, down bool) {
+	home := "Home version unknown"
+	if st.Version != "" {
+		home = "Home " + cli.ShortVersion(st.Version)
+	}
+	when := func(prefix string) string {
+		if st.Since == nil || st.Since.IsZero() {
+			return ""
+		}
+		return prefix + cli.Ago(*st.Since, now)
+	}
+	switch {
+	case st.Version == "" && st.Deploying:
+		return home + " while a deploy is under way · automations " +
+			map[bool]string{true: "connected", false: "down"}[st.Process], false
+	case undeployed(st):
+		return "", false
+	case st.Process:
+		line = home + " · automations connected" + when(" ")
+	default:
+		line, down = home+" · automations down", true
+		if w := when(" "); w != "" {
+			line = home + " · automations went down" + w
+		}
+	}
+	if st.Deploying {
+		line += " · a deploy is under way"
+	}
+	return line, down
+}
+
+// printDeviceLines prints a device a line: its name, room, values and what's wrong with it. It
+// returns the columns that didn't fit, and a device with a decided value, for the hint that says
+// where to read why.
+func printDeviceLines(out *cli.Printer, devices []api.Device, wide bool) (dropped []string, decided string) {
+	table := cli.Table{
+		Columns: []cli.Column{
+			{Header: nameHeader},
+			{Header: "ROOM", Drop: 1},
+			{Header: "VALUES", Shrink: true},
+			// A problem names its fix, so it never shortens.
+			{Header: "STATE", DimIf: func(cell string) bool { return cell == notInYourCode }},
+		},
+		Wide: wide,
+	}
+	for _, d := range devices {
+		var values []string
+		for _, c := range d.Capabilities {
+			if c.Value != nil {
+				values = append(values, c.Name+" "+valueText(c.Name, c.Value))
+			}
+			if c.Level != "" && decided == "" {
+				decided = d.Name
+			}
+		}
+		table.Rows = append(table.Rows, []string{d.Name, d.Room, strings.Join(values, ", "), deviceState(d)})
+	}
+	return out.Table(table), decided
+}
+
+// printDevice prints one device in full: its name, room and state, then a capability a line, with
+// its value and why it has it.
+func printDevice(out *cli.Printer, d api.Device) {
+	head := out.Bold(d.Name)
+	if d.Room != "" {
+		head += " in " + d.Room
+	}
+	if state := deviceState(d); state == notInYourCode {
+		head += out.Dim(": " + state)
+	} else if state != "" {
+		head += ": " + state
+	}
+	out.Println(head)
+	if len(d.Capabilities) == 0 {
+		return
+	}
+	out.Println()
+	// In full, so nothing shortens.
+	table := cli.Table{Columns: []cli.Column{{Header: "CAPABILITY"}, {Header: "VALUE"}, {Header: "WHY"}}, Wide: true}
+	for _, c := range d.Capabilities {
+		table.Rows = append(table.Rows, []string{c.Name, valueText(c.Name, c.Value), why(c)})
+	}
+	out.Table(table)
+}
+
+// deviceState is what's wrong with a device, if anything, and whether your home's code declares it.
+func deviceState(d api.Device) string {
+	var state []string
+	if d.PluginNotImported {
+		state = append(state, notImported)
+	}
+	switch {
+	case d.Problem != "":
+		state = append(state, d.Problem)
+	case d.Online != nil && !*d.Online && !d.PluginNotImported:
+		state = append(state, "offline")
+	}
+	if d.Declare != "" {
+		state = append(state, notInYourCode)
+	}
+	return strings.Join(state, ", ")
+}
+
+// valueText is a capability's value as a person reads it, with its unit if it has one, such as 21°C.
+// One that hasn't been reported is blank.
+func valueText(capabilityName string, v any) string {
+	switch v := v.(type) {
+	case nil:
+		return ""
+	case bool, string:
+		return fmt.Sprint(v)
+	case float64:
+		s := strconv.FormatFloat(v, 'f', -1, 64)
+		if spec, ok := capability.Lookup(capabilityName); ok {
+			s += spec.Unit
+		}
+		return s
+	}
+	return fmt.Sprint(v)
 }
 
 // undeployed is a host that has never had a home deployed.
@@ -287,14 +416,6 @@ func names(devices []string) string {
 		return strings.Join(devices, ", ")
 	}
 	return fmt.Sprintf("%s and %d more", strings.Join(devices[:most], ", "), len(devices)-most)
-}
-
-// since says when something began, as a time today or a date before.
-func since(t *time.Time, now time.Time) string {
-	if t == nil || t.IsZero() {
-		return ""
-	}
-	return " since " + clock(*t, now)
 }
 
 // clock says when something is, as a time if it's today or a date and time if it isn't.
@@ -373,7 +494,7 @@ func why(c api.Capability) string {
 	wins := "Default"
 	for _, claim := range c.Claims {
 		if claim.Winner {
-			wins = fmt.Sprintf("%s wants %v", lineName(claim), display(claim.Value))
+			wins = fmt.Sprintf("%s wants %v", lineName(claim), or(valueText(c.Name, claim.Value), "nothing"))
 		}
 	}
 	if l := limited(c); l != "" {
@@ -504,9 +625,9 @@ func outcome(device, name string, asked any, c *api.Capability) string {
 		return fmt.Sprintf("%s hasn't answered yet: oikade status %s shows it when it does",
 			ident.CapabilityRef(device, name), device)
 	}
-	is := fmt.Sprintf("%s is %v", ident.CapabilityRef(device, name), display(c.Value))
+	is := fmt.Sprintf("%s is %v", ident.CapabilityRef(device, name), or(valueText(name, c.Value), "-"))
 	if fmt.Sprint(c.Value) != fmt.Sprint(asked) && !rounded(name, c.Value, asked) {
-		is += fmt.Sprintf(", not %v", asked)
+		is += ", not " + valueText(name, asked)
 	}
 	if c.Level == "" {
 		return is
