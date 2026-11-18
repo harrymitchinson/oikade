@@ -23,7 +23,7 @@ This is the checklist the `design` and `plan` skills use. Oikade is small, but e
 Ask these questions of every feature:
 
 - **Is it code or state?** What a home does belongs in its module, and is reviewed in Git. What a home is, right now, belongs to the host.
-- **Who owns naming?** The registry owns Oikade's names, and each app owns its own ([OIK-130](https://linear.app/oikade/issue/OIK-130)). Drivers address devices by ID, so a rename in an app changes nothing in Oikade, and Oikade never writes an app's names.
+- **Who owns naming?** The registry owns Oikade's names, and each app owns its own (OIK-130). Drivers address devices by ID, so a rename in an app changes nothing in Oikade, and Oikade never writes an app's names.
 - **Does it survive a deploy, a crash of your process and a crash of the host?** Those are three different answers.
 
 ## 2. Public API: things users depend on
@@ -80,6 +80,6 @@ Lint with `make lint`.
 
 ## 7. Standing preferences
 
-- **No Home Assistant as a driver** or component. Standalone device libraries that Home Assistant also uses are fine inside plugins. Prefer MQTT-native projects (ESPHome, Tasmota, Shelly, zigbee2mqtt), Matter, or plugins, written in Go first ([OIK-62](https://linear.app/oikade/issue/OIK-62)): first-party ones in `plugins/<name>` ([OIK-155](https://linear.app/oikade/issue/OIK-155)), and anyone else's in its own repo.
+- **No Home Assistant as a driver** or component. Standalone device libraries that Home Assistant also uses are fine inside plugins. Prefer MQTT-native projects (ESPHome, Tasmota, Shelly, zigbee2mqtt), Matter, or plugins, written in Go first (OIK-62): first-party ones in `plugins/<name>` (OIK-155), and anyone else's in its own repo.
 - The user is an SRE. Reviewability, observability and boring operability beat cleverness.
 - Log messages follow the Kubernetes style: capitalised, past tense, no trailing period.

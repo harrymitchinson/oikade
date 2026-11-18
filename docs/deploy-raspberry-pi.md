@@ -1,6 +1,6 @@
 # Deploying Oikade on a Raspberry Pi
 
-Oikade runs as one process on one machine, so one Pi is all a home needs ([OIK-143](https://linear.app/oikade/issue/OIK-143)).
+Oikade runs as one process on one machine, so one Pi is all a home needs (OIK-143).
 
 ## One Pi, with the host
 

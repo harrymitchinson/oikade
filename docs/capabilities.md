@@ -2,7 +2,7 @@
 
 # Capabilities
 
-Every capability Oikade knows, named for people rather than for a protocol ([OIK-181](https://linear.app/oikade/issue/OIK-181)). A home names them through `oikade`'s constants and the handles `oikade types` writes, and a plugin through `contract/v1`'s. Any other name is unknown.
+Every capability Oikade knows, named for people rather than for a protocol (OIK-181). A home names them through `oikade`'s constants and the handles `oikade types` writes, and a plugin through `contract/v1`'s. Any other name is unknown.
 
 A name's number, in brackets, is what claims hold and the `oikade_capability_value` gauge exports. Names are only ever added, so a number keeps its name.
 
