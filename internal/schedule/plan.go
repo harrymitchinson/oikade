@@ -109,7 +109,8 @@ type PlanInput struct {
 	// NotBefore makes slots that end at or before it unavailable. The slot in progress stays
 	// available, so planning a moment after a slot edge doesn't lose the slot. But once a minute
 	// or more of it has passed, a block the budget starts there counts MinimumRun from
-	// NotBefore, not from the slot's start, so it runs one slot longer or starts at the next.
+	// NotBefore, not from the slot's start: it needs a slot more than MinimumRun there, or starts
+	// later. The planner works in minutes, so planning less than a minute late keeps the slot whole.
 	NotBefore time.Time
 	// Slots are the planning day's slots, contiguous and all of one length, as from DaySlots.
 	// Windows match against the slots' own location.
