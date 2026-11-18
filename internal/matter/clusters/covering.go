@@ -71,6 +71,10 @@ type Covering struct {
 	// OnMove is called, under the Node's lock, when a client moves it, with the target in percent
 	// closed. It must not block.
 	OnMove func(percent float64)
+	// OnCommand, if set, is called, under the Node's lock, with each command a client sends: its
+	// name, and the target it moves to in percent closed, or nil for one that moves nothing, as a
+	// StopMotion with nothing moving. It's called before OnMove, and must not block.
+	OnCommand func(command string, target *float64)
 	// AfterSettle runs f, under the Node's lock, once a move has had as long as it takes, unless the
 	// function it returns is called first. Nil leaves a move until a report reaches its target.
 	AfterSettle func(f func()) (stop func())
@@ -90,8 +94,8 @@ func NewCovering() *Covering {
 			}
 		}
 	}
-	go100ths := func(target int64) func(*im.Request, *tlv.Reader) (*im.Response, error) {
-		return func(*im.Request, *tlv.Reader) (*im.Response, error) { c.goTo(target); return nil, nil }
+	go100ths := func(command string, target int64) func(*im.Request, *tlv.Reader) (*im.Response, error) {
+		return func(*im.Request, *tlv.Reader) (*im.Response, error) { c.goTo(command, target); return nil, nil }
 	}
 	c.cluster = &im.Cluster{
 		ID: IDWindowCovering, Revision: 5, FeatureMap: featureLift | featurePositionAwareLift,
@@ -122,8 +126,8 @@ func NewCovering() *Covering {
 			},
 		},
 		Commands: []im.Command{
-			{ID: CommandUpOrOpen, Invoke: go100ths(0)},
-			{ID: CommandDownOrClose, Invoke: go100ths(closed)},
+			{ID: CommandUpOrOpen, Invoke: go100ths("UpOrOpen", 0)},
+			{ID: CommandDownOrClose, Invoke: go100ths("DownOrClose", closed)},
 			{ID: CommandStopMotion, Invoke: c.stop},
 			{ID: CommandGoToLiftPercentage, Invoke: c.goToPercentage},
 		},
@@ -169,7 +173,21 @@ func (c *Covering) waitNoLonger() {
 	}
 }
 
-func (c *Covering) goTo(target int64) {
+// command tells OnCommand of a command, with its target in hundredths, or nil.
+func (c *Covering) command(name string, target *int64) {
+	if c.OnCommand == nil {
+		return
+	}
+	var percent *float64
+	if target != nil {
+		p := float64(*target) / 100
+		percent = &p
+	}
+	c.OnCommand(name, percent)
+}
+
+func (c *Covering) goTo(command string, target int64) {
+	c.command(command, &target)
 	c.setTarget(target)
 	c.setMoving(c.current == nil || abs(*c.current-target) > nearLift)
 	c.reported, c.from = false, c.current
@@ -237,11 +255,13 @@ func (c *Covering) operationalStatus() uint64 {
 func (c *Covering) stop(*im.Request, *tlv.Reader) (*im.Response, error) {
 	switch {
 	case !c.moving:
+		c.command("StopMotion", nil)
 		return nil, nil
 	case !c.reported || c.current == nil:
+		c.command("StopMotion", nil)
 		return nil, im.StatusFailure
 	}
-	c.goTo(*c.current)
+	c.goTo("StopMotion", *c.current)
 	return nil, nil
 }
 
@@ -277,7 +297,7 @@ func (c *Covering) goToPercentage(_ *im.Request, fields *tlv.Reader) (*im.Respon
 	if hundredths > closed {
 		return nil, im.StatusConstraintError
 	}
-	c.goTo(int64(hundredths))
+	c.goTo("GoToLiftPercentage", int64(hundredths))
 	return nil, nil
 }
 

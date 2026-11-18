@@ -54,6 +54,10 @@ type Device struct {
 	// After runs f, under the Node's lock, once d has passed, for a move that settles, unless the
 	// function it returns is called first. Nil settles a move only by the device's report.
 	After func(d time.Duration, f func()) (stop func())
+	// Command, if set, hears each command a controller sends to a cluster that says what it was
+	// asked, as a Window Covering does: the command's name, then key-value pairs. It runs under the
+	// Node's lock, and must not block.
+	Command func(command string, args ...any)
 }
 
 // uniqueID is the bridged device's UniqueID.
@@ -179,7 +183,7 @@ func Map(d Device, set SetFunc) *Mapped {
 		}
 	}
 	if has(capability.Position) {
-		mapCovering(m, d.After, set)
+		mapCovering(m, d, set)
 	}
 	if has(capability.Occupied) {
 		c := clusters.NewOccupancy()
@@ -225,12 +229,21 @@ func Map(d Device, set SetFunc) *Mapped {
 
 // mapCovering makes the device a Window Covering, whose lift is its position. Both are 0 when open,
 // so Matter's hundredths are the position times 100. A move settles after position's Settle.
-func mapCovering(m *Mapped, after func(time.Duration, func()) func(), set SetFunc) {
+func mapCovering(m *Mapped, d Device, set SetFunc) {
 	c := clusters.NewCovering()
 	c.OnMove = func(percent float64) { set(capability.Position, percent) }
-	if after != nil {
+	if d.Command != nil {
+		c.OnCommand = func(command string, target *float64) {
+			if target == nil {
+				d.Command(command, "target", "none")
+				return
+			}
+			d.Command(command, "target", *target)
+		}
+	}
+	if d.After != nil {
 		settle := capability.SettleOf(capability.Position)
-		c.AfterSettle = func(f func()) func() { return after(settle, f) }
+		c.AfterSettle = func(f func()) func() { return d.After(settle, f) }
 	}
 	m.Types = append(m.Types, clusters.DeviceWindowCovering)
 	m.Clusters = append(m.Clusters, c.Cluster())

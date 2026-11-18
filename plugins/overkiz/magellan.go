@@ -390,9 +390,6 @@ func (m *magellan) session(ctx context.Context, password string, connected func(
 			m.cozytouch.forget(token)
 		}
 	}()
-	m.mu.Lock()
-	m.client = c
-	m.mu.Unlock()
 	m.setProblem(ctx, "")
 	m.log.Info("Connected to Magellan", "account", m.describe())
 	connected()
@@ -485,6 +482,11 @@ func (m *magellan) read(ctx context.Context, c *magellanClient, all bool) error 
 	if err != nil {
 		return err
 	}
+	// A setup read is a session that can write, and it is one before its devices are reported
+	// online, so a write that follows at once is sent rather than refused as unreachable.
+	m.mu.Lock()
+	m.client = c
+	m.mu.Unlock()
 	return m.report(ctx, m.served(setups), all)
 }
 

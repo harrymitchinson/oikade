@@ -134,7 +134,7 @@ func startWith(t *testing.T, hub *fakeHub, account Account, timings timing, secr
 	ctx, cancel := context.WithCancel(t.Context())
 	started, startCancel := context.WithTimeout(ctx, waitLimit)
 	defer startCancel()
-	b.plugin, err = plugin.Start(started, plugin.Options{Environment: env, OnSet: handler.Set, Logger: slog.New(slog.DiscardHandler)})
+	b.plugin, err = plugin.Start(started, plugin.Options{Environment: env, OnSet: handler.Set, Logger: slog.New(slog.NewJSONHandler(b.logs, nil))})
 	if err != nil {
 		t.Fatal(err)
 	}
