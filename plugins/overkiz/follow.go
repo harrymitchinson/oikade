@@ -48,6 +48,9 @@ type follower struct {
 	out     reporter
 	// name is the cloud or hub's API as a log names it: Overkiz or Magellan.
 	name string
+	// noAccount is that the cloud has said it has no account for the login, and the log said so
+	// at Info: the hourly checks after it log at Debug, until the cloud finds the account.
+	noAccount bool
 }
 
 // follow keeps l's sessions going until ctx ends.
@@ -69,7 +72,7 @@ func (f *follower) follow(ctx context.Context, l link) {
 		}
 		credential = strings.TrimSpace(credential)
 		var live time.Time
-		err = l.session(ctx, credential, func() { wait, live = f.timing.retry, time.Now() })
+		err = l.session(ctx, credential, func() { wait, live, f.noAccount = f.timing.retry, time.Now(), false })
 		if ctx.Err() != nil {
 			break
 		}
@@ -101,8 +104,13 @@ func (f *follower) follow(ctx context.Context, l link) {
 			wait = min(2*wait, f.timing.retryMax)
 		case classify(err) == absent:
 			// Not a problem: the account's devices are on its other cloud. It may gain some here, so
-			// it's asked again hourly.
-			f.log.Info("Found no "+f.name+" account for the login", "err", err, "account", f.account.describe())
+			// it's asked again hourly, which the log says only once.
+			level := slog.LevelInfo
+			if f.noAccount {
+				level = slog.LevelDebug
+			}
+			f.log.Log(ctx, level, "Found no "+f.name+" account for the login", "err", err, "account", f.account.describe())
+			f.noAccount = true
 			l.absent(ctx)
 			f.setProblem(ctx, "")
 			sleep(ctx, f.timing.refused)
