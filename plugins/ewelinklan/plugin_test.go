@@ -881,4 +881,19 @@ func TestADevicesFirmwareIsReported(t *testing.T) {
 	if got := b.reports()[relayID].FirmwareVersion; got != "1.3.0" {
 		t.Errorf("a report without the firmware made it %q", got)
 	}
+
+	// An update says so, and a version too long to be one doesn't count.
+	d.mu.Lock()
+	d.fields = map[string]any{"switch": "off", "fwVersion": "1.4.0"}
+	d.mu.Unlock()
+	d.report()
+	b.eventually("the new firmware", func() bool { return b.reports()[relayID].FirmwareVersion == "1.4.0" })
+	d.mu.Lock()
+	d.fields = map[string]any{"switch": "on", "fwVersion": strings.Repeat("9", 65)}
+	d.mu.Unlock()
+	d.report()
+	b.waitState(relayID, "on", "true")
+	if got := b.reports()[relayID].FirmwareVersion; got != "1.4.0" {
+		t.Errorf("a 65-byte version made it %q", got)
+	}
 }

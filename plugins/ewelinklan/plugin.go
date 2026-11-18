@@ -387,7 +387,7 @@ func (b *bridge) repeated(d *device, heard time.Time) (observed, bool) {
 
 // apply takes a decoded report. Call with mu held.
 func (b *bridge) apply(d *device, params map[string]any, heard time.Time) (observed, bool) {
-	if fw, ok := params[fieldFirmware].(string); ok && fw != "" && fw != d.firmware {
+	if fw, ok := params[fieldFirmware].(string); ok && fw != "" && len(fw) <= maxFirmware && fw != d.firmware {
 		d.firmware, b.dirty = fw, true
 	}
 	r := d.kind.read(params)

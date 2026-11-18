@@ -1,6 +1,7 @@
 package zigbee2mqtt
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
@@ -39,5 +40,18 @@ func TestALightSaysWhatItIs(t *testing.T) {
 		if got := deviceType(tc.exposes); got != tc.want {
 			t.Errorf("%s: %q, want %q", name, got, tc.want)
 		}
+	}
+}
+
+// A software_build_id that isn't a string costs nothing but itself: the list still parses.
+func TestAFirmwareThatIsntAStringLeavesTheListWhole(t *testing.T) {
+	var list []bridgeDevice
+	raw := `[{"ieee_address":"0x1","software_build_id":7,"definition":{"vendor":"IKEA","model":"E1603"}},
+		{"ieee_address":"0x2","software_build_id":"2.3.087"}]`
+	if err := json.Unmarshal([]byte(raw), &list); err != nil || len(list) != 2 {
+		t.Fatalf("got %d devices, %v", len(list), err)
+	}
+	if fw, ok := list[1].SoftwareBuildID.(string); !ok || fw != "2.3.087" {
+		t.Errorf("the second device's firmware is %v", list[1].SoftwareBuildID)
 	}
 }

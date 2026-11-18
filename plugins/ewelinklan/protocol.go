@@ -26,6 +26,10 @@ const (
 	fieldFirmware = "fwVersion"
 )
 
+// maxFirmware is the longest firmware version taken, as Matter's SoftwareVersionString is limited: a
+// longer one isn't a version.
+const maxFirmware = 64
+
 // report is what one decrypted report says.
 type report struct {
 	// relay is whether the report mentions the relay, on what it says, and bad that what it says can't

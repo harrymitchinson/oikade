@@ -214,9 +214,10 @@ func (i *Instance) handleDevices(payload []byte) {
 			continue
 		}
 		bs := bindings(d.Definition.Exposes)
+		firmware, _ := d.SoftwareBuildID.(string)
 		p := &paired{bindings: bs, info: driver.Info{
 			Found: true, Manufacturer: d.Definition.Vendor, Model: d.Definition.Model,
-			FirmwareVersion: d.SoftwareBuildID, DeviceType: deviceType(d.Definition.Exposes),
+			FirmwareVersion: firmware, DeviceType: deviceType(d.Definition.Exposes),
 		}}
 		for _, b := range bs {
 			p.info.Capabilities = append(p.info.Capabilities, b.capability)
