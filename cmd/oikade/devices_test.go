@@ -113,16 +113,16 @@ func TestDevicesMarkThoseHiddenFromMatter(t *testing.T) {
 
 func TestStatusSaysWhatsWrongWithADevice(t *testing.T) {
 	var out bytes.Buffer
-	printStatus(&out, io.Discard, &api.Status{Devices: []api.Device{
+	printStatus(cli.Plain(&out, 0), cli.Plain(io.Discard, 0), &api.Status{Devices: []api.Device{
 		{
 			Name: "porch-light", Problem: "no LAN key: oikade secret set 1000aabbcc",
 			Capabilities: []api.Capability{{Name: "on"}},
 		},
 		{Name: "shed-relay", Problem: "not seen on the LAN"},
-	}}, nil, false, time.Now())
+	}}, nil, false, false, time.Now())
 	for _, want := range []string{
-		"porch-light  on  -  no LAN key: oikade secret set 1000aabbcc",
-		"shed-relay   -   -  not seen on the LAN",
+		"porch-light: no LAN key: oikade secret set 1000aabbcc\n",
+		"shed-relay: not seen on the LAN\n",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("no %q in:\n%s", want, out.String())
@@ -229,17 +229,21 @@ func declare(home *oikade.Home, name string) {
 
 func TestStatusMarksADeviceNotInYourCode(t *testing.T) {
 	var out, stderr bytes.Buffer
-	printStatus(&out, &stderr, &api.Status{Devices: []api.Device{
+	printStatus(cli.Plain(&out, 0), cli.Plain(&stderr, 0), &api.Status{Devices: []api.Device{
 		{
 			Name: "attic-fan", Declare: `home.Device("attic-fan").Hardware("zigbee", "0x1")`,
-			Capabilities: []api.Capability{{Name: "on"}, {Name: "power"}},
+			Capabilities: []api.Capability{{Name: "on", Value: true}, {Name: "power"}},
 		},
 		{Name: "new-plug", Declare: `home.Device("new-plug").Hardware("zigbee", "0x2")`},
-	}}, nil, true, time.Now())
-	if strings.Count(out.String(), notInYourCode) != 2 || !strings.Contains(out.String(), "new-plug   -      -") {
+	}}, nil, true, false, time.Now())
+	if strings.Count(out.String(), notInYourCode) != 2 ||
+		!strings.Contains(out.String(), "attic-fan        on true  "+notInYourCode) {
 		t.Errorf("want each device marked once:\n%s", out.String())
 	}
-	if !strings.Contains(stderr.String(), `  home.Device("new-plug").Hardware("zigbee", "0x2")`) {
+	// How to declare them is oikade devices' to say.
+	const once = "\n2 devices aren't in your code: oikade devices shows how to declare them\n"
+	if !strings.HasSuffix(stderr.String(), once) ||
+		strings.Contains(stderr.String(), "home.Device") {
 		t.Errorf("got:\n%s", stderr.String())
 	}
 }

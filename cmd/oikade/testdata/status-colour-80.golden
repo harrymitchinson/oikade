@@ -1,0 +1,15 @@
+Home f113018 · automations connected 8 min ago
+
+[1mNAME[0m         [1mVALUES[0m                     [1mSTATE[0m
+hall-lamp    on false
+office-ac    mode cool, on true, setp…  [2mnot in your code[0m
+porch-light                             no LAN key: oikade secret set 1000ddeeff
+study-blind  position 40%, target-pos…  offline
+
+case/office-ac/on/too-warm  case  active since 13:52
+flow/morning  flow
+--- stderr
+Devices with a problem: porch-light. oikade devices says what's wrong.
+[2mHint: --wide shows ROOM[0m
+[2m1 device isn't in your code: oikade devices shows how to declare it[0m
+[2mHint: oikade status office-ac says why each of its values is what it is[0m

@@ -114,3 +114,74 @@ func TestClientsAndSecretsInTheLook(t *testing.T) {
 		testkit.Golden(t, "clients-secrets-"+name, b.Bytes())
 	}
 }
+
+// aStatus is a home's status, with each kind of device a line can show.
+func aStatus(now time.Time) *api.Status {
+	since := now.Add(-8 * time.Minute)
+	until := now.Add(4 * time.Minute)
+	on, off := true, false
+	return &api.Status{
+		Version: "f113018fb81c06e4d5fa3500102bfbc4", Process: true, Since: &since,
+		Devices: []api.Device{
+			{Name: "hall-lamp", Room: "hall", Online: &on, Capabilities: []api.Capability{{Name: "on", Value: false}}},
+			{
+				Name: "office-ac", Online: &on, Declare: `home.Device("office-ac").Hardware("toshiba", "5f1c0c2e")`,
+				Capabilities: []api.Capability{
+					{Name: "mode", Value: "cool"},
+					{
+						Name: "on", Value: true, Level: "Normal", Wanted: true, Case: "too-warm",
+						Claims: []api.Claim{{
+							Source: "case/office-ac/on/too-warm", Case: "too-warm", Level: "Normal", Value: true, Winner: true,
+						}},
+						Limit: "MinimumOn", LimitUntil: &until,
+					},
+					{Name: "setpoint", Value: 21.5},
+					{Name: "temperature", Value: 24.25},
+				},
+			},
+			{
+				Name: "porch-light", Problem: "no LAN key: oikade secret set 1000ddeeff",
+				Capabilities: []api.Capability{{Name: "on"}},
+			},
+			{
+				Name: "study-blind", Room: "study", Online: &off,
+				Capabilities: []api.Capability{
+					{Name: "position", Value: 40.0}, {Name: "target-position", Value: 40.0}, {Name: "moving", Value: false},
+				},
+			},
+		},
+		Rules: []api.Rule{
+			{Name: "office-ac on too-warm", Ref: "case/office-ac/on/too-warm", Kind: "case", Active: &on, Since: since},
+			{Name: "morning", Ref: "flow/morning", Kind: "flow"},
+		},
+	}
+}
+
+func TestStatusFitsTheTerminal(t *testing.T) {
+	now := time.Date(2026, 11, 18, 14, 0, 0, 0, time.Local)
+	paired := &api.Matter{Serving: true, Fabrics: []api.Fabric{{Index: 1}}}
+	for _, width := range []int{80, 120} {
+		for name, printer := range printers {
+			var out, stderr bytes.Buffer
+			printStatus(printer(&out, width), printer(&stderr, width), aStatus(now), paired, true, false, now)
+			out.WriteString("--- stderr\n")
+			out.Write(stderr.Bytes())
+			testkit.Golden(t, fmt.Sprintf("status-%s-%d", name, width), out.Bytes())
+			for i, line := range strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n") {
+				if n := len([]rune(stripStyles(line))); n > width {
+					t.Errorf("%s at %d: line %d is %d wide: %q", name, width, i, n, line)
+				}
+			}
+		}
+	}
+	// One device is shown in full, a capability a line with why it has its value.
+	for name, printer := range printers {
+		st := aStatus(now)
+		st.Devices = st.Devices[1:2]
+		var out, stderr bytes.Buffer
+		printStatus(printer(&out, 80), printer(&stderr, 80), st, nil, false, false, now)
+		out.WriteString("--- stderr\n")
+		out.Write(stderr.Bytes())
+		testkit.Golden(t, "status-device-"+name, out.Bytes())
+	}
+}

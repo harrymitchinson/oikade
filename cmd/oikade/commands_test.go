@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 )
 
@@ -179,7 +180,7 @@ func TestStatusSaysWhatEachHoldIsDoing(t *testing.T) {
 		{Name: "garden-lights", Kind: "hold", Active: &no, OnAt: at("06:30:00").AddDate(0, 0, 1)},
 	}}
 	var out bytes.Buffer
-	printStatus(&out, io.Discard, st, nil, true, now)
+	printStatus(cli.Plain(&out, 0), cli.Plain(io.Discard, 0), st, nil, true, false, now)
 	want := []string{
 		"flow/desk-fan  hold  inactive, on at 23:08",
 		"case/pool-pump/on/frost  case  Safety  inactive: device/pool-water/temperature is 5, not below 3",
