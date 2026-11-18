@@ -97,9 +97,15 @@ func Replay(o Options, head ReplayHeader, events []api.Event) (Report, error) {
 		events = events[:i]
 	}
 	o.Dry, o.Location, o.Calls = true, location(head.Log), callsOf(events)
-	// A second before the first event, so that what your code does on starting comes before it.
+	// When the log has the deployed version starting, your code starts then too, and what each wrote
+	// on starting is compared. Otherwise it starts a second before the first event, so that what it
+	// does on starting comes before the comparison does, as the deployed version's did before the log.
+	started, inLog := processStart(events)
 	o.Start = head.Log.Now
-	if len(events) > 0 {
+	switch {
+	case inLog:
+		o.Start = started
+	case len(events) > 0:
 		o.Start = events[0].Time.Add(-time.Second)
 	}
 	o.Start = o.Start.In(o.Location)
@@ -141,14 +147,16 @@ func Replay(o Options, head ReplayHeader, events []api.Event) (Report, error) {
 		return Report{}, err
 	}
 
+	// From the deployed version's start, its first write counts, which is at that moment.
+	counts := func(t time.Time) bool { return t.After(r.From) || inLog && r.From.Equal(o.Start) && t.Equal(r.From) }
 	var deployed, yours []Write
 	for _, e := range events {
-		if e.Type == api.EventWrite && e.Time.After(r.From) {
+		if e.Type == api.EventWrite && counts(e.Time) {
 			deployed = append(deployed, Write{Time: e.Time, Device: e.Device, Capability: e.Capability, Value: e.Value})
 		}
 	}
 	for _, w := range sim.Writes() {
-		if w.Time.After(r.From) {
+		if counts(w.Time) {
 			yours = append(yours, w)
 		}
 	}
@@ -182,6 +190,36 @@ func (s *Sim) replayTo(to time.Time) error {
 		}
 	}
 	return nil
+}
+
+// processStart is when the deployed version's process started as the log began: the first process
+// event, if it's a connect within startingFor of the first event. The host can log the process's
+// first writes a moment before it says it connected, and stamp one before it though it's after in
+// the log, so it started at the first of those. A write further before is an earlier process's, and
+// the log began with one running.
+func processStart(events []api.Event) (time.Time, bool) {
+	i := slices.IndexFunc(events, func(e api.Event) bool { return e.Type == api.EventProcess })
+	if i < 0 || events[i].Message != "connected" || events[i].Time.Sub(events[0].Time) > startingFor {
+		return time.Time{}, false
+	}
+	connected, at := events[i].Time, events[i].Time
+	for _, e := range events {
+		if e.Type != api.EventWrite || !e.Time.Before(connected) {
+			continue
+		}
+		if connected.Sub(e.Time) > writeTolerance {
+			return time.Time{}, false
+		}
+		at = minTime(at, e.Time)
+	}
+	return at, true
+}
+
+func minTime(a, b time.Time) time.Time {
+	if b.Before(a) {
+		return b
+	}
+	return a
 }
 
 // CallKey is where a flow's outside call waits for its answer. Two flows may use one name.
