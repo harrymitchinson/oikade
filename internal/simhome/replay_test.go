@@ -414,13 +414,38 @@ func TestWritesOnStartingAreComparedWhenTheLogHasTheStart(t *testing.T) {
 	}
 
 	// A write well before the connect is an earlier process's: the log began with one running.
-	earlier := slices.Insert(slices.Clone(log), 2, api.Event{Time: monday, Type: api.EventWrite, Device: "sensor-light", Capability: on, Value: true})
+	earlier := slices.Insert(slices.Clone(log), 2, api.Event{Time: monday, Type: api.EventWrite, Device: "fan", Capability: on, Value: true})
 	r, err = simhome.Replay(options(t, fanAbove(70)), head(monday.Add(time.Hour)), earlier)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.From.Equal(connected) {
-		t.Errorf("replayed from the connect at %s, though a write came before it", r.From)
+	if r.From.Equal(connected) || r.Yours != 0 {
+		t.Errorf("replayed from %s with %d writes of yours, want your code started before the log, its writes on "+
+			"starting not counted, as a write came well before the connect", r.From, r.Yours)
+	}
+
+	// What a device said before the connect is how it was when the process connected: someone
+	// switching the fan on first leaves it on, and the code's write on starting is the same.
+	toggled := slices.Insert(slices.Clone(log), 2,
+		api.Event{Time: monday.Add(time.Second), Type: api.EventChange, Device: "fan", Capability: on, Value: false},
+		api.Event{Time: monday.Add(2 * time.Second), Type: api.EventChange, Device: "fan", Capability: on, Value: true})
+	r, err = simhome.Replay(options(t, fanAbove(70)), head(monday.Add(time.Hour)), toggled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Removed)+len(r.Added) != 0 || r.Yours != 1 {
+		t.Errorf("with the fan toggled before the connect, got removed %v, added %v and %d yours", r.Removed, r.Added, r.Yours)
+	}
+
+	// A device's first report after the connect is a change the running process saw.
+	late := append(slices.Clone(log),
+		api.Event{Time: connected.Add(40 * time.Second), Type: api.EventChange, Device: "late-sensor", Capability: humidity, Value: 80.0})
+	r, err = simhome.Replay(options(t, fanAbove(70)), head(monday.Add(time.Hour)), late)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Changes != 1 {
+		t.Errorf("got %d changes, want the late sensor's report after the connect", r.Changes)
 	}
 
 	// Your code changed what it writes on starting.
