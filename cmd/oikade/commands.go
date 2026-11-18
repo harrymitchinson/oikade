@@ -181,12 +181,7 @@ func printStatus(out, stderr *cli.Printer, st *api.Status, bridge *api.Matter, s
 			}
 			printDevice(out, d)
 		}
-		if len(undeclared) == 1 {
-			stderr.Println(stderr.Dim(undeclared[0] + " isn't in your code: oikade devices shows how to declare it"))
-		} else if len(undeclared) > 1 {
-			stderr.Println(stderr.Dim(fmt.Sprintf("%d devices aren't in your code: oikade devices shows how to declare them",
-				len(undeclared))))
-		}
+		countUndeclared(stderr, undeclared)
 		return
 	}
 	for _, gap := range setupGaps(st, bridge) {
@@ -195,7 +190,7 @@ func printStatus(out, stderr *cli.Printer, st *api.Status, bridge *api.Matter, s
 	if line, down := homeLine(st, now); line != "" {
 		out.Println(line)
 		out.Println()
-		if down {
+		if down && !st.Deploying { // A deploy restarts them.
 			stderr.Println("oikade tail shows when they come back, and the host's log says why they went.")
 		}
 	}
@@ -204,17 +199,13 @@ func printStatus(out, stderr *cli.Printer, st *api.Status, bridge *api.Matter, s
 		if len(dropped) > 0 {
 			stderr.Hint("--wide shows %s", strings.Join(dropped, " and "))
 		}
-		switch len(undeclared) {
-		case 0:
-		case 1:
-			stderr.Println(stderr.Dim("1 device isn't in your code: oikade devices shows how to declare it"))
-		default:
-			stderr.Println(stderr.Dim(fmt.Sprintf("%d devices aren't in your code: oikade devices shows how to declare them",
-				len(undeclared))))
-		}
+		countUndeclared(stderr, undeclared)
 		if decided != "" {
 			stderr.Hint("oikade status %s says why each of its values is what it is", decided)
 		}
+	}
+	if len(st.Devices) == 0 && !undeployed(st) && !st.Deploying {
+		noDevices(stderr, 0)
 	}
 	if len(st.Rules) > 0 {
 		out.Println()
@@ -229,6 +220,19 @@ func printStatus(out, stderr *cli.Printer, st *api.Status, bridge *api.Matter, s
 		}
 		line = append(line, holdState(r, now)...)
 		out.Println(strings.Join(line, "  "))
+	}
+}
+
+// countUndeclared says, once, how many devices aren't in your code, naming one if it's alone, and
+// where to read how to declare them.
+func countUndeclared(stderr *cli.Printer, undeclared []string) {
+	switch len(undeclared) {
+	case 0:
+	case 1:
+		stderr.Println(stderr.Dim(undeclared[0] + " isn't in your code: oikade devices shows how to declare it"))
+	default:
+		stderr.Println(stderr.Dim(fmt.Sprintf("%d devices aren't in your code: oikade devices shows how to declare them",
+			len(undeclared))))
 	}
 }
 
@@ -254,7 +258,10 @@ func homeLine(st *api.Status, now time.Time) (line string, down bool) {
 	case st.Process:
 		line = home + " · automations connected" + when(" ")
 	default:
-		line, down = home+" · automations down"+when(", went down "), true
+		line, down = home+" · automations down", true
+		if w := when(" "); w != "" {
+			line = home + " · automations went down" + w
+		}
 	}
 	if st.Deploying {
 		line += " · a deploy is under way"
@@ -319,12 +326,13 @@ func printDevice(out *cli.Printer, d api.Device) {
 // deviceState is what's wrong with a device, if anything, and whether your home's code declares it.
 func deviceState(d api.Device) string {
 	var state []string
+	if d.PluginNotImported {
+		state = append(state, notImported)
+	}
 	switch {
 	case d.Problem != "":
 		state = append(state, d.Problem)
-	case d.PluginNotImported:
-		state = append(state, notImported)
-	case d.Online != nil && !*d.Online:
+	case d.Online != nil && !*d.Online && !d.PluginNotImported:
 		state = append(state, "offline")
 	}
 	if d.Declare != "" {
@@ -617,9 +625,9 @@ func outcome(device, name string, asked any, c *api.Capability) string {
 		return fmt.Sprintf("%s hasn't answered yet: oikade status %s shows it when it does",
 			ident.CapabilityRef(device, name), device)
 	}
-	is := fmt.Sprintf("%s is %v", ident.CapabilityRef(device, name), display(c.Value))
+	is := fmt.Sprintf("%s is %v", ident.CapabilityRef(device, name), or(valueText(name, c.Value), "-"))
 	if fmt.Sprint(c.Value) != fmt.Sprint(asked) && !rounded(name, c.Value, asked) {
-		is += fmt.Sprintf(", not %v", asked)
+		is += ", not " + valueText(name, asked)
 	}
 	if c.Level == "" {
 		return is

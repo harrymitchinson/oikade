@@ -11,5 +11,5 @@ flow/morning  flow
 --- stderr
 Devices with a problem: porch-light. oikade devices says what's wrong.
 Hint: --wide shows ROOM
-1 device isn't in your code: oikade devices shows how to declare it
+office-ac isn't in your code: oikade devices shows how to declare it
 Hint: oikade status office-ac says why each of its values is what it is

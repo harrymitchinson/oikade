@@ -90,7 +90,7 @@ func TestStatusSaysWhenAutomationsWentDown(t *testing.T) {
 	at := now.Add(-3 * time.Minute)
 	st := &api.Status{Version: "v3", Since: &at}
 	printStatus(cli.Plain(&stdout, 0), cli.Plain(&stderr, 0), st, nil, true, false, now)
-	if want := "Home v3 · automations down, went down 3 min ago\n"; !strings.HasPrefix(stdout.String(), want) {
+	if want := "Home v3 · automations went down 3 min ago\n"; !strings.HasPrefix(stdout.String(), want) {
 		t.Errorf("stdout %q, want %q", stdout.String(), want)
 	}
 	if !strings.Contains(stderr.String(), "oikade tail") {
@@ -198,5 +198,28 @@ func TestAPluginThatNeedsItsSetupSaysHowToRunIt(t *testing.T) {
 	want := []string{"Plugin ewelink-lan needs setup: run oikade setup ewelink-lan"}
 	if !slices.Equal(got, want) {
 		t.Errorf("got %q", got)
+	}
+}
+
+// A deployed home with no devices says what would report them. A deploy restarting the automations
+// isn't news, and a device's state says each thing that's wrong with it.
+func TestStatusSaysWhatsMissingAndOnlyThat(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	now := time.Now()
+	out, errs := cli.Plain(&stdout, 0), cli.Plain(&stderr, 0)
+	printStatus(out, errs, &api.Status{Version: "v3", Process: true}, nil, true, false, now)
+	if !strings.Contains(stderr.String(), "No devices.") {
+		t.Errorf("no devices: stderr %q", stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	printStatus(out, errs, &api.Status{Version: "v3", Deploying: true}, nil, true, false, now)
+	if !strings.HasPrefix(stdout.String(), "Home v3 · automations down · a deploy is under way\n") || stderr.Len() != 0 {
+		t.Errorf("during a deploy: stdout %q, stderr %q", stdout.String(), stderr.String())
+	}
+	off := false
+	both := api.Device{PluginNotImported: true, Problem: "not seen on the LAN", Online: &off, Declare: "home.Device(…)"}
+	if got := deviceState(both); got != "plugin not imported, not seen on the LAN, not in your code" {
+		t.Errorf("deviceState = %q", got)
 	}
 }

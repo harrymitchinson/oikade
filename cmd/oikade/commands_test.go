@@ -57,11 +57,11 @@ func TestSetSaysWhatTheDeviceWasLeftAt(t *testing.T) {
 // A driver's rounding isn't news: 33.1 is the 33 asked for, but 30 isn't.
 func TestSetDoesntCallARoundedValueADifferentOne(t *testing.T) {
 	got := outcome("lamp", "brightness", 33.0, &api.Capability{Name: "brightness", Value: 33.1})
-	if got != "device/lamp/brightness is 33.1" {
+	if got != "device/lamp/brightness is 33.1%" {
 		t.Errorf("got %q", got)
 	}
 	got = outcome("lamp", "brightness", 33.0, &api.Capability{Name: "brightness", Value: 30.0})
-	if got != "device/lamp/brightness is 30, not 33" {
+	if got != "device/lamp/brightness is 30%, not 33%" {
 		t.Errorf("got %q", got)
 	}
 }
