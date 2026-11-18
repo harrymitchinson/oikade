@@ -40,6 +40,7 @@ func (r *Responder) Update(svc Service) error {
 	old := e.records
 	e.svc, e.records = svc, recs
 	defending := e.defending
+	r.rememberFormer(old)
 	r.mu.Unlock()
 
 	r.log.Info("Updating mDNS service", "instance", name.String())
@@ -141,12 +142,17 @@ func (r *Responder) announce(e *entry) {
 		r.mu.Lock()
 		current := !r.closed && r.services[strings.ToLower(e.name.String())] == e
 		recs := e.records
+		host := r.hostAnswered()
 		r.mu.Unlock()
 		if !current {
 			return
 		}
 		r.multicast(func(ifIndex int) ([]byte, error) {
-			return response(withOwnNSEC(slices.Concat(recs, addressRecords(r.host, r.addrs(ifIndex)))), -1)
+			all := recs
+			if host { // not while the host name is probed again, which announces them after
+				all = slices.Concat(recs, addressRecords(r.host, r.addrs(ifIndex)))
+			}
+			return response(withOwnNSEC(all), -1)
 		})
 	}
 	send()

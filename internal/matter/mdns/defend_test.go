@@ -1,6 +1,7 @@
 package mdns
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -183,5 +184,84 @@ func TestOldConflictsDontCount(t *testing.T) {
 	time.Sleep(20 * time.Millisecond) // the window is real time
 	if r.slowConflicts() {
 		t.Error("counts conflicts from before the window")
+	}
+}
+
+func TestTheHostIsntAnsweredWhileProbedAgain(t *testing.T) {
+	r, c, _ := newDefendingResponder(t)
+	r.mu.Lock()
+	r.hostDefending = true
+	r.mu.Unlock()
+	r.handle(c, testIf, peer, query(t, testHost, dnsmessage.TypeA, false))
+	c.none(t)
+	r.handle(c, testIf, peer, query(t, testInstance, dnsmessage.TypeSRV, false))
+	p := c.next(t)
+	if got := addrsIn(slices.Concat(p.msg.Answers, p.msg.Additionals)); len(got) != 0 {
+		t.Errorf("sent addresses %v while the host name is probed again", got)
+	}
+}
+
+func TestOurOwnLatePacketAfterAnUpdateIsntAConflict(t *testing.T) {
+	r, c, _ := newDefendingResponder(t)
+	before := r.answerable(testIf)
+	changed := testService()
+	changed.Text = []string{"D=3840", "CM=0"}
+	if err := r.Update(changed); err != nil {
+		t.Fatal(err)
+	}
+	c.next(t) // the goodbye
+	c.next(t) // the first announcement
+	// A reply built before the Update, with the old TXT, comes back after it.
+	m := dnsmessage.Message{Response: true}
+	for _, rec := range before {
+		m.Answers = append(m.Answers, rec.resource(rec.ttl, true))
+	}
+	r.handle(c, testIf, peer, pack(t, m))
+	p := c.next(t) // the second announcement, and no probe
+	if !p.msg.Response {
+		t.Fatalf("sent %+v: took our own old TXT for a conflict", p.msg)
+	}
+	c.none(t)
+}
+
+func TestAConflictCountsOnce(t *testing.T) {
+	r, c, lost := newDefendingResponder(t)
+	r.timing.conflictWindow = time.Minute
+	for range 4 { // the other host announces twice, on two interfaces
+		r.handle(c, testIf, peer, otherSRV(t, hostTTL))
+	}
+	select { // what came after the first claimed it while we probed it again
+	case <-lost:
+	case <-time.After(time.Second):
+		t.Fatal("didn't lose the name")
+	}
+	r.mu.Lock()
+	n := len(r.conflicts)
+	r.mu.Unlock()
+	if n != 1 {
+		t.Errorf("counted %d conflicts, want 1", n)
+	}
+}
+
+func TestAnUpdateWhileProbedAgainIsWhatItProposes(t *testing.T) {
+	r, c, _ := newDefendingResponder(t)
+	r.handle(c, testIf, peer, otherSRV(t, hostTTL))
+	probes(t, c, testInstance, 1)
+	changed := testService()
+	changed.Text = []string{"D=3840", "CM=0"}
+	if err := r.Update(changed); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		p := c.next(t)
+		if p.msg.Response {
+			continue // the Update's goodbye
+		}
+		for _, a := range p.msg.Authorities {
+			if txt, ok := a.Body.(*dnsmessage.TXTResource); ok && !slices.Equal(txt.TXT, changed.Text) {
+				t.Errorf("probe proposes TXT %q, want the updated %q", txt.TXT, changed.Text)
+			}
+		}
+		return
 	}
 }

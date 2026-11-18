@@ -45,10 +45,17 @@ func (f *fakeMDNS) loseName(svc mdns.Service) {
 
 // commissionableService returns the advertised commissionable service, if there's one.
 func (f *fakeMDNS) commissionableService() (mdns.Service, bool) {
+	return f.service(mdns.CommissionableType)
+}
+
+// operationalService returns an advertised operational service, if there's one.
+func (f *fakeMDNS) operationalService() (mdns.Service, bool) { return f.service(mdns.OperationalType) }
+
+func (f *fakeMDNS) service(typ string) (mdns.Service, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for _, svc := range f.services {
-		if svc.Type == mdns.CommissionableType {
+		if svc.Type == typ {
 			return svc, true
 		}
 	}

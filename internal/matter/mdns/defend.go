@@ -20,11 +20,11 @@ import (
 // names it, and a Matter node names its host after its hardware address (Core spec, 4.3.4), so a
 // host that takes it is misconfigured rather than unlucky.
 
-// newProbe returns a probe for names, proposing recs and, if names holds the host name, the
-// host's addresses.
-func newProbe(names []dnsmessage.Name, recs []record) *probe {
+// newProbe returns a probe for names, proposing e's records, if e is set, and, if names holds the
+// host name, the host's addresses.
+func newProbe(names []dnsmessage.Name, e *entry) *probe {
 	return &probe{
-		names: names, records: recs,
+		names: names, entry: e,
 		conflict: make(chan dnsmessage.Name, 1), lost: make(chan dnsmessage.Name, 1),
 	}
 }
@@ -67,12 +67,10 @@ func (r *Responder) defendNames(rrs []dnsmessage.Resource, ours []record) {
 	}
 	for _, e := range announced {
 		if conflicts(e.name, dnsmessage.TypeSRV, dnsmessage.TypeTXT, typeNSEC) {
-			r.noteConflict()
 			r.after(0, func() { r.defend(e) })
 		}
 	}
 	if host && conflicts(r.host, dnsmessage.TypeA, dnsmessage.TypeAAAA, typeNSEC) {
-		r.noteConflict()
 		r.after(0, r.defendHost)
 	}
 }
@@ -89,9 +87,10 @@ func (r *Responder) defend(e *entry) {
 		return // gone, or already being probed again
 	}
 	e.ready, e.defending = false, true
-	p := newProbe([]dnsmessage.Name{e.name}, e.records)
+	p := newProbe([]dnsmessage.Name{e.name}, e)
 	r.probes[p] = struct{}{}
 	r.mu.Unlock()
+	r.noteConflict() // once for each name probed again, however many packets claimed it
 	r.log.Info("Probing mDNS name again after a conflict", "instance", e.name.String())
 
 	err := r.probe(context.Background(), p) // Close ends it
@@ -132,6 +131,7 @@ func (r *Responder) defendHost() {
 	p := newProbe([]dnsmessage.Name{r.host}, nil)
 	r.probes[p] = struct{}{}
 	r.mu.Unlock()
+	r.noteConflict()
 	r.log.Info("Probing mDNS host name again after a conflict", "host", r.host.String())
 
 	err := r.probe(context.Background(), p)
@@ -182,3 +182,36 @@ func (r *Responder) slowConflicts() bool {
 
 // maxConflicts is how many conflicts within timing.conflictWindow slow probing (RFC 6762, 8.1).
 const maxConflicts = 15
+
+// formerFor is how long a record we replaced or withdrew still counts as ours, so that our own
+// packet built before the change, looped back after it, isn't taken for another host's claim.
+const formerFor = 2 * time.Second
+
+// formerRecord is a record we held until at.
+type formerRecord struct {
+	rec record
+	at  time.Time
+}
+
+// rememberFormer keeps recs as ours for formerFor. r.mu is held.
+func (r *Responder) rememberFormer(recs []record) {
+	now := time.Now()
+	r.former = slices.DeleteFunc(r.former, func(f formerRecord) bool { return now.Sub(f.at) > formerFor })
+	for _, rec := range recs {
+		r.former = append(r.former, formerRecord{rec: rec, at: now})
+	}
+}
+
+// formerRecords returns the records we held within formerFor.
+func (r *Responder) formerRecords() []record {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now()
+	var out []record
+	for _, f := range r.former {
+		if now.Sub(f.at) <= formerFor {
+			out = append(out, f.rec)
+		}
+	}
+	return out
+}

@@ -109,7 +109,8 @@ type Responder struct {
 	hostReady bool                 // the host name has been probed
 	// hostDefending is set while the host name is probed again after a conflict.
 	hostDefending bool
-	conflicts     []time.Time // when the last conflicts came, for slowConflicts
+	conflicts     []time.Time    // when the last conflicts came, for slowConflicts
+	former        []formerRecord // records just replaced or withdrawn, which our own late packets may still carry
 	closed        bool
 
 	done chan struct{} // closed by Close, to stop timers
@@ -131,7 +132,7 @@ type entry struct {
 // another host probing one of them at the same time won the tie-break.
 type probe struct {
 	names    []dnsmessage.Name
-	records  []record             // the service's, which it proposes; the host's addresses go per interface
+	entry    *entry               // the service whose records it proposes, nil for the host name alone; the host's addresses go per interface
 	conflict chan dnsmessage.Name // buffered, 1
 	lost     chan dnsmessage.Name // the name a tie was lost on; buffered, 1
 }
@@ -254,7 +255,7 @@ func (r *Responder) Add(ctx context.Context, svc Service) error {
 	}
 	e := &entry{svc: svc, name: name, records: recs}
 	r.services[key] = e
-	p := newProbe([]dnsmessage.Name{name}, recs)
+	p := newProbe([]dnsmessage.Name{name}, e)
 	if !r.hostReady {
 		p.names = append(p.names, r.host)
 	}
@@ -262,6 +263,9 @@ func (r *Responder) Add(ctx context.Context, svc Service) error {
 	r.mu.Unlock()
 
 	err = r.probe(ctx, p)
+	if errors.Is(err, ErrConflict) {
+		r.noteConflict()
+	}
 
 	r.mu.Lock()
 	delete(r.probes, p)
@@ -297,7 +301,6 @@ func (r *Responder) probe(ctx context.Context, p *probe) error {
 	for i := 0; ; i++ {
 		select {
 		case n := <-p.conflict:
-			r.noteConflict()
 			return fmt.Errorf("%w: %s", ErrConflict, n)
 		case n := <-p.lost:
 			// The winner sends three probes, each of which we lose to, and may be heard on

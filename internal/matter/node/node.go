@@ -131,6 +131,9 @@ type Node struct {
 
 	// run is the latest Run's, which hooks and timers may be reaching for as the next one starts.
 	run atomic.Pointer[running]
+	// lostRetry is how long the node waits to advertise an operational service again after
+	// another host took its name; tests shorten it.
+	lostRetry time.Duration
 	// listenMDNS opens the advertiser, and listenUDP the Matter socket; tests replace them.
 	listenMDNS func(mdns.Options) (advertiser, error)
 	listenUDP  func(addr string) (net.PacketConn, error)
@@ -183,7 +186,7 @@ func New(cfg Config) (*Node, error) {
 	n := &Node{
 		cfg: cfg, log: cfg.Log, advertising: cfg.Log.With("part", "mdns"),
 		commissioning: cfg.Log.With("part", "commissioning"), resumption: securechannel.NewResumptionStore(0),
-		operational: map[uint8]*mdns.Service{}, listenMDNS: listenMDNS, listenUDP: listenUDP,
+		operational: map[uint8]*mdns.Service{}, listenMDNS: listenMDNS, listenUDP: listenUDP, lostRetry: time.Minute,
 	}
 	n.name.Store(&cfg.DeviceName)
 	var err error
@@ -540,7 +543,7 @@ func (n *Node) closeWindow() {
 // lostName hears that another host took the name of a service the node advertised (RFC 6762, 9).
 // A commissionable instance name is random, so the window is advertised again under a new one. An
 // operational one is the fabric's and the node's IDs, which another node on the fabric has too,
-// so there's nothing to pick: it's logged, and advertised again on the next run.
+// so there's nothing to pick: it's logged, and tried again later, in case the other host goes.
 func (n *Node) lostName(svc mdns.Service) {
 	n.mu.Lock()
 	if c := n.commissionable; c != nil && c.Type == svc.Type && c.Instance == svc.Instance {
@@ -551,7 +554,15 @@ func (n *Node) lostName(svc mdns.Service) {
 			return
 		}
 		n.advertising.Warn("Another host took the commissionable service's name: advertising it under a new one", "instance", svc.Instance)
-		go n.openWindow(*window)
+		go func() {
+			// Unless the window closed, or opened anew, in the meantime.
+			n.mu.Lock()
+			same := n.window == window && n.commissionable == nil
+			n.mu.Unlock()
+			if same {
+				n.openWindow(*window)
+			}
+		}()
 		return
 	}
 	for index, o := range n.operational {
@@ -559,11 +570,35 @@ func (n *Node) lostName(svc mdns.Service) {
 			delete(n.operational, index)
 			n.mu.Unlock()
 			n.advertising.Error("Another host took the operational service's name: controllers on its fabric may reach that host instead",
-				"fabric", index, "instance", svc.Instance)
+				"fabric", index, "instance", svc.Instance, "retry", n.lostRetry.String())
+			go n.readvertise(n.run.Load().ctx, index)
 			return
 		}
 	}
 	n.mu.Unlock()
+}
+
+// readvertise tries to advertise a fabric's operational service again after its name was lost,
+// after lostRetry and then twice as long each time, up to an hour, until it's advertised, the
+// fabric goes or the run ends.
+func (n *Node) readvertise(ctx context.Context, index uint8) {
+	for wait := n.lostRetry; ; wait = min(2*wait, time.Hour) {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+		if _, ok := n.table.Fabric(index); !ok {
+			return
+		}
+		n.advertiseFabric(index)
+		n.mu.Lock()
+		_, advertised := n.operational[index]
+		n.mu.Unlock()
+		if advertised {
+			return
+		}
+	}
 }
 
 // refusePASE answers PASE while no commissioning window is open.

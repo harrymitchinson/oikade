@@ -177,7 +177,7 @@ func (r *Responder) asksForUs(qs []dnsmessage.Question) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, q := range qs {
-		if r.hostReady && nameEqual(q.Name, r.host) {
+		if r.hostAnswered() && nameEqual(q.Name, r.host) {
 			return true
 		}
 		for _, e := range r.services {
@@ -228,7 +228,7 @@ func (r *Responder) answering() (recs []record, hostReady, open bool) {
 			recs = append(recs, e.records...)
 		}
 	}
-	return recs, r.hostReady, true
+	return recs, r.hostReady && !r.hostDefending, true
 }
 
 // additional returns the records that a querier will want next (RFC 6763, 12): the SRV and TXT
@@ -325,17 +325,23 @@ func (r *Responder) probing() (probes []*probe, ours []record) {
 // interfaces on the same link bring back, hold only records identical to ours, so they aren't
 // conflicts; another responder on this host that claims one of our names with other data is.
 func (r *Responder) checkConflicts(m *dnsmessage.Message) {
+	rrs := slices.Concat(m.Answers, m.Authorities, m.Additionals)
 	probes, services := r.probing()
+	// Most responses on a link are other hosts' about their own names: look up our addresses
+	// only for one that names one of ours.
+	if !slices.ContainsFunc(rrs, func(rr dnsmessage.Resource) bool {
+		return nameEqual(rr.Header.Name, r.host) ||
+			slices.ContainsFunc(services, func(rec record) bool { return rec.unique && nameEqual(rec.name, rr.Header.Name) })
+	}) {
+		return
+	}
 	served := r.served()
 	ours := make([]record, 0, len(served)*(len(services)+4))
 	for _, ifIndex := range served {
 		ours = append(ours, withOwnNSEC(slices.Concat(services, addressRecords(r.host, r.addrs(ifIndex))))...)
 	}
-	rrs := slices.Concat(m.Answers, m.Authorities, m.Additionals)
+	ours = append(ours, r.formerRecords()...)
 	r.defendNames(rrs, ours)
-	if len(probes) == 0 {
-		return
-	}
 	for _, rr := range rrs {
 		if slices.ContainsFunc(ours, func(rec record) bool { return rec.same(rr.Header.Name, rr.Header.Type, rr.Body) }) {
 			continue

@@ -2,8 +2,10 @@ package node
 
 import (
 	"testing"
+	"time"
 
 	"github.com/harrymitchinson/oikade/internal/matter/mdns"
+	"github.com/harrymitchinson/oikade/internal/matter/nodetest"
 	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
@@ -24,21 +26,44 @@ func TestALostCommissionableNameIsAdvertisedUnderANewOne(t *testing.T) {
 	}
 }
 
-func TestALostOperationalNameIsntReplaced(t *testing.T) {
+func TestALostOperationalNameIsAdvertisedAgainLater(t *testing.T) {
 	n, fake, _ := start(t, Config{DataDir: t.TempDir()})
-	testkit.Eventually(t, "the node to run", func() bool { _, ok := fake.commissionableService(); return ok })
-	svc := mdns.Operational{CompressedFabricID: 1, NodeID: 2}.Service()
-	n.mu.Lock()
-	n.operational[1] = &svc
-	n.mu.Unlock()
+	n.lostRetry = 20 * time.Millisecond
+	testkit.Eventually(t, "the initial window", func() bool { _, ok := fake.commissionableService(); return ok })
+	nodetest.New(t).Commission(addr(n), testSetup.Passcode)
+	var op mdns.Service
+	testkit.Eventually(t, "the operational service", func() bool {
+		svc, ok := fake.operationalService()
+		op = svc
+		return ok
+	})
 
-	fake.loseName(svc)
+	fake.loseName(op)
 
 	n.mu.Lock()
 	_, still := n.operational[1]
 	n.mu.Unlock()
 	if still {
 		t.Error("still counts the lost operational service as advertised")
+	}
+	testkit.Eventually(t, "the operational service again", func() bool {
+		svc, ok := fake.operationalService()
+		return ok && svc.Instance == op.Instance
+	})
+}
+
+func TestAWindowThatClosedIsntReopened(t *testing.T) {
+	n, fake, _ := start(t, Config{DataDir: t.TempDir()})
+	testkit.Eventually(t, "the initial window", func() bool { _, ok := fake.commissionableService(); return ok })
+	first, _ := fake.commissionableService()
+	// The window closes just as the name is lost: the node mustn't open it again.
+	n.mu.Lock()
+	n.window = nil
+	n.mu.Unlock()
+	fake.loseName(first)
+	time.Sleep(50 * time.Millisecond) // long enough for a reopen to have advertised
+	if svc, ok := fake.commissionableService(); ok {
+		t.Errorf("advertised %s for a window that closed", svc.Instance)
 	}
 }
 
