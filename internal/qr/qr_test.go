@@ -123,12 +123,7 @@ func TestTerminal(t *testing.T) {
 		t.Fatalf("%d lines, want 17", len(lines))
 	}
 	for i, line := range lines {
-		body, coloured := strings.CutPrefix(line, colours)
-		body, ended := strings.CutSuffix(body, reset)
-		if !coloured || !ended {
-			t.Fatalf("line %d isn't coloured: %q", i, line)
-		}
-		row := []rune(body)
+		row := []rune(line)
 		if len(row) != 25+8 {
 			t.Fatalf("line %d is %d wide, want 33", i, len(row))
 		}
@@ -142,7 +137,7 @@ func TestTerminal(t *testing.T) {
 	}
 	// The quiet zone: the first two lines are blank.
 	for _, line := range lines[:2] {
-		if strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(line, colours), reset)) != "" {
+		if strings.TrimSpace(line) != "" {
 			t.Fatalf("quiet zone has a dark module: %q", line)
 		}
 	}

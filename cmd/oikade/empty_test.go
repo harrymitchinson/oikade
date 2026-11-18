@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/registry"
 )
@@ -20,10 +21,10 @@ func TestEmptyListsSayWhatWouldFillThem(t *testing.T) {
 		hint  string
 	}{
 		{"secrets", func(stdout, stderr *bytes.Buffer, asJSON bool) error {
-			return printSecrets(stdout, stderr, nil, asJSON)
+			return printSecrets(cli.Plain(stdout, 0), cli.Plain(stderr, 0), nil, asJSON)
 		}, "No secrets. oikade secret set NAME adds one."},
 		{"clients", func(stdout, stderr *bytes.Buffer, asJSON bool) error {
-			return printClients(stdout, stderr, nil, asJSON)
+			return printClients(cli.Plain(stdout, 0), cli.Plain(stderr, 0), nil, asJSON, time.Now())
 		}, "No clients. oikade-host client add NAME, on the host's machine, adds one."},
 	} {
 		var stdout, stderr bytes.Buffer

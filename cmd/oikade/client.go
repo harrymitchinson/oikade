@@ -6,9 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"os"
-	"text/tabwriter"
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/cli"
@@ -36,7 +34,7 @@ func runClient(ctx context.Context, args []string) error {
 		}
 		req = api.Request{Type: api.TypeClientRevoke, Client: name}
 	default:
-		return errors.New(clientUsage)
+		return cli.UsageErrorf(clientUsage)
 	}
 	resp, err := api.Call(ctx, t.transport(), req)
 	if err != nil {
@@ -46,7 +44,7 @@ func runClient(ctx context.Context, args []string) error {
 		return errors.New(resp.Error)
 	}
 	if req.Type == api.TypeClients {
-		return printClients(os.Stdout, os.Stderr, resp.Clients, *asJSON)
+		return printClients(cli.NewPrinter(os.Stdout), cli.NewPrinter(os.Stderr), resp.Clients, *asJSON, time.Now())
 	}
 	if *asJSON {
 		return cli.PrintJSON(struct{}{})
@@ -55,23 +53,24 @@ func runClient(ctx context.Context, args []string) error {
 	return nil
 }
 
-// printClients lists the network API's clients, or says there are none and how to add one.
-func printClients(stdout, stderr io.Writer, clients []api.Client, asJSON bool) error {
+// printClients lists the network API's clients, with when they were created and last used as of
+// now, or says there are none and how to add one.
+func printClients(stdout, stderr *cli.Printer, clients []api.Client, asJSON bool, now time.Time) error {
 	if asJSON {
 		return json.NewEncoder(stdout).Encode(append([]api.Client{}, clients...))
 	}
 	if len(clients) == 0 {
-		_, err := fmt.Fprintln(stderr, "No clients. oikade-host client add NAME, on the host's machine, adds one.")
-		return err
+		stderr.Println("No clients. oikade-host client add NAME, on the host's machine, adds one.")
+		return nil
 	}
-	w := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "NAME\tCREATED\tLAST USED")
+	table := cli.Table{Columns: []cli.Column{{Header: nameHeader}, {Header: "CREATED"}, {Header: "LAST USED"}}}
 	for _, c := range clients {
 		used := "never"
 		if !c.LastUsed.IsZero() {
-			used = c.LastUsed.Local().Format(time.DateTime)
+			used = cli.Ago(c.LastUsed, now)
 		}
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", c.Name, c.Created.Local().Format(time.DateTime), used)
+		table.Rows = append(table.Rows, []string{c.Name, cli.Ago(c.Created, now), used})
 	}
-	return w.Flush()
+	stdout.Table(table)
+	return nil
 }

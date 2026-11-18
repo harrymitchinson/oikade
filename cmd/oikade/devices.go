@@ -10,8 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/devicetype"
@@ -24,6 +24,9 @@ import (
 const devicesUsage = "usage: oikade devices [remove DEVICE | remove --plugin NAME]. " +
 	"A device's name, room and type are your home's code's: home.Device declares them"
 
+// nameHeader is the header of a table's first column, of what each row is.
+const nameHeader = "NAME"
+
 // verbRemove is the one verb --plugin goes with.
 const verbRemove = "remove"
 
@@ -32,11 +35,12 @@ func runDevices(ctx context.Context, args []string) error {
 	target := addTarget(fs)
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
 	all := fs.Bool("all", false, "List removed devices too, which keep their Matter endpoints.")
+	wide := fs.Bool("wide", false, "Show every column, however wide the terminal.")
 	allow := fs.Bool("allow-safety", false, "Remove a device under a Safety claim.")
 	plugin := fs.String("plugin", "", "Remove every device of this plugin, such as one your home no longer imports.")
 	words := cli.Parse(fs, args)
 	if len(words) == 0 {
-		return listDevices(ctx, target, *asJSON, *all)
+		return listDevices(ctx, target, *asJSON, *all, *wide)
 	}
 
 	verb, words := words[0], words[1:]
@@ -48,7 +52,7 @@ func runDevices(ctx context.Context, args []string) error {
 		return err
 	}
 	if *plugin != "" && verb != verbRemove {
-		return errors.New("--plugin is only for oikade devices remove")
+		return cli.UsageErrorf("--plugin is only for oikade devices remove")
 	}
 	req := api.Request{AllowSafety: *allow}
 	var message string
@@ -61,7 +65,7 @@ func runDevices(ctx context.Context, args []string) error {
 				"If it's still paired, it comes back when it next reports", words[0])
 		}
 	default:
-		return errors.New(devicesUsage)
+		return cli.UsageErrorf(devicesUsage)
 	}
 	resp, err := api.Call(ctx, target.transport(), req)
 	if err != nil {
@@ -100,7 +104,7 @@ func devicesOf(ctx context.Context, t api.Transport) (api.Response, error) {
 	return resp, nil
 }
 
-func listDevices(ctx context.Context, target target, asJSON, all bool) error {
+func listDevices(ctx context.Context, target target, asJSON, all, wide bool) error {
 	resp, err := devicesOf(ctx, target.transport())
 	if err != nil {
 		return err
@@ -126,7 +130,12 @@ func listDevices(ctx context.Context, target target, asJSON, all bool) error {
 		noDevices(os.Stderr, removed)
 		return nil
 	}
-	printUndeclared(os.Stderr, printDevices(os.Stdout, list, marks))
+	stderr := cli.NewPrinter(os.Stderr)
+	undeclared, dropped := printDevices(cli.NewPrinter(os.Stdout), list, marks, wide)
+	if len(dropped) > 0 {
+		stderr.Hint("--wide shows %s", strings.Join(dropped, " and "))
+	}
+	printUndeclared(stderr, undeclared)
 	return nil
 }
 
@@ -170,12 +179,23 @@ const (
 	notInYourCode = "not in your code"
 )
 
-// printDevices prints the table, and returns the lines that would declare the devices that are
-// marked not in your code.
-func printDevices(out io.Writer, list registry.Snapshot, marks deviceMarks) (undeclared []string) {
+// printDevices prints the table, fitted to out's width unless wide, and returns the lines that would
+// declare the devices that are marked not in your code, and the columns that didn't fit.
+func printDevices(out *cli.Printer, list registry.Snapshot, marks deviceMarks, wide bool,
+) (undeclared, dropped []string) {
 	slices.SortFunc(list.Devices, func(a, b registry.Device) int { return strings.Compare(a.Name, b.Name) })
-	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(w, "NAME\tROOM\tSTATE\tHARDWARE\tENDPOINT\tDEVICE TYPES\tCAPABILITIES")
+	table := cli.Table{
+		Columns: []cli.Column{
+			{Header: nameHeader},
+			{Header: "ROOM"},
+			{Header: "STATE"},
+			{Header: "HARDWARE", Drop: 1, Dim: true},
+			{Header: "ENDPOINT", Drop: 2},
+			{Header: "DEVICE TYPES", Shrink: true},
+			{Header: "CAPABILITIES", Shrink: true},
+		},
+		Wide: wide,
+	}
 	for _, d := range list.Devices {
 		state := "paired"
 		switch {
@@ -199,19 +219,22 @@ func printDevices(out io.Writer, list registry.Snapshot, marks deviceMarks) (und
 			state += ", " + notInYourCode
 			undeclared = append(undeclared, line)
 		}
-		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%d\t%s\t%s\n", d.Name, or(d.Room, "-"), state,
-			or(registry.HardwareRef(d).String(), hardwareOf(d)), d.Endpoint,
-			or(devicetype.Join(d.DeviceTypes()), "-"), strings.Join(d.Capabilities, ", "))
+		endpoint := ""
+		if d.Endpoint != 0 {
+			endpoint = strconv.Itoa(int(d.Endpoint))
+		}
+		table.Rows = append(table.Rows, []string{d.Name, d.Room, state,
+			or(registry.HardwareRef(d).String(), hardwareOf(d)), endpoint,
+			devicetype.Join(d.DeviceTypes()), strings.Join(d.Capabilities, ", ")})
 	}
-	_ = w.Flush()
-	return undeclared
+	return undeclared, out.Table(table)
 }
 
 // hardwareOf names hardware that isn't a plugin's, such as a simulated device's, by its driver and
-// ID, or "-" for a reserved name.
+// ID, or nothing for a reserved name.
 func hardwareOf(d registry.Device) string {
 	if d.Driver == "" {
-		return "-"
+		return ""
 	}
 	return registry.DescribeHardware(d.Driver, d.ID)
 }

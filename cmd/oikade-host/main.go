@@ -40,12 +40,14 @@ const usage = `Usage:
                               Install this binary as the host under systemd, or upgrade the one there.
   oikade-host version
 
-With no command, oikade-host runs the host. Everything else, from deploy to status, is oikade.`
+With no command, oikade-host runs the host. Everything else, from deploy to status, is oikade.
+Every command takes --debug, or OIKADE_DEBUG=1, to show an error in full, with its causes.`
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	command, args := "", os.Args[1:]
+	args, debug := cli.Debug(os.Args[1:])
+	command := ""
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		command, args = args[0], args[1:]
 	}
@@ -72,8 +74,8 @@ func main() {
 		os.Exit(2)
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
-		os.Exit(1)
+		stop()
+		os.Exit(cli.NewPrinter(os.Stderr).Fail(err, debug))
 	}
 }
 

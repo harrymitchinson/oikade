@@ -1,6 +1,6 @@
 // Package testkit is what more than one package's tests need and plain testing leaves out: waiting
-// for a condition, a time zone that's there on any machine, bytes written as hex, and a log a test
-// can read. It holds nothing else: no assertions, which stay plain testing.
+// for a condition, a time zone that's there on any machine, bytes written as hex, a log a test
+// can read, and golden files. It holds nothing else: no assertions, which stay plain testing.
 package testkit
 
 import (

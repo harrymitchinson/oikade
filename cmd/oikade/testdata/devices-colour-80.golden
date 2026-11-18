@@ -1,0 +1,6 @@
+[1mNAME[0m         [1mROOM[0m   [1mSTATE[0m                                     [1mDEVICE TYPES[0m  [1mCAPABILITIES[0m
+hall-lamp    hall   paired                                    OnOffLight    on
+office-ac           paired, not in your code                  RoomAirCond…  mode, on, s…
+porch-light         no LAN key: oikade secret set 1000ddeeff  OnOffPlugIn…  on
+study-blind  study  hidden from Matter                        WindowCover…  position, t…
+dropped: [HARDWARE ENDPOINT]
