@@ -172,10 +172,18 @@ func TestCoalescerSendsAtOnceWhenAsked(t *testing.T) {
 // another controller's move, can't make a stop wait.
 func TestCoalescerSendIsntHeldBackByALaterWrite(t *testing.T) {
 	c, rec, _ := coalescer(t, reports(30.0))
+	// The burst waits here, once Send has ended it and before it takes its writes, so the later
+	// write lands while it's being sent rather than after (OIK-353).
+	ended, sendIt := make(chan struct{}), make(chan struct{})
+	c.ended = func(ident.ID) {
+		close(ended)
+		<-sendIt
+	}
 	c.Add(officeBlind, capability.Position, 70.0)
 	c.Send(officeBlind)
+	<-ended // over without the clock moving: Send ended it
 	c.Add(officeBlind, capability.Position, 40.0)
-	testkit.Eventually(t, "the burst's write", func() bool { return len(rec.list()) > 0 })
+	close(sendIt)
 	c.flushes.Wait()
 	if got := rec.list(); !slices.Equal(got, []string{"office-blind position=40"}) {
 		t.Errorf("writes %v, want the last position, at once", got)
