@@ -52,7 +52,7 @@ func TestTailCancelledBeforeTheHostAnswersIsNoError(t *testing.T) {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	})
-	if err := Tail(ctx, waits, nil, func(Event) error { return nil }); err != nil {
+	if err := Tail(ctx, waits, EventFilter{}, nil, func(Event) error { return nil }); err != nil {
 		t.Errorf("a cancelled tail: %v", err)
 	}
 }
@@ -80,18 +80,18 @@ func TestTailSaysWhetherTheHostEndedIt(t *testing.T) {
 		got = append(got, e)
 		return nil
 	}
-	err := Tail(ctx, streams(`{}`+"\n"+`{"type":"change","device":"hall-lamp"}`+"\n"), nil, each)
+	err := Tail(ctx, streams(`{}`+"\n"+`{"type":"change","device":"hall-lamp"}`+"\n"), EventFilter{}, nil, each)
 	if !errors.Is(err, ErrHostStopped) {
 		t.Errorf("a stream the host ended: %v", err)
 	}
 	if len(got) != 1 || got[0].Device != "hall-lamp" {
 		t.Errorf("events: %+v", got)
 	}
-	err = Tail(ctx, streams(`{}`+"\n"+`{"type":"end","message":"it fell behind"}`+"\n"), nil, each)
+	err = Tail(ctx, streams(`{}`+"\n"+`{"type":"end","message":"it fell behind"}`+"\n"), EventFilter{}, nil, each)
 	if err == nil || errors.Is(err, ErrHostStopped) || err.Error() != "the host ended the tail: it fell behind" {
 		t.Errorf("a tail the host cut off: %v", err)
 	}
-	err = Tail(ctx, streams(`{}`+"\n"+`{"type":"cha`), nil, each)
+	err = Tail(ctx, streams(`{}`+"\n"+`{"type":"cha`), EventFilter{}, nil, each)
 	if err == nil || errors.Is(err, ErrHostStopped) || !strings.HasPrefix(err.Error(), "lost the host") {
 		t.Errorf("a stream cut off mid-line: %v", err)
 	}
@@ -130,20 +130,20 @@ func TestEventsSaysWhetherTheHostStopped(t *testing.T) {
 	each := func(Event) error { return nil }
 	head := `{"now":"2026-11-08T10:00:00Z"}` + "\n"
 	change := `{"type":"change","device":"hall-lamp"}` + "\n"
-	if err := Events(ctx, streams(head+change+`{"type":"end"}`+"\n"), begin, each); err != nil {
+	if err := Events(ctx, streams(head+change+`{"type":"end"}`+"\n"), EventFilter{}, begin, each); err != nil {
 		t.Errorf("a whole log: %v", err)
 	}
-	if err := Events(ctx, streams(head+change), begin, each); !errors.Is(err, ErrHostStopped) {
+	if err := Events(ctx, streams(head+change), EventFilter{}, begin, each); !errors.Is(err, ErrHostStopped) {
 		t.Errorf("a log the host stopped partway through: %v", err)
 	}
-	if err := Events(ctx, streams(""), begin, each); !errors.Is(err, ErrHostStopped) {
+	if err := Events(ctx, streams(""), EventFilter{}, begin, each); !errors.Is(err, ErrHostStopped) {
 		t.Errorf("a log the host stopped before its head: %v", err)
 	}
-	err := Events(ctx, streams(head+`{"type":"end","message":"the client was revoked"}`+"\n"), begin, each)
+	err := Events(ctx, streams(head+`{"type":"end","message":"the client was revoked"}`+"\n"), EventFilter{}, begin, each)
 	if err == nil || errors.Is(err, ErrHostStopped) || err.Error() != "reading the event log: the client was revoked" {
 		t.Errorf("a log the host cut off: %v", err)
 	}
-	err = Events(ctx, streams(head+`{"type":"cha`), begin, each)
+	err = Events(ctx, streams(head+`{"type":"cha`), EventFilter{}, begin, each)
 	if err == nil || errors.Is(err, ErrHostStopped) || !strings.HasPrefix(err.Error(), "reading the event log") {
 		t.Errorf("a log cut off mid-line: %v", err)
 	}

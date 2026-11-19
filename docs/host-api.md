@@ -78,8 +78,26 @@ An answer is `application/json`, and a failure's is a `Response` with `error` se
 
 These answer `application/x-ndjson`, one JSON object per line. A reader that takes more than 5 seconds over a line is cut off.
 
-- **`GET /v1/tail`** starts with an event with no `type`, which says the host is listening, then sends an `Event` as each thing happens, until the caller goes or the host stops. A tail that falls behind is cut off.
-- **`GET /v1/events`** sends an `EventLog`, then an `Event` for each thing the log holds, oldest first. The last line has the type `end`, and a `message` if it didn't get to the end, such as `the client was revoked`, so a cut-off read isn't taken for a short one. A host that stops partway through ends the stream with no `end` line, as one that crashed can't send it, and `oikade replay` says the host stopped.
+- **`GET /v1/tail`** sends an event with no `type`, which says the host is listening, then an `Event` as each thing happens, until the caller goes or the host stops. A tail that falls behind is cut off. With `since`, the log's events from then come first, before the event with no `type`, and each event comes once, whether the log had it or it happened as the tail began.
+- **`GET /v1/events`** sends an `EventLog`, then an `Event` for each thing the log holds, oldest first. The `EventLog` has `now`, the host's `zone` and `offset`, `start`, when the oldest event the log holds is from, whatever the filter, and `baseline`, each device's values before that. The last line has the type `end`, and a `message` if it didn't get to the end, such as `the client was revoked`, so a cut-off read isn't taken for a short one. A host that stops partway through ends the stream with no `end` line, as one that crashed can't send it, and `oikade replay` says the host stopped.
+
+Both take a filter in the query, and the host does the filtering, so a caller doesn't read the whole log to show one device (OIK-355). With no query, each sends everything, as `oikade replay` needs.
+
+| Parameter | Lets through |
+|---|---|
+| `since`, `until` | Events from and to these times, both included, as RFC 3339, such as `2026-11-18T03:00:00Z`. A tail has no `until` |
+| `ref`, as often as you like | Events about any of the [refs](devices.md#refs) given |
+
+| A `ref` | Its events |
+|---|---|
+| `device/porch-light` | Everything about the device and its capabilities, under the names it had before a deploy renamed it: the log's `rename` events are followed back. A name it left is its only until then, as another device may have it since. A device the host no longer has on record still has its events |
+| `device/porch-light/on` | The capability's, and what happened to the device as a whole: it went offline, or was forgotten or renamed |
+| `room/hall`, `room/hall/on` | The same, for each device in the room now, not those that were in it then |
+| `case/porch-light/on/dusk`, `flow/morning` | The rule's runs, pauses and outside calls, and the writes it made (`by`) |
+| `plugin/overkiz` | The plugin's own problems |
+| `matter` | The bridge's events, and each controller's writes, refused or not |
+
+The home's own events, `process` and `deploy`, pass whatever the refs, because they're often why the rest happened. A ref of any other kind, one that doesn't parse, a time that isn't one, and an `until` before its `since` are refused with a `422` that says why.
 
 An `Event`'s `type` is one of:
 

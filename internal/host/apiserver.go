@@ -203,11 +203,24 @@ func (s *apiServer) handler(route api.Route) http.HandlerFunc {
 			ctx, cancel := context.WithCancel(r.Context())
 			defer cancel()
 			defer context.AfterFunc(s.ctx, cancel)()
+			// With no filter the log goes as it is, which oikade replay counts on.
+			var pass func(api.Event) bool
+			filter, err := api.ParseEventFilter(r.URL.Query())
+			if err == nil && len(r.URL.Query()) > 0 {
+				var m *eventMatcher
+				if m, err = s.matcher(ctx, filter); err == nil {
+					pass = m.pass
+				}
+			}
+			if err != nil {
+				respond(s.log, w, http.StatusUnprocessableEntity, api.Response{Error: err.Error()})
+				return
+			}
 			out := newLines(w)
 			defer out.end()
 			s.srv.events.stream(ctx, out, func(err error) {
 				respond(s.log, w, http.StatusInternalServerError, api.Response{Error: err.Error()})
-			})
+			}, pass)
 		}
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -293,15 +306,50 @@ func (l *lines) end() {
 	_ = l.control.SetWriteDeadline(time.Now().Add(writeTimeout))
 }
 
-// tail streams events until the caller goes, the host stops, or the caller falls behind or is
-// revoked, which its last line says. A host that stops says nothing, as one that crashed can't.
+// tail streams the events its filter lets through until the caller goes, the host stops, or the
+// caller falls behind or is revoked, which its last line says. A host that stops says nothing, as one
+// that crashed can't. With a since, the log's events from then come first, and each event comes once,
+// whether the log had it or the feed did.
 func (s *apiServer) tail(w http.ResponseWriter, r *http.Request) {
 	s.log.Info("Received API request", "type", api.TypeTail, "client", callerOf(r.Context()).name)
-	events, stop := s.srv.feed.subscribe()
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	defer context.AfterFunc(s.ctx, cancel)()
+	filter, err := api.ParseEventFilter(r.URL.Query())
+	if err == nil && !filter.Until.IsZero() {
+		err = errors.New("a tail has no until: it follows events as they happen")
+	}
+	var m *eventMatcher
+	if err == nil {
+		m, err = s.matcher(ctx, filter)
+	}
+	if err != nil {
+		respond(s.log, w, http.StatusUnprocessableEntity, api.Response{Error: err.Error()})
+		return
+	}
+	var events <-chan api.Event
+	var stop func()
+	var upTo uint64
+	if filter.Since.IsZero() {
+		events, stop = s.srv.feed.subscribe()
+	} else if events, stop, upTo, err = s.srv.tailWithPast(); err != nil {
+		respond(s.log, w, http.StatusInternalServerError, api.Response{Error: err.Error()})
+		return
+	}
 	defer stop()
 	out := newLines(w)
 	defer out.end()
 	write := func(e api.Event) bool { return out.write(e) && out.flush() }
+	if !filter.Since.IsZero() {
+		short, told := s.srv.events.history(ctx, out, upTo, m.pass)
+		if !told {
+			return
+		}
+		if short != "" {
+			write(api.LogEnd(short))
+			return
+		}
+	}
 	if !write(api.Event{}) { // Says the feed has started.
 		return
 	}
@@ -312,7 +360,8 @@ func (s *apiServer) tail(w http.ResponseWriter, r *http.Request) {
 				write(api.LogEnd("it fell behind"))
 				return
 			}
-			if !write(e) {
+			// Not its time: an event is as old as its driver says, and it's happening now.
+			if m.about(e) && !write(e) {
 				return
 			}
 		case <-r.Context().Done():
