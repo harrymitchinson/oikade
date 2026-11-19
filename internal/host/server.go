@@ -773,23 +773,29 @@ func (s *server) ping(id uint64) (last time.Time, ok bool) {
 // recordCall logs a flow's outside call from its journal entry, for a replay to answer it with.
 func (s *server) recordCall(run string, entry []byte) {
 	if name, result, failure, ok := flow.CallIn(entry); ok {
-		s.events.add(api.Event{
+		e := api.Event{
 			Time: time.Now(), Type: api.EventCall, Rule: flow.FlowOf(run), Message: name, Value: result, Result: failure,
-		})
+		}
+		e.Ref = eventRef(e)
+		s.events.add(e)
 	}
 }
 
 // emit passes an event to whoever's tailing, and on to the log. Neither waits.
 func (s *server) emit(e api.Event) {
-	e.Ref = eventRef(e)
+	if e.Ref == "" {
+		e.Ref = eventRef(e)
+	}
 	s.feed.publish(e)
 	s.events.add(e)
 }
 
 // eventRef is the ref of what an event is about: the capability changed, written or refused, the
-// device, or the rule run or paused.
+// device, the rule run or paused, or the bridge. A plugin's event comes with its ref.
 func eventRef(e api.Event) string {
 	switch {
+	case e.Type == api.EventMatter:
+		return ident.NewRef(ident.Matter).String()
 	case e.Device != "" && e.Capability != "":
 		return ident.CapabilityRef(e.Device, e.Capability).String()
 	case e.Device != "":
@@ -823,6 +829,20 @@ func (s *server) Changed(changes ...driver.Update) {
 			})
 		}
 	}
+}
+
+// went puts a device going offline, or coming back, in the event log. One going offline has its
+// driver's problem with it, if it has one. One coming back doesn't: its driver may not have said yet
+// that the problem has gone.
+func (s *server) went(dev ident.ID, online bool) {
+	e := api.Event{Time: time.Now(), Type: api.EventAvailability, Device: dev.Name, Message: api.AvailabilityOnline}
+	if !online {
+		e.Message = api.AvailabilityOffline
+		if snap, ok := s.devices.Get(dev); ok {
+			e.Result = snap.Info.Error
+		}
+	}
+	s.emit(e)
 }
 
 // Discovered implements driver.Sink.

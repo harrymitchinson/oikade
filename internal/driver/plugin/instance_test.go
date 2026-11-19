@@ -333,6 +333,8 @@ func TestStatusError(t *testing.T) {
 	retained := online()
 	retained["1000aa/availability"] = "online"
 	i, bus, rec := setup(t, retained)
+	var problems []string
+	i.OnProblem = func(problem string) { problems = append(problems, problem) }
 
 	// A plugin with a problem of its own is still up, and its devices still count.
 	publish(t, bus, root+"/status", `{"state":"online","contract":1,"error":"login refused"}`)
@@ -348,6 +350,11 @@ func TestStatusError(t *testing.T) {
 	publish(t, bus, root+"/status", `{"state":"online","contract":1}`)
 	if st := i.Stats(); !st.Up || i.Problem() != "" {
 		t.Errorf("error not cleared: %+v %q", st, i.Problem())
+	}
+	// The start and the end were heard once each, for the event log: going down didn't end it, and
+	// coming back with it didn't start it again.
+	if want := []string{"login refused", ""}; !slices.Equal(problems, want) {
+		t.Errorf("OnProblem heard %q, want %q", problems, want)
 	}
 
 	// An error page passed on whole is one line, and cut.

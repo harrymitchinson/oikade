@@ -57,6 +57,8 @@ type plugins struct {
 	refresh chan struct{}
 	// returned says a plugin has a new process.
 	returned func(driver.InstanceKey)
+	// emit, if set, puts a plugin's problem in the event log.
+	emit func(api.Event)
 
 	mu      sync.Mutex
 	running map[string]*hosted
@@ -131,6 +133,13 @@ func (p *plugins) follow(ctx context.Context, h *hosted, bus mqtt.Bus) {
 	h.driver = &pluginDriver.Instance{
 		Key: h.key.ID, Root: h.root, Bus: pairingBus{Bus: bus, devices: h.root.Devices(), pair: func() { p.pair(h) }},
 		Sink: p.devices, Now: time.Now, Log: p.log,
+		OnProblem: func(problem string) {
+			if p.emit != nil {
+				p.emit(api.Event{
+					Time: time.Now(), Type: api.EventPlugin, Ref: ident.NewRef(ident.Plugin, h.name).String(), Message: problem,
+				})
+			}
+		},
 	}
 	p.known.attach(h.key)
 	h.driver.SetDevices(p.onRecord(h))

@@ -85,12 +85,19 @@ An `Event`'s `type` is one of:
 
 | `type` | What happened | Fields |
 |---|---|---|
-| `change` | A device reported a new value | `device`, `capability`, `value`, `previous` |
+| `change` | A device reported a new value | `device`, `capability`, `value`, `previous`: the value before, if it had one |
 | `write` | The host wrote to a device, whether or not the device took it. `by` is the ref of whose write it is: the rule whose claim won or whose step set it (`case/porch-light/on/dusk`, `flow/morning`), `matter` for a Matter controller's, such as a Home app tap, or `command` for `oikade set`'s. It has no `by` when no rule's claim decided it, as when arbitration puts a capability back to its default. A `change` with no write before it was made at the device, by its switch or its maker's app. `oikade replay` counts a write only if its `by` is a rule's or it has none | `device`, `capability`, `value`, `by` |
 | `refused` | A controller's write, such as a Home app tap, that a claim turned away. The device wasn't written, and `oikade replay` doesn't count it as a write | `device`, `capability`, `value`, `message`: which claim holds it, and at what level |
 | `rule` | A rule's run ended | `rule`, `result` |
 | `pause` | A rule was paused or resumed | `rule`, `message` |
 | `call` | A flow made an outside call, which a replay answers rather than makes. Only in the event log, not a tail | `rule`: the flow, `message`: the call, `value`: its result, `result`: its error |
+| `availability` | A device went offline, or came back. Not each report of the same, nor a device first heard of online. The host doesn't keep how a device was, so one that's offline when the host starts is said to have gone offline then | `device`, `message`: `offline` or `online`, `result`: its driver's problem with it as it went offline, such as a missing LAN key, if it has one |
+| `plugin` | A plugin's own problem started, changed or cleared, such as a refused login. A plugin that's down says nothing of its problem, so going down doesn't clear one, and coming back with the same one doesn't start it again. A host that starts again says a problem still there again | `ref`: the plugin's, `message`: the problem, or none once it has cleared |
+| `matter` | The Matter bridge's commissioning window opened or closed, or a controller paired or left. A window has opened once it's advertised, and one still open when the host stops closes then. The bridge says each once it has advertised the change, which can be a second or two after | `message`: `window opened`, `window closed`, `controller paired` or `controller left`, `value`: the controller's fabric |
+| `forget` | A device was forgotten, so its history stops here | `device` |
+| `rename` | A deploy renamed a device, or gave its hardware the name your home declares | `device`: its name from then on, `previous`: its name before |
 | `process` | Your process connected or disconnected | `message` |
 | `deploy` | A new version took over | `message`: the version |
 | `end` | The stream ended: the event log's last line, or the host ending a tail | `message`: why, if it stopped short |
+
+Every event but `process`, `deploy` and `end` has a `ref`, the ref of what it's about: a capability's, a device's, a rule's or a plugin's, or `matter` for the bridge. `oikade replay` reads `change`, `write`, `call`, `process`, `deploy` and `pause`, and ignores the rest.

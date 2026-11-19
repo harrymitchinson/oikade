@@ -216,6 +216,20 @@ func TestTheRestLookTheSame(t *testing.T) {
 		{Type: api.EventPause, Ref: "flow/morning", Message: "paused"},
 		{Type: api.EventDeploy, Message: "f113018fb81c06e4d5fa3500102bfbc4"},
 		{Type: api.EventProcess, Message: "connected"},
+		{Type: api.EventAvailability, Ref: "device/porch-light", Message: api.AvailabilityOffline},
+		{Type: api.EventAvailability, Ref: "device/garage-relay", Message: api.AvailabilityOffline, Result: "no LAN key"},
+		{Type: api.EventAvailability, Ref: "device/porch-light", Message: api.AvailabilityOnline},
+		{Type: api.EventPlugin, Ref: "plugin/overkiz", Message: "the TaHoma box refused the login"},
+		{Type: api.EventPlugin, Ref: "plugin/overkiz"},
+		{Type: api.EventMatter, Ref: "matter", Message: api.MatterWindowOpened},
+		{Type: api.EventMatter, Ref: "matter", Message: api.MatterControllerPaired, Value: 2.0},
+		{Type: api.EventMatter, Ref: "matter", Message: api.MatterWindowClosed},
+		{Type: api.EventMatter, Ref: "matter", Message: api.MatterControllerLeft, Value: 1.0},
+		{Type: api.EventForget, Ref: "device/shed-lamp"},
+		{Type: api.EventRename, Ref: "device/mains-valve", Previous: "valve"},
+		{Type: api.EventCall, Ref: "flow/morning", Message: "forecast", Value: true},
+		{Type: api.EventCall, Ref: "flow/morning", Message: "tariff", Value: map[string]any{"cheap": true, "until": "07:00"}},
+		{Type: api.EventCall, Ref: "flow/morning", Message: "notify", Result: "the push service timed out"},
 	}
 	for name, printer := range printers {
 		var b bytes.Buffer

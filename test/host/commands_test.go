@@ -372,10 +372,9 @@ func TestPausingAFlowStopsItsRunAndEndsItsClaims(t *testing.T) {
 }
 
 // tailing reads oikade tail --json until the test ends.
-func (r *rig) tailing(env []string, args ...string) <-chan api.Event {
+func (r *rig) tailing() <-chan api.Event {
 	r.t.Helper()
-	cmd := exec.Command(ctlBin, append([]string{"tail", "--json", "--data-dir", r.dir}, args...)...)
-	cmd.Env = append(os.Environ(), env...)
+	cmd := exec.Command(ctlBin, "tail", "--json", "--data-dir", r.dir)
 	// What it says on stderr is the test's to show if it fails, not go test's own stderr.
 	var errOut bytes.Buffer
 	cmd.Stderr = &errOut
@@ -450,7 +449,7 @@ func TestTailStreamsChangesAndRunsAcrossAProcessRestart(t *testing.T) {
 	t.Parallel()
 	r := start(t)
 	r.sync()
-	events := r.tailing(nil)
+	events := r.tailing()
 	tailStarted(r, events)
 
 	r.change("claim-go", "open", true)
@@ -473,7 +472,7 @@ func TestATailSaysWhoseEachWriteIs(t *testing.T) {
 	c := commissioned(t)
 	r := c.r
 	r.sync()
-	events := r.tailing(nil)
+	events := r.tailing()
 	tailStarted(r, events)
 	wroteBy := func(device, capability string, value any, by string) {
 		t.Helper()

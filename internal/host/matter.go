@@ -8,8 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -143,6 +146,70 @@ type matterBridge struct {
 	down atomic.Pointer[string]
 	// metrics is what it exports, broken or not.
 	metrics *matterMetrics
+	// emit, once connected, puts the bridge's own events in the event log. paired are the fabrics
+	// whose pairing is complete, by index, to tell which controller a change to the fabrics is.
+	emit   atomic.Pointer[func(api.Event)]
+	pairs  sync.Mutex
+	paired map[uint8]bool
+	// window is whether the log's last word on the commissioning window is that it opened.
+	window atomic.Bool
+}
+
+// record puts one of the bridge's own events in the event log, once there's one to put it in.
+func (m *matterBridge) record(message string, fabric any) {
+	if emit := m.emit.Load(); emit != nil {
+		(*emit)(api.Event{Time: time.Now(), Type: api.EventMatter, Message: message, Value: fabric})
+	}
+}
+
+// windowChanged records the commissioning window opening or closing.
+func (m *matterBridge) windowChanged(open bool) {
+	m.window.Store(open)
+	if open {
+		m.record(api.MatterWindowOpened, nil)
+		return
+	}
+	m.record(api.MatterWindowClosed, nil)
+}
+
+// stopped records that a window still open has closed, once the bridge has stopped for good: nothing
+// can pair through it now, and the next host opens its own.
+func (m *matterBridge) stopped() {
+	if m.window.Load() {
+		m.windowChanged(false)
+	}
+}
+
+// pairedNow are the fabrics whose pairing is complete: not one a controller is still commissioning,
+// which the fail-safe may yet roll back.
+func (m *matterBridge) pairedNow() map[uint8]bool {
+	table := m.node.Fabrics()
+	pending, added, _ := table.Pending()
+	now := map[uint8]bool{}
+	for _, f := range table.Fabrics() {
+		if !added || f.Index != pending {
+			now[f.Index] = true
+		}
+	}
+	return now
+}
+
+// fabricsChanged records each controller that has paired or left since it last looked.
+func (m *matterBridge) fabricsChanged() {
+	m.pairs.Lock()
+	defer m.pairs.Unlock()
+	was, now := m.paired, m.pairedNow()
+	m.paired = now
+	for _, index := range slices.Sorted(maps.Keys(now)) {
+		if !was[index] {
+			m.record(api.MatterControllerPaired, index)
+		}
+	}
+	for _, index := range slices.Sorted(maps.Keys(was)) {
+		if !now[index] {
+			m.record(api.MatterControllerLeft, index)
+		}
+	}
 }
 
 // openMatter makes the bridge, serving nothing until run. State it can't read leaves it broken rather
@@ -182,6 +249,7 @@ func (m *matterBridge) open(c *Matter, name string, values, subscriptions *store
 		Fabrics: fabricStore{values}, Setup: node.Setup{Passcode: m.id.Passcode, Discriminator: m.id.Discriminator},
 		Attestation: creds, Port: m.port, DeviceName: name, Interfaces: c.Interfaces, Observer: m.metrics, Log: m.log,
 		Subscriptions: subscriptionStore{subscriptions},
+		WindowChanged: m.windowChanged, FabricsChanged: m.fabricsChanged,
 		Listening: func() {
 			m.serving.Store(true)
 			m.down.Store(nil)
@@ -195,6 +263,7 @@ func (m *matterBridge) open(c *Matter, name string, values, subscriptions *store
 		return fmt.Errorf("opening the Matter bridge: %w", err)
 	}
 	m.Bridge = &matterbridge.Bridge{Matter: m.node.Bridge()}
+	m.paired = m.pairedNow()
 	return nil
 }
 
@@ -214,6 +283,7 @@ func (m *matterBridge) connect(devices *hub.Store, known *inventory, options *ho
 	setter driver.Setter, emit func(api.Event),
 ) {
 	m.devices, m.known, m.options, m.Store = devices, known, options, devices
+	m.emit.Store(&emit)
 	known.changed = append(known.changed, m.changed)
 	options.rehidden = m.changed
 	m.Writes = &matterbridge.Coalescer{

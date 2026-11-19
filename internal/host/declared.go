@@ -13,6 +13,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/devicetype"
 	"github.com/harrymitchinson/oikade/internal/engine"
+	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
@@ -132,6 +133,10 @@ func (i *inventory) applyDeclared(decls []wire.DeviceDeclaration, keys []string,
 	live := maps.Clone(done.Renamed)
 	maps.Copy(live, done.Absorbed)
 	i.moveLive(live)
+	for _, from := range slices.Sorted(maps.Keys(live)) {
+		// Hardware a declared name takes over counts: what it did under its own name is the device's past.
+		i.record(api.Event{Type: api.EventRename, Device: live[from], Previous: from})
+	}
 	for _, name := range done.Touched {
 		i.announce(key(name))
 	}

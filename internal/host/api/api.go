@@ -512,8 +512,36 @@ const (
 	EventCall = "call"
 	// EventDeploy is a new version taking over.
 	EventDeploy = "deploy"
+	// EventAvailability is a device going offline or coming back. Message is offline or online, and
+	// Result its driver's problem with it as it went offline, if it has one.
+	EventAvailability = "availability"
+	// EventPlugin is a plugin's own problem starting or clearing, such as a refused login. Ref is the
+	// plugin's, and Message the problem, or empty once it has cleared.
+	EventPlugin = "plugin"
+	// EventMatter is the Matter bridge's commissioning window opening or closing, or a controller
+	// pairing or leaving: Message says which, and Value is the controller's fabric.
+	EventMatter = "matter"
+	// EventForget is a device forgotten, so its history says why it stops.
+	EventForget = "forget"
+	// EventRename is a device renamed by a deploy: Device is its name from then on, and Previous the
+	// one before.
+	EventRename = "rename"
 	// eventEnd closes the event log, so that a cut-off fetch isn't taken for a short one.
 	eventEnd = "end"
+)
+
+// What an availability event's Message says.
+const (
+	AvailabilityOffline = "offline"
+	AvailabilityOnline  = "online"
+)
+
+// What a matter event's Message says.
+const (
+	MatterWindowOpened     = "window opened"
+	MatterWindowClosed     = "window closed"
+	MatterControllerPaired = "controller paired"
+	MatterControllerLeft   = "controller left"
 )
 
 // Event is one line of a tail. Its JSON is what oikade tail --json prints, so scripts rely on it: add
@@ -522,15 +550,17 @@ type Event struct {
 	Time time.Time `json:"time,omitzero"`
 	Type string    `json:"type"`
 	// Device, Capability and Value are a change's, a write's or a refused write's, and Previous a
-	// change's.
+	// change's. Device is also the device that went offline or came back, was forgotten, or was
+	// renamed, with Previous its name before.
 	Device     string `json:"device,omitempty"`
 	Capability string `json:"capability,omitempty"`
 	Value      any    `json:"value,omitempty"`
 	Previous   any    `json:"previous,omitempty"`
-	// Rule is a rule run's or a pause's, and Result how the run ended, or a call's error. Value is
-	// also a call's result.
+	// Rule is a rule run's or a pause's, and Result how the run ended, a call's error, or the problem
+	// of a device that went offline. Value is also a call's result, and a controller's fabric.
 	Rule string `json:"rule,omitempty"`
-	// Ref is the ref of what it's about: the capability's, the device's or the rule's.
+	// Ref is the ref of what it's about: the capability's, the device's, the rule's or the plugin's,
+	// or matter for the bridge.
 	Ref    string `json:"ref,omitempty"`
 	Result string `json:"result,omitempty"`
 	// By is whose write it is, as a ref: the rule whose claim won or whose step set it
@@ -538,8 +568,8 @@ type Event struct {
 	// set. A write has none when no rule's claim decided it, as when a capability goes back to its
 	// default, and when it's from before writes said.
 	By string `json:"by,omitempty"`
-	// Message says what happened to the process or the pause, which version a deploy brought, which
-	// outside call this is, or why a write was refused.
+	// Message says what happened to the process, the pause, the device or the bridge, which version a
+	// deploy brought, which outside call this is, why a write was refused, or a plugin's problem.
 	Message string `json:"message,omitempty"`
 }
 

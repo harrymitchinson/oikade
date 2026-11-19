@@ -78,6 +78,10 @@ type Config struct {
 	FabricsChanged func()
 	// Listening, if set, is called once the node's sockets are open.
 	Listening func()
+	// WindowChanged, if set, is called when a commissioning window opens, once it's advertised, and
+	// when one that was closes. A window still open when Run starts again isn't a new one, and one
+	// that couldn't be advertised never opened. It must not block.
+	WindowChanged func(open bool)
 	// Observer, if set, hears what controllers do, for metrics.
 	Observer im.Observer
 	// Subscriptions, if set, keeps controllers' subscriptions, so that the next Run resumes them
@@ -146,6 +150,7 @@ type Node struct {
 	// about a second.
 	mu             sync.Mutex
 	window         *clusters.Window        // open, for a later Run to take on
+	windowTold     bool                    // WindowChanged last heard that one is open
 	commissionable *mdns.Service           // advertised while a window is open
 	operational    map[uint8]*mdns.Service // advertised per fabric
 }
@@ -519,6 +524,19 @@ func (n *Node) openWindow(w clusters.Window) {
 		return
 	}
 	n.advertising.Info("Advertised commissionable service", "discriminator", w.Discriminator, "instance", svc.Instance)
+	n.tellWindow(true)
+}
+
+// tellWindow tells WindowChanged that a window has opened, or that the one it was told of has
+// closed, and nothing when that's what it last heard.
+func (n *Node) tellWindow(open bool) {
+	n.mu.Lock()
+	changed := n.windowTold != open
+	n.windowTold = open
+	n.mu.Unlock()
+	if changed && n.cfg.WindowChanged != nil {
+		n.cfg.WindowChanged(open)
+	}
 }
 
 // closeWindow stops answering PASE, and stops advertising the commissionable service.
@@ -528,6 +546,7 @@ func (n *Node) closeWindow() {
 	old := n.commissionable
 	n.commissionable, n.window = nil, nil
 	n.mu.Unlock()
+	n.tellWindow(false)
 	if old == nil {
 		return
 	}

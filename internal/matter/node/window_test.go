@@ -23,7 +23,13 @@ import (
 // controller pairs with, and that the node's own code doesn't open. Each closes on the clock.
 func TestOwnersWindow(t *testing.T) {
 	clk := clock.NewFake(time.Date(2026, 11, 17, 14, 0, 0, 0, time.UTC))
-	n, fake, _ := start(t, Config{DataDir: t.TempDir(), Clock: clk})
+	var telling sync.Mutex
+	var told []bool
+	n, fake, _ := start(t, Config{DataDir: t.TempDir(), Clock: clk, WindowChanged: func(open bool) {
+		telling.Lock()
+		defer telling.Unlock()
+		told = append(told, open)
+	}})
 	testkit.Eventually(t, "the initial window", func() bool { return fake.commissionable() != nil })
 	clk.Step(DefaultWindowTimeout)
 	testkit.Eventually(t, "the initial window to time out", func() bool { return fake.commissionable() == nil && !n.WindowOpen() })
@@ -81,6 +87,25 @@ func TestOwnersWindow(t *testing.T) {
 	testkit.Eventually(t, "the window to open", func() bool { return fake.commissionable() != nil })
 	clk.Step(MinWindowTimeout)
 	testkit.Eventually(t, "the window to time out", func() bool { return fake.commissionable() == nil && !n.WindowOpen() })
+
+	// WindowChanged heard each window open and close, in turn: the initial one, the owner's on no
+	// fabric, the one opened twice over, and the last. Opening one again while it's open isn't news.
+	testkit.Eventually(t, "the last window's closing to be told", func() bool {
+		telling.Lock()
+		defer telling.Unlock()
+		return len(told) > 0 && len(told)%2 == 0
+	})
+	telling.Lock()
+	for i, open := range told {
+		if open != (i%2 == 0) {
+			t.Errorf("WindowChanged heard %v, want opened and closed in turn", told)
+			break
+		}
+	}
+	if len(told) < 8 {
+		t.Errorf("WindowChanged heard %v, want four windows", told)
+	}
+	telling.Unlock()
 
 	// Not while a controller has the fail-safe armed.
 	if f := cm.Invoke(admin, clusters.IDGeneralCommissioning, 0x00, func(w *tlv.Writer) {

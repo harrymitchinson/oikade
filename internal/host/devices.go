@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/driver"
@@ -44,6 +45,16 @@ type inventory struct {
 	// renamed, if set, moves what's on record for cases and averages to the keys its function gives
 	// them, before the registry renames their devices.
 	renamed func(rename func(string) string) error
+	// emit, if set, puts a forgotten device and a renamed one in the event log.
+	emit func(api.Event)
+}
+
+// record puts an event in the event log, if there is one.
+func (i *inventory) record(e api.Event) {
+	if i.emit != nil {
+		e.Time = time.Now()
+		i.emit(e)
+	}
 }
 
 // homeSettingsNamespace keeps the device settings of the home last attached.
@@ -358,6 +369,7 @@ func (i *inventory) removeLocked(ctx context.Context, names []string, allowSafet
 			problems = append(problems, fmt.Sprintf("removed %s, but couldn't end its claims: %v", name, err))
 		}
 		i.log.Info("Removed device", "device", name)
+		i.record(api.Event{Type: api.EventForget, Device: name})
 	}
 	return api.Response{Error: strings.Join(problems, "; "), Removed: removed}, members{before: before, after: i.store.Members()}
 }

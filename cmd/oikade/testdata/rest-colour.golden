@@ -17,6 +17,20 @@ To add another controller, run oikade matter open, or share the bridge from one 
 14:02:07  flow/morning  paused
 14:02:07  deployed version f113018
 14:02:07  automations connected
+14:02:07  device/porch-light  went offline
+14:02:07  device/garage-relay  went offline  [2mno LAN key[0m
+14:02:07  device/porch-light  came back online
+14:02:07  plugin/overkiz  has a problem: the TaHoma box refused the login
+14:02:07  plugin/overkiz  no longer has a problem
+14:02:07  matter  window opened
+14:02:07  matter  controller paired  [2mfabric 2[0m
+14:02:07  matter  window closed
+14:02:07  matter  controller left  [2mfabric 1[0m
+14:02:07  device/shed-lamp  forgotten
+14:02:07  device/mains-valve  renamed  [2mwas device/valve[0m
+14:02:07  flow/morning  called forecast  [2mgot true[0m
+14:02:07  flow/morning  called tariff  [2mgot {"cheap":true,"until":"07:00"}[0m
+14:02:07  flow/morning  called notify and it failed  [2mthe push service timed out[0m
 ---
 oikade-host v0.2.0-alpha.2 on this machine, linux/arm64
 oikade-host at europa, linux/amd64, too old to say its version
