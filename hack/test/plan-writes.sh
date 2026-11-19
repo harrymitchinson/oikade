@@ -11,6 +11,8 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 failed=0
 fail() { echo "FAIL: $*" >&2; failed=1; }
+# gone_pid: the pid of a process that has gone.
+gone_pid() { sleep 0 & local p=$!; wait "$p"; echo "$p"; }
 
 mkdir "$tmp/bin"
 cat >"$tmp/bin/gh" <<'STUB'
@@ -133,17 +135,68 @@ if "$plan" promote OIK-10 2>/dev/null; then fail "promote moved an issue that is
 [[ "$(find "$(dirname "$(plan_file OIK-8)")/comments" -name '*.md' | wc -l | tr -d ' ')" == 2 ]] || fail "two comments didn't make two files"
 
 # A lock left by a process that's gone is taken over; one held stops a write.
-mkdir "$PLAN_DIR/.git/plan.lock" && echo 999999 >"$PLAN_DIR/.git/plan.lock/pid"
+mkdir "$PLAN_DIR/.git/plan.lock" && gone_pid >"$PLAN_DIR/.git/plan.lock/pid"
 "$plan" note OIK-8 three >/dev/null || fail "a lock left by a process that's gone stopped a write"
 [[ ! -e "$PLAN_DIR/.git/plan.lock" ]] || fail "the write didn't give the lock back"
 sleep 60 &
-mkdir "$PLAN_DIR/.git/plan.lock" && echo $! >"$PLAN_DIR/.git/plan.lock/pid"
+holder=$!
+mkdir "$PLAN_DIR/.git/plan.lock" && echo "$holder" >"$PLAN_DIR/.git/plan.lock/pid"
 plan_mark
 if PLAN_LOCK_WAIT=1 "$plan" note OIK-8 four 2>"$tmp/err"; then fail "a write went ahead while another held the lock"; fi
 grep -q 'locked for 1 s' "$tmp/err" || fail "the write didn't say the plan was locked: $(cat "$tmp/err")"
 [[ -z "$(plan_commits)" ]] || fail "a write committed while another held the lock"
-kill %1 2>/dev/null || true
+kill "$holder" && { wait "$holder" 2>/dev/null || true; }
 rm -rf "$PLAN_DIR/.git/plan.lock"
+
+# A writer slow to act on who holds the lock never takes it from the next
+# holder (OIK-357). A writer that finds the lock held reads who holds it, and
+# takes the lock over if that process has gone. Here the writer is held up just
+# after reading, as a busy machine holds a process up, until the holder it read
+# has gone and another process has the lock: it must not take that one's lock
+# for the dead one's.
+lock="$PLAN_DIR/.git/plan.lock"
+real_cat=$(command -v cat)
+cat >"$tmp/bin/cat" <<STUB
+#!/usr/bin/env bash
+if [[ "\$#" == 1 && "\$1" == */plan.lock/pid && ! -e "$tmp/go" ]]; then
+	pid=\$("$real_cat" "\$1") || exit 1
+	: >"$tmp/read"
+	i=0
+	while [[ ! -e "$tmp/go" ]] && ((i++ < 200)); do sleep 0.05; done
+	echo "\$pid"
+	exit 0
+fi
+exec "$real_cat" "\$@"
+STUB
+chmod +x "$tmp/bin/cat"
+sleep 10 &
+gone=$!
+mkdir "$lock" && echo "$gone" >"$lock/pid"
+plan_mark
+PLAN_LOCK_WAIT=1 "$plan" note OIK-8 slow >/dev/null 2>"$tmp/err" &
+slow=$!
+i=0
+while [[ ! -e "$tmp/read" ]] && ((i++ < 100)); do sleep 0.05; done
+[[ -e "$tmp/read" ]] || fail "the writer never read who holds the lock"
+kill "$gone" && { wait "$gone" 2>/dev/null || true; }
+sleep 10 &
+next=$!
+rm -rf "$lock" && mkdir "$lock" && echo "$next" >"$lock/pid"
+: >"$tmp/go"
+if wait "$slow"; then fail "a writer took the lock from the next holder, for the one it read before"; fi
+[[ "$(cat "$lock/pid" 2>/dev/null)" == "$next" ]] || fail "the next holder lost the lock"
+[[ -z "$(plan_commits)" ]] || fail "a writer committed while the next holder had the lock"
+kill "$next" && { wait "$next" 2>/dev/null || true; }
+rm -rf "$lock" "$tmp/bin/cat"
+
+# A takeover left half done, by a process killed while it looked, isn't taken
+# over itself, which would race the same way: it stops writes, and the error
+# names it.
+mkdir "$lock" && gone_pid >"$lock/pid" && ln -s "$(gone_pid)" "$lock.stale"
+if PLAN_LOCK_WAIT=1 "$plan" note OIK-8 five 2>"$tmp/err"; then fail "a write went ahead past a takeover left half done"; fi
+grep -q "was taking it over. If nothing holds it: rm -r $lock $lock.stale" "$tmp/err" ||
+	fail "the write didn't name the takeover's lock: $(cat "$tmp/err")"
+rm -rf "$lock" "$lock.stale"
 
 (( failed == 0 )) && echo "ok: plan writes"
 exit "$failed"
