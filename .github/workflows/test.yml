@@ -112,10 +112,10 @@ jobs:
         timeout-minutes: 10
         run: |
           for try in 1 2 3; do
-            if sudo timeout 3m sh -c 'apt-get update && apt-get install -y -o DPkg::Lock::Timeout=60 qemu-user-static'; then
+            if sudo timeout 3m sh -c 'apt-get update && apt-get install -y -o DPkg::Lock::Timeout=60 qemu-user'; then
               exit 0
             fi
-            echo "Could not install qemu-user-static, try $try of 3"
+            echo "Could not install qemu-user, try $try of 3"
           done
           exit 1
 
