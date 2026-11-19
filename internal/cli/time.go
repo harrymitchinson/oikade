@@ -34,6 +34,23 @@ func Ago(t, now time.Time) string {
 	return t.Format("2006-01-02 15:04")
 }
 
+// Day is the day t is on, as a heading over what happened on it: Thu 19 Nov, with today or yesterday
+// said too, and the year if it isn't now's, in now's time zone.
+func Day(t, now time.Time) string {
+	t = t.In(now.Location())
+	day := t.Format("Mon 2 Jan")
+	if t.Year() != now.Year() {
+		day = t.Format("Mon 2 Jan 2006")
+	}
+	switch daysBetween(t, now) {
+	case 0:
+		return day + ", today"
+	case 1:
+		return day + ", yesterday"
+	}
+	return day
+}
+
 // daysBetween is how many midnights there are from t to now, in now's time zone.
 func daysBetween(t, now time.Time) int {
 	y1, m1, d1 := t.Date()

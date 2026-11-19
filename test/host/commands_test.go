@@ -372,9 +372,9 @@ func TestPausingAFlowStopsItsRunAndEndsItsClaims(t *testing.T) {
 }
 
 // tailing reads oikade tail --json until the test ends.
-func (r *rig) tailing() <-chan api.Event {
+func (r *rig) tailing(args ...string) <-chan api.Event {
 	r.t.Helper()
-	cmd := exec.Command(ctlBin, "tail", "--json", "--data-dir", r.dir)
+	cmd := exec.Command(ctlBin, append([]string{"tail", "--json", "--data-dir", r.dir}, args...)...)
 	// What it says on stderr is the test's to show if it fails, not go test's own stderr.
 	var errOut bytes.Buffer
 	cmd.Stderr = &errOut

@@ -1,0 +1,3 @@
+--- stderr
+No events of device/porch-light since 2026-11-08 14:00.
+The event log starts 4 days ago: nothing from before then is kept.

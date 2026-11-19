@@ -100,10 +100,23 @@ var groups = []group{
 			Example: []string{"oikade status desk-plug"},
 		},
 		{
+			Name:    "oikade history",
+			Summary: "Show what your home did: each change, write and run, and why.",
+			Usage:   []string{"oikade history [REF...] [--since WHEN] [--until WHEN] [--json]"},
+			About: "REF narrows it to a device (device/porch-light, or its name alone), a capability " +
+				"(device/porch-light/on), a room (room/hall), a case or a flow (flow/morning), a plugin (plugin/overkiz) or " +
+				"matter, the Matter bridge. A write says who made it: a rule, matter for a controller, or command for " +
+				"oikade set. WHEN is how long ago (24h, 90m, 3d), a time of day (03:00, the last one), or a date and time " +
+				"(\"2026-11-18 03:00\"). The host keeps 14 days.",
+			Example: []string{"oikade history porch-light --since 03:00", "oikade history flow/morning room/hall --since 3d"},
+		},
+		{
 			Name:    "oikade tail",
 			Summary: "Follow your home's events as they happen.",
-			Usage:   []string{"oikade tail [--json]"},
-			Example: []string{"oikade tail --json"},
+			Usage:   []string{"oikade tail [REF...] [--since WHEN] [--json]"},
+			About: "REF narrows it, as oikade history's does. With --since it prints the history from then first: how " +
+				"long ago (10m), a time of day (03:00) or a date and time.",
+			Example: []string{"oikade tail porch-light --since 10m"},
 		},
 		{
 			Name:    "oikade set",
@@ -205,7 +218,7 @@ func runners() map[string]func(ctx context.Context, args []string) error {
 	return map[string]func(ctx context.Context, args []string) error{
 		"init": runInit, "check": runCheck, "test": runTest, "dev": runDev, "replay": runReplay, "types": runTypes,
 		"deploy": runDeploy, "rollback": runRollback,
-		"status": runStatus, "tail": runTail, "set": runSet,
+		"status": runStatus, "history": runHistory, "tail": runTail, "set": runSet,
 		"pause":   func(ctx context.Context, args []string) error { return runPause(ctx, args, true) },
 		"resume":  func(ctx context.Context, args []string) error { return runPause(ctx, args, false) },
 		"devices": runDevices, "setup": runSetup, "matter": runMatter,
