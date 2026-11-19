@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -193,10 +194,12 @@ func TestRenameMovesLiveStateAsOneChange(t *testing.T) {
 }
 
 // A device going offline, and coming back, is logged once each, and a first report online isn't
-// (OIK-340).
+// (OIK-340). Went hears the same, for the event log.
 func TestStoreLogsADeviceGoingOffline(t *testing.T) {
 	log := testkit.Logs(t)
 	s := NewStore(log.Logger)
+	var went []string
+	s.Went = func(dev ident.ID, online bool) { went = append(went, fmt.Sprint(dev.Name, " ", online)) }
 	key := driver.InstanceKey{Driver: driver.Plugin, Name: "ewelink"}
 	heater := ident.ID{Name: "study-heater"}
 	s.SetDevices(key, map[ident.ID]Meta{heater: {Instance: key}})
@@ -222,5 +225,8 @@ func TestStoreLogsADeviceGoingOffline(t *testing.T) {
 	s.Availability(lamp, false)
 	if !log.Has(`msg="Device went offline"`, "device=porch-lamp") {
 		t.Errorf("no line for the lamp:\n%s", strings.Join(log.Lines(), "\n"))
+	}
+	if want := []string{"study-heater false", "study-heater true", "porch-lamp false"}; !slices.Equal(went, want) {
+		t.Errorf("Went heard %q, want %q", went, want)
 	}
 }

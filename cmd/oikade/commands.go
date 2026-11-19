@@ -604,8 +604,52 @@ func describe(e api.Event) (what, cause string) {
 		return "refused a Matter write of " + value(e.Value), e.Message
 	case api.EventDeploy:
 		return "deployed version " + cli.ShortVersion(e.Message), ""
+	case api.EventAvailability:
+		if e.Message == api.AvailabilityOnline {
+			return "came back online", e.Result
+		}
+		return "went offline", e.Result
+	case api.EventPlugin:
+		if e.Message == "" {
+			return "no longer has a problem", ""
+		}
+		return "has a problem: " + e.Message, ""
+	case api.EventMatter:
+		if e.Value != nil {
+			cause = "fabric " + valueText("", e.Value)
+		}
+		return e.Message, cause
+	case api.EventForget:
+		return "forgotten", ""
+	case api.EventRename:
+		if name, ok := e.Previous.(string); ok {
+			cause = "was " + ident.DeviceRef(name).String()
+		}
+		return "renamed", cause
+	case api.EventCall:
+		if e.Result != "" {
+			return "called " + e.Message + " and it failed", e.Result
+		}
+		if e.Value != nil {
+			cause = "got " + callResult(e.Value)
+		}
+		return "called " + e.Message, cause
 	}
 	return "automations " + e.Message, ""
+}
+
+// callResult is what a flow's outside call returned, on one line: a value as it is, and anything
+// with parts as JSON.
+func callResult(v any) string {
+	switch v.(type) {
+	case bool, string, float64:
+		return valueText("", v)
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprint(v)
+	}
+	return string(raw)
 }
 
 // runResult is how a rule's run ended, in words.

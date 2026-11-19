@@ -55,11 +55,13 @@ type simulator struct {
 	mu    sync.Mutex
 }
 
-// simChange is one line of the simulator's input: a change, or a device being paired.
+// simChange is one line of the simulator's input: a change, a device going offline or coming back,
+// or a device being paired.
 type simChange struct {
 	Device     string           `json:"device"`
 	Capability string           `json:"capability"`
 	Value      any              `json:"value"`
+	Online     *bool            `json:"online,omitempty"`
 	Pair       *SimulatedDevice `json:"pair,omitempty"`
 }
 
@@ -109,6 +111,10 @@ func (s *simulator) read(r io.Reader) {
 		dev, ok := s.known.key(simInstance, c.Device)
 		if !ok {
 			s.log.Info("Ignored simulated change to a device not on record", "device", c.Device)
+			continue
+		}
+		if c.Online != nil {
+			s.store.Availability(dev, *c.Online)
 			continue
 		}
 		if err := s.report(dev, c.Capability, c.Value); err != nil {

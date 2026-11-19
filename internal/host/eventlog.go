@@ -108,10 +108,28 @@ func (l *eventLog) flush() {
 	}
 }
 
-// encodeEvent is an event as the log keeps it. The store has its time, and nothing reads Previous.
+// encodeEvent is an event as the log keeps it. The store has its time, and decodeEvent works out a
+// ref that only repeats the event's device, capability or rule, which is most of them and a third
+// of each one's size.
 func encodeEvent(e api.Event) ([]byte, error) {
-	e.Time, e.Previous = time.Time{}, nil
+	e.Time = time.Time{}
+	if e.Ref == eventRef(e) {
+		e.Ref = ""
+	}
 	return json.Marshal(e)
+}
+
+// decodeEvent is the event a record keeps, as it was before encodeEvent.
+func decodeEvent(r store.Record) (api.Event, error) {
+	var e api.Event
+	if err := json.Unmarshal(r.Data, &e); err != nil {
+		return e, err
+	}
+	e.Time = r.Time
+	if e.Ref == "" {
+		e.Ref = eventRef(e)
+	}
+	return e, nil
 }
 
 // foldBaseline keeps the last value of everything being dropped, because a device that hasn't changed
@@ -181,12 +199,11 @@ func (l *eventLog) stream(ctx context.Context, out lineWriter, fail func(error))
 			return
 		}
 		for _, r := range page {
-			var e api.Event
-			if err := json.Unmarshal(r.Data, &e); err != nil {
+			e, err := decodeEvent(r)
+			if err != nil {
 				end(fmt.Sprintf("event %d: %v", r.Seq, err))
 				return
 			}
-			e.Time = r.Time
 			if !out.write(e) {
 				return
 			}

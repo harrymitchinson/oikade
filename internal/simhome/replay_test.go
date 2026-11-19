@@ -3,6 +3,7 @@ package simhome_test
 import (
 	"context"
 	"errors"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -198,6 +199,44 @@ func TestAPersonsWriteAfterARulesIsntItsAnswer(t *testing.T) {
 	}
 	if r.Changes != 2 {
 		t.Fatalf("%d changes went in, want the door's and the blind's from the controller", r.Changes)
+	}
+}
+
+// What the log records for a device's history isn't anything your automations did or saw, so a
+// replay of a log with all of it reports what it would without.
+func TestALogWithADevicesHistoryReplaysTheSame(t *testing.T) {
+	log := recorded(t, fanAbove(70), damp)
+	want, err := simhome.Replay(options(t, fanAbove(70)), head(monday.Add(end)), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := monday.Add(4 * time.Hour)
+	history := []api.Event{
+		{Type: api.EventAvailability, Device: "fan", Ref: "device/fan", Message: api.AvailabilityOffline, Result: "no LAN key"},
+		{Type: api.EventAvailability, Device: "fan", Ref: "device/fan", Message: api.AvailabilityOnline},
+		{Type: api.EventPlugin, Ref: "plugin/overkiz", Message: "login refused"},
+		{Type: api.EventPlugin, Ref: "plugin/overkiz"},
+		{Type: api.EventMatter, Ref: "matter", Message: api.MatterWindowOpened},
+		{Type: api.EventMatter, Ref: "matter", Message: api.MatterControllerPaired, Value: 1.0},
+		{Type: api.EventMatter, Ref: "matter", Message: api.MatterWindowClosed},
+		{Type: api.EventMatter, Ref: "matter", Message: api.MatterControllerLeft, Value: 1.0},
+		{Type: api.EventForget, Device: "shed-lamp", Ref: "device/shed-lamp"},
+		{Type: api.EventRename, Device: "hall-lamp", Ref: "device/hall-lamp", Previous: "relay-3"},
+	}
+	for i := range history {
+		history[i].Time = at.Add(time.Duration(i) * time.Minute)
+	}
+	with := slices.Concat(log, history)
+	slices.SortStableFunc(with, func(a, b api.Event) int { return a.Time.Compare(b.Time) })
+	got, err := simhome.Replay(options(t, fanAbove(70)), head(monday.Add(end)), with)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("the report is %+v, want %+v as without them", got, want)
+	}
+	if got.Deployed != 6 || got.Changes != len(damp) {
+		t.Fatalf("%d writes and %d changes compared, want 6 and %d", got.Deployed, got.Changes, len(damp))
 	}
 }
 

@@ -62,6 +62,9 @@ type entry struct {
 type Store struct {
 	Listeners []driver.Sink
 	Log       *slog.Logger
+	// Went, if set, hears a device go offline or come back, where the log says so: not each report of
+	// the same, nor a device first heard of online. It's called as a Listener is, and must not block.
+	Went func(dev ident.ID, online bool)
 
 	mu         sync.RWMutex
 	devices    map[ident.ID]*entry
@@ -356,11 +359,19 @@ func (s *Store) Availability(dev ident.ID, online bool) {
 	switch {
 	case !online && (was == nil || *was):
 		s.Log.Info("Device went offline", "device", dev.Name)
+		s.went(dev, false)
 	case online && was != nil && !*was:
 		s.Log.Info("Device came back online", "device", dev.Name)
+		s.went(dev, true)
 	}
 	for _, l := range s.Listeners {
 		l.Availability(dev, online)
+	}
+}
+
+func (s *Store) went(dev ident.ID, online bool) {
+	if s.Went != nil {
+		s.Went(dev, online)
 	}
 }
 

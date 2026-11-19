@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -44,10 +46,14 @@ func aDay(day time.Time) []api.Event {
 		for d := range kind.devices {
 			device := fmt.Sprintf("%s-%02d", kind.name, d)
 			for n := range kind.perDay {
-				out = append(out, api.Event{
+				// As the host logs a change: with its ref, and the value before.
+				e := api.Event{
 					Time: day.Add(time.Duration(n) * 24 * time.Hour / time.Duration(kind.perDay)),
-					Type: api.EventChange, Device: device, Capability: kind.capability, Value: 21.5 + float64(n%40)/10,
-				})
+					Type: api.EventChange, Device: device, Capability: kind.capability,
+					Value: 21.5 + float64(n%40)/10, Previous: 21.5 + float64((n+39)%40)/10,
+				}
+				e.Ref = eventRef(e)
+				out = append(out, e)
 			}
 		}
 	}
@@ -196,6 +202,53 @@ func TestAStreamCutShortSaysWhyOnlyToARevokedClient(t *testing.T) {
 	log.stream(t.Context(), &out, fail)
 	if len(out.lines) != 3 || out.lines[2] != api.LogEnd("") {
 		t.Errorf("a whole stream: %+v", out.lines)
+	}
+}
+
+// The log gives back each event as it was reported: a change with the value before it, and every
+// event with its ref, though the log doesn't keep a ref it can work out.
+func TestTheLogGivesBackWhatWasReported(t *testing.T) {
+	data, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = data.Close() }()
+	log := newEventLog(data.Events(), store.Bound{}, logging.Discard())
+	at := time.Now().Truncate(time.Second)
+	reported := []api.Event{
+		{Type: api.EventChange, Device: "kettle", Capability: "on", Value: true, Previous: false},
+		{Type: api.EventWrite, Device: "kettle", Capability: "on", Value: false, By: "flow/morning"},
+		{Type: api.EventAvailability, Device: "kettle", Message: api.AvailabilityOffline, Result: "no LAN key"},
+		{Type: api.EventPlugin, Ref: "plugin/overkiz", Message: "login refused"},
+		{Type: api.EventMatter, Message: api.MatterControllerPaired, Value: 2.0},
+		{Type: api.EventForget, Device: "kettle"},
+		{Type: api.EventRename, Device: "tea-kettle", Previous: "kettle"},
+		{Type: api.EventRule, Rule: "morning", Result: "succeeded"},
+	}
+	for i := range reported {
+		reported[i].Time = at.Add(time.Duration(i) * time.Second)
+		if reported[i].Ref == "" {
+			reported[i].Ref = eventRef(reported[i])
+		}
+		log.add(reported[i])
+	}
+	var out recorded
+	log.stream(t.Context(), &out, func(err error) { t.Fatalf("the log failed: %v", err) })
+	if len(out.lines) != len(reported)+2 {
+		t.Fatalf("%d lines, want the opening, %d events and the end", len(out.lines), len(reported))
+	}
+	for i, want := range reported {
+		got, ok := out.lines[i+1].(api.Event)
+		if !ok || !got.Time.Equal(want.Time) {
+			t.Fatalf("line %d is %+v, want %+v", i+1, out.lines[i+1], want)
+		}
+		got.Time = want.Time
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("event %d came back as %+v, want %+v", i, got, want)
+		}
+	}
+	if raw, err := encodeEvent(reported[0]); err != nil || strings.Contains(string(raw), "ref") {
+		t.Errorf("a change is kept as %s, %v: its ref only repeats its device and capability", raw, err)
 	}
 }
 

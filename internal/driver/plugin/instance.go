@@ -42,6 +42,9 @@ type Instance struct {
 	Sink driver.Sink
 	Now  func() time.Time
 	Log  *slog.Logger
+	// OnProblem, if set, hears the plugin's own problem start, change or clear, where the log says
+	// so: its one line, or empty once it has cleared. It's called in the order they happen.
+	OnProblem func(problem string)
 
 	// counting is held from computing the undeclared count until it's sent, so an older count
 	// can't overtake a newer one. Take it before mu.
@@ -335,6 +338,9 @@ func (i *Instance) handleStatus(topic string, payload []byte) {
 		i.Log.Warn("Plugin reported a problem", "plugin", i.Key, "problem", problem)
 	}
 	var events []func()
+	if problem != was && i.OnProblem != nil {
+		events = append(events, func() { i.OnProblem(problem) })
+	}
 	switch {
 	case s.Contract != contractv1.Contract:
 		i.rejectLocked(ReasonWrongContract, "", topic)

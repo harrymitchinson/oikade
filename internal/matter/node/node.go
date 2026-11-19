@@ -78,6 +78,10 @@ type Config struct {
 	FabricsChanged func()
 	// Listening, if set, is called once the node's sockets are open.
 	Listening func()
+	// WindowChanged, if set, is called when a commissioning window opens, and when it closes. A
+	// window still open when Run starts again isn't a new one. It runs in the order of the changes,
+	// and must not block.
+	WindowChanged func(open bool)
 	// Observer, if set, hears what controllers do, for metrics.
 	Observer im.Observer
 	// Subscriptions, if set, keeps controllers' subscriptions, so that the next Run resumes them
@@ -467,8 +471,12 @@ func (n *Node) advertised(ctx context.Context) error {
 // and advertises the commissionable service.
 func (n *Node) openWindow(w clusters.Window) {
 	n.mu.Lock()
+	opened := n.window == nil
 	n.window = &w
 	n.mu.Unlock()
+	if opened && n.cfg.WindowChanged != nil {
+		n.cfg.WindowChanged(true)
+	}
 	mode := mdns.CommissioningEnhanced
 	if w.Basic {
 		w.Verifier, w.Salt, w.Iterations, w.Discriminator = n.verifier, n.salt, pbkdfIterations, n.cfg.Setup.Discriminator
@@ -525,9 +533,12 @@ func (n *Node) openWindow(w clusters.Window) {
 func (n *Node) closeWindow() {
 	n.run.Load().tr.Handle(transport.SecureChannel, []uint8{securechannel.OpPBKDFParamRequest}, refusePASE)
 	n.mu.Lock()
-	old := n.commissionable
+	old, closed := n.commissionable, n.window != nil
 	n.commissionable, n.window = nil, nil
 	n.mu.Unlock()
+	if closed && n.cfg.WindowChanged != nil {
+		n.cfg.WindowChanged(false)
+	}
 	if old == nil {
 		return
 	}

@@ -154,6 +154,7 @@ func (h *Host) Run(ctx context.Context) error {
 		sinks = append(sinks, bridge)
 	}
 	devices := hub.NewStore(h.Log.With("logger", "devices"), sinks...)
+	devices.Went = srv.went
 	known := newInventory(devicesOnRecord, data.Namespace(homeSettingsNamespace), data.Namespace(declaredNamespace), devices, eng,
 		h.Log.With("logger", "registry"))
 	if err := known.loadHome(); err != nil {
@@ -165,7 +166,7 @@ func (h *Host) Run(ctx context.Context) error {
 	sim := &simulator{store: devices, known: known, log: h.Log.With("logger", "simulator")}
 	socket := filepath.Join(h.DataDir, SocketName)
 	h.plugins = newPlugins(h, socket, devices, known)
-	h.plugins.returned = eng.DriverReturned
+	h.plugins.returned, h.plugins.emit, known.emit = eng.DriverReturned, srv.emit, srv.emit
 	srv.plugins = h.plugins
 	var writing atomic.Int64
 	setter := claimedSetter{engine: eng, setter: routedSetter{devices: devices, simulated: sim, plugins: h.plugins, writing: &writing}}
