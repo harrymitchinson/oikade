@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"regexp"
@@ -36,19 +37,31 @@ func runHistory(ctx context.Context, args []string) error {
 	}
 	now := time.Now()
 	filter := api.EventFilter{Refs: refStrings(refs)}
-	if filter.Since, err = parseWhen("--since", *since, now); err != nil {
+	if filter.Since, _, err = parseWhen("--since", *since, now); err != nil {
 		return err
 	}
 	if *until != "" {
-		if filter.Until, err = parseWhen("--until", *until, now); err != nil {
+		var ofDay bool
+		if filter.Until, ofDay, err = parseWhen("--until", *until, now); err != nil {
 			return err
 		}
-		if filter.Until.Before(filter.Since) {
+		if ofDay && filter.Until.Before(filter.Since) {
+			// The last time it was that time is before --since, so it's the next one that's meant.
+			filter.Until = filter.Until.AddDate(0, 0, 1)
+		}
+		sinceGiven := false
+		fs.Visit(func(f *flag.Flag) { sinceGiven = sinceGiven || f.Name == "since" })
+		switch {
+		case !filter.Until.Before(filter.Since):
+		case sinceGiven:
 			return cli.UsageErrorf("--until %s is before --since %s, so nothing is between them", *until, *since)
+		default:
+			return cli.UsageErrorf("--until %s is before --since, which is %s ago unless you say", *until, defaultHistory).
+				WithHint("give --since WHEN too, from before --until")
 		}
 	}
-	_, host := target.resolve()
-	h := history{t: target.transport(), host: host, filter: filter, refs: refs, asJSON: *asJSON, now: now}
+	transport, host := target.explained()
+	h := history{t: transport, host: host, filter: filter, refs: refs, asJSON: *asJSON, now: now}
 	return h.print(ctx, std.out, std.err)
 }
 
@@ -69,19 +82,19 @@ var whenLayouts = []string{
 }
 
 // parseWhen reads a flag's WHEN: how long ago, as a duration (24h, 90m, 3d), a time of day (03:00),
-// which is the last one, or a date and time (2026-11-18 03:00), in this machine's time zone.
-// Anything else is a command typed wrong, and says what it takes.
-func parseWhen(flag, s string, now time.Time) (time.Time, error) {
+// which is the last one, as ofDay says, or a date and time (2026-11-18 03:00), in this machine's
+// time zone. Anything else is a command typed wrong, and says what it takes.
+func parseWhen(name, s string, now time.Time) (at time.Time, ofDay bool, err error) {
 	if m := days.FindStringSubmatch(s); m != nil {
 		if n, err := strconv.Atoi(m[1]); err == nil && n > 0 {
-			return now.AddDate(0, 0, -n), nil
+			return now.AddDate(0, 0, -n), false, nil
 		}
 	}
 	if d, err := time.ParseDuration(s); err == nil {
 		if d <= 0 {
-			return time.Time{}, cli.UsageErrorf("%s %s is how long ago, so more than zero", flag, s)
+			return time.Time{}, false, cli.UsageErrorf("%s %s is how long ago, so more than zero", name, s)
 		}
-		return now.Add(-d), nil
+		return now.Add(-d), false, nil
 	}
 	for _, layout := range []string{"15:04", "15:04:05"} {
 		if at, err := time.ParseInLocation(layout, s, now.Location()); err == nil {
@@ -91,15 +104,15 @@ func parseWhen(flag, s string, now time.Time) (time.Time, error) {
 				// The last time it was that time.
 				at = time.Date(y, m, d-1, at.Hour(), at.Minute(), at.Second(), 0, now.Location())
 			}
-			return at, nil
+			return at, true, nil
 		}
 	}
 	for _, layout := range whenLayouts {
 		if at, err := time.ParseInLocation(layout, s, now.Location()); err == nil {
-			return at, nil
+			return at, false, nil
 		}
 	}
-	return time.Time{}, cli.UsageErrorf("%s %s isn't a time", flag, s).
+	return time.Time{}, false, cli.UsageErrorf("%s %s isn't a time", name, s).
 		WithHint("give how long ago (24h, 90m, 3d), a time of day (03:00) or a date and time (\"2026-11-18 03:00\")")
 }
 
@@ -128,17 +141,16 @@ func (h history) print(ctx context.Context, stdout, stderr *cli.Printer) error {
 		said.Do(func() {})
 	}
 
-	out := json.NewEncoder(stdout)
 	lines := &chronicle{p: stdout, now: h.now, narrowed: len(h.refs) > 0, hold: true}
+	if h.asJSON {
+		lines.json = json.NewEncoder(stdout)
+	}
 	var head api.EventLog
 	err := api.Events(ctx, h.t, h.filter, func(log api.EventLog) error {
 		head = log
 		return nil
 	}, func(e api.Event) error {
 		quiet()
-		if h.asJSON {
-			return out.Encode(e)
-		}
 		return lines.add(e)
 	})
 	quiet()
@@ -146,6 +158,7 @@ func (h history) print(ctx context.Context, stdout, stderr *cli.Printer) error {
 		return err
 	}
 	if h.asJSON {
+		// A script reads stdout, and no lines is its answer.
 		return nil
 	}
 	if lines.about == 0 {
@@ -177,7 +190,7 @@ func (h history) empty(ctx context.Context, stderr *cli.Printer, head api.EventL
 	} else {
 		stderr.Println("No events of " + strings.Join(refStrings(h.refs), ", ") + " " + between + ".")
 	}
-	missing := h.unrecorded(ctx)
+	missing := unrecorded(ctx, h.t, h.refs)
 	for _, line := range missing {
 		stderr.Println(line)
 	}
@@ -194,11 +207,11 @@ func (h history) empty(ctx context.Context, stderr *cli.Printer, head api.EventL
 
 // unrecorded says which of the refs asked for name nothing the host has on record, a line each with
 // the command that lists what it has. A host that can't say leaves them out.
-func (h history) unrecorded(ctx context.Context) []string {
-	if len(h.refs) == 0 {
+func unrecorded(ctx context.Context, t api.Transport, refs []named) []string {
+	if len(refs) == 0 {
 		return nil
 	}
-	resp, err := api.Call(ctx, h.t, api.Request{Type: api.TypeStatus})
+	resp, err := api.Call(ctx, t, api.Request{Type: api.TypeStatus})
 	if err != nil || resp.Error != "" || resp.Status == nil {
 		return nil
 	}
@@ -213,8 +226,10 @@ func (h history) unrecorded(ctx context.Context) []string {
 	has := func(d api.Device, name string) bool {
 		return slices.ContainsFunc(d.Capabilities, func(c api.Capability) bool { return c.Name == name })
 	}
+	// With no process and no rules, the host can't say what the rules are.
+	rulesKnown := st.Process || len(st.Rules) > 0
 	var out []string
-	for _, n := range h.refs {
+	for _, n := range refs {
 		switch n.kind {
 		case ident.Device:
 			d, ok := device(n.parts[0])
@@ -226,12 +241,18 @@ func (h history) unrecorded(ctx context.Context) []string {
 					ident.DeviceRef(n.parts[0]), n.parts[1], n.parts[0]))
 			}
 		case ident.Room:
-			if !slices.ContainsFunc(st.Devices, func(d api.Device) bool { return d.Room == n.parts[0] }) {
-				out = append(out, fmt.Sprintf("No device is in %s: oikade status shows each device's room.",
-					ident.NewRef(ident.Room, n.parts[0])))
+			room := ident.NewRef(ident.Room, n.parts[0])
+			in := func(d api.Device) bool { return d.Room == n.parts[0] }
+			switch {
+			case !slices.ContainsFunc(st.Devices, in):
+				out = append(out, fmt.Sprintf("No device is in %s: oikade status shows each device's room.", room))
+			case len(n.parts) > 1 && !slices.ContainsFunc(st.Devices, func(d api.Device) bool {
+				return in(d) && has(d, n.parts[1])
+			}):
+				out = append(out, fmt.Sprintf("No device in %s has %s: oikade status shows what each has.", room, n.parts[1]))
 			}
 		case ident.Case, ident.Flow:
-			if !slices.ContainsFunc(st.Rules, func(r api.Rule) bool { return r.Ref == n.ref }) {
+			if rulesKnown && !slices.ContainsFunc(st.Rules, func(r api.Rule) bool { return r.Ref == n.ref }) {
 				out = append(out, fmt.Sprintf("There's no %s in the running version: oikade status lists its rules.", n.ref))
 			}
 		}
@@ -250,6 +271,8 @@ type chronicle struct {
 	// with none is empty rather than a list of deploys.
 	hold bool
 	held []api.Event
+	// json, if set, prints each event as a line of JSON instead, with no headings.
+	json *json.Encoder
 	// day is the heading the last line is under, and about how many events of what was asked for
 	// have printed. A tail of what's happening now starts under today's, unsaid.
 	day   string
@@ -278,6 +301,9 @@ func (c *chronicle) add(e api.Event) error {
 }
 
 func (c *chronicle) line(e api.Event, own bool) error {
+	if c.json != nil {
+		return c.json.Encode(e)
+	}
 	if day := cli.Day(e.Time, c.now); day != c.day {
 		if _, err := fmt.Fprintln(c.p, c.p.Bold(day)); err != nil {
 			return err

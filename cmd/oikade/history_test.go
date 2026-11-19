@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -43,15 +45,15 @@ func TestWhenTakesADurationATimeOfDayOrADateAndTime(t *testing.T) {
 		"2026-11-18":           local(2026, 11, 18, 0, 0, 0),
 		"2026-11-18T03:00:00Z": time.Date(2026, 11, 18, 3, 0, 0, 0, time.UTC),
 	} {
-		got, err := parseWhen("--since", s, thursday)
-		if err != nil || !got.Equal(want) {
-			t.Errorf("%q is %s, %v, want %s", s, got, err, want)
+		got, ofDay, err := parseWhen("--since", s, thursday)
+		if err != nil || !got.Equal(want) || ofDay != (len(s) > 2 && s[2] == ':') {
+			t.Errorf("%q is %s, of a day %t, %v, want %s", s, got, ofDay, err, want)
 		}
 	}
 	for _, s := range []string{
 		"", "yesterday", "0h", "-2h", "0d", "25:00", "3 days", "2026-13-01", "18/11/2026", "3", "noon", "03:00 2026-11-18",
 	} {
-		_, err := parseWhen("--since", s, thursday)
+		_, _, err := parseWhen("--since", s, thursday)
 		if e, ok := errors.AsType[*cli.Error](err); !ok || !e.Usage || !strings.HasPrefix(e.Message, "--since "+s) {
 			t.Errorf("%q: %v, want it refused as --since typed wrong", s, err)
 		}
@@ -62,6 +64,39 @@ func TestWhenTakesADurationATimeOfDayOrADateAndTime(t *testing.T) {
 	} {
 		if _, errs, code := runOikade(t, cli.Plain, args...); code != cli.ExitUsage || !strings.HasPrefix(errs, "Error: --") {
 			t.Errorf("oikade %s exits %d: %s", strings.Join(args, " "), code, errs)
+		}
+	}
+	// An --until before a --since nobody gave says what that --since is, and what to do.
+	_, errs, code := runOikade(t, cli.Plain, "history", "--until", "3d")
+	if code != cli.ExitUsage || !strings.Contains(errs, "--until 3d is before --since, which is 24h ago unless you say") ||
+		!strings.Contains(errs, "Hint: give --since WHEN too") {
+		t.Errorf("oikade history --until 3d exits %d: %s", code, errs)
+	}
+}
+
+// An --until time of day is the last one, as --since's is, unless that's before --since: then it's
+// the next one, so that a morning and an afternoon are one day's window.
+func TestUntilATimeOfDayComesAfterSince(t *testing.T) {
+	for _, c := range []struct{ since, until string }{{"10:00", "16:00"}, {"22:00", "23:30"}, {"23:00", "01:00"}} {
+		dir, queries := aHost(t, api.EventLog{}, nil, api.Status{})
+		_, errs, code := runOikade(t, cli.Plain, "history", "--json", "--data-dir", dir,
+			"--since", c.since, "--until", c.until)
+		if code != 0 {
+			t.Fatalf("from %s to %s exits %d: %s", c.since, c.until, code, errs)
+		}
+		q, err := url.ParseQuery(queries()[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		f, err := api.ParseEventFilter(q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Whatever the time is now, it's those times of day, the second less than a day after the first,
+		// and the first already been.
+		if f.Since.Local().Format("15:04") != c.since || f.Until.Local().Format("15:04") != c.until ||
+			!f.Until.After(f.Since) || f.Until.Sub(f.Since) > 25*time.Hour || f.Since.After(time.Now()) {
+			t.Errorf("from %s to %s asked for %s to %s", c.since, c.until, f.Since.Local(), f.Until.Local())
 		}
 	}
 }
@@ -116,10 +151,13 @@ func aHost(t *testing.T, log api.EventLog, events []api.Event, st api.Status) (d
 	if err != nil {
 		t.Fatal(err)
 	}
+	var mu sync.Mutex
 	var queries []string
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+api.Prefix+"/events", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
 		queries = append(queries, r.URL.RawQuery)
+		mu.Unlock()
 		w.Header().Set("Content-Type", api.StreamContentType)
 		out := json.NewEncoder(w)
 		_ = out.Encode(log)
@@ -128,6 +166,11 @@ func aHost(t *testing.T, log api.EventLog, events []api.Event, st api.Status) (d
 		}
 		_ = out.Encode(api.LogEnd(""))
 	})
+	mux.HandleFunc("GET "+api.Prefix+"/tail", func(w http.ResponseWriter, _ *http.Request) {
+		// Listening, and then gone, as a host that stops is.
+		w.Header().Set("Content-Type", api.StreamContentType)
+		_ = json.NewEncoder(w).Encode(api.Event{})
+	})
 	mux.HandleFunc("GET "+api.Prefix+"/status", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", api.ContentType)
 		_ = json.NewEncoder(w).Encode(api.Response{Status: &st})
@@ -135,7 +178,11 @@ func aHost(t *testing.T, log api.EventLog, events []api.Event, st api.Status) (d
 	host := &http.Server{Handler: mux}
 	go func() { _ = host.Serve(l) }()
 	t.Cleanup(func() { _ = host.Close() })
-	return dir, func() []string { return queries }
+	return dir, func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(queries)
+	}
 }
 
 // aNight is what the porch light did overnight, as the host sends a history of it: a deploy the
@@ -248,6 +295,30 @@ func TestHistoryAsJSONIsALineAnEvent(t *testing.T) {
 	out, errs, code = runOikade(t, cli.Plain, "history", "--json", "--data-dir", dir)
 	if code != 0 || out != "" || errs != "" {
 		t.Errorf("an empty history as JSON: exit %d, stdout %q, stderr %q", code, out, errs)
+	}
+	// Only the home's own events came, so there's nothing of the device, and nothing to print.
+	dir, _ = aHost(t, api.EventLog{}, aNight()[:2], api.Status{})
+	out, errs, code = runOikade(t, cli.Plain, "history", "porch-lihgt", "--json", "--data-dir", dir)
+	if code != 0 || out != "" || errs != "" {
+		t.Errorf("a history of nothing as JSON: exit %d, stdout %q, stderr %q", code, out, errs)
+	}
+}
+
+// A tail of something the host has no record of says so once it's following, rather than follow in
+// silence for good. One of something it has says nothing more.
+func TestTailSaysARefNamesNothing(t *testing.T) {
+	st := api.Status{Process: true, Devices: []api.Device{{Name: "porch-light", Room: "porch"}}}
+	dir, _ := aHost(t, api.EventLog{}, nil, st)
+	_, errs, _ := runOikade(t, cli.Plain, "tail", "porch-lihgt", "room/porch", "flow/morning", "--data-dir", dir)
+	want := "Following device/porch-lihgt, room/porch, flow/morning on this machine's host\n" +
+		"There's no device/porch-lihgt on record: oikade devices lists them.\n" +
+		"There's no flow/morning in the running version: oikade status lists its rules.\n"
+	if !strings.HasPrefix(errs, want) {
+		t.Errorf("stderr:\n%s\nwant it to start:\n%s", errs, want)
+	}
+	_, errs, _ = runOikade(t, cli.Plain, "tail", "porch-light", "--data-dir", dir)
+	if !strings.HasPrefix(errs, "Following device/porch-light on this machine's host\nError: ") {
+		t.Errorf("stderr of a tail of a device on record:\n%s", errs)
 	}
 }
 

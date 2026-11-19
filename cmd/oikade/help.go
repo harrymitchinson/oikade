@@ -107,7 +107,7 @@ var groups = []group{
 				"(device/porch-light/on), a room (room/hall), a case or a flow (flow/morning), a plugin (plugin/overkiz) or " +
 				"matter, the Matter bridge. A write says who made it: a rule, matter for a controller, or command for " +
 				"oikade set. WHEN is how long ago (24h, 90m, 3d), a time of day (03:00, the last one), or a date and time " +
-				"(\"2026-11-18 03:00\"). The host keeps 14 days.",
+				"(\"2026-11-18 03:00\"). The host keeps 14 days, unless its --event-log-age says otherwise.",
 			Example: []string{"oikade history porch-light --since 03:00", "oikade history flow/morning room/hall --since 3d"},
 		},
 		{

@@ -46,6 +46,12 @@ func (t target) transport() api.Transport {
 	return api.Explained(transport, func(err error) error { return unreachable(transport, name, err) })
 }
 
+// explained is transport, and what to call the host it reaches, from one look at the config.
+func (t target) explained() (api.Transport, string) {
+	transport, name := t.resolve()
+	return api.Explained(transport, func(err error) error { return unreachable(transport, name, err) }), name
+}
+
 // isDNS is a name that didn't resolve.
 func isDNS(err error) bool {
 	_, ok := errors.AsType[*net.DNSError](err)
@@ -549,11 +555,11 @@ func runTail(ctx context.Context, args []string) error {
 	now := time.Now()
 	filter := api.EventFilter{Refs: refStrings(refs)}
 	if *since != "" {
-		if filter.Since, err = parseWhen("--since", *since, now); err != nil {
+		if filter.Since, _, err = parseWhen("--since", *since, now); err != nil {
 			return err
 		}
 	}
-	transport, host := target.resolve()
+	transport, host := target.explained()
 	return tail(ctx, transport, host, filter, refs, *asJSON, now, std.out, std.err)
 }
 
@@ -563,19 +569,22 @@ func runTail(ctx context.Context, args []string) error {
 func tail(ctx context.Context, t api.Transport, host string, filter api.EventFilter, refs []named, asJSON bool,
 	now time.Time, stdout, stderr io.Writer,
 ) error {
-	out := json.NewEncoder(stdout)
-	opened := func() { _, _ = fmt.Fprintln(stderr, following(host, refs)) }
+	opened := func() {
+		_, _ = fmt.Fprintln(stderr, following(host, refs))
+		// A ref that names nothing would otherwise follow in silence for good.
+		for _, missing := range unrecorded(ctx, t, refs) {
+			_, _ = fmt.Fprintln(stderr, missing)
+		}
+	}
 	lines := &chronicle{p: printerOf(stdout), now: now, narrowed: len(refs) > 0}
+	if asJSON {
+		lines.json = json.NewEncoder(stdout)
+	}
 	if filter.Since.IsZero() {
 		// What's happening now needs no heading to say it's today.
 		lines.day = cli.Day(now, now)
 	}
-	return api.Tail(ctx, t, filter, opened, func(e api.Event) error {
-		if asJSON {
-			return out.Encode(e)
-		}
-		return lines.add(e)
-	})
+	return api.Tail(ctx, t, filter, opened, lines.add)
 }
 
 // eventLine is an event as tail prints it: its time, the ref of what it's about, what happened, and
