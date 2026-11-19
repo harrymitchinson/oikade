@@ -30,6 +30,13 @@ func (r *rig) online(device string, online bool) {
 	}
 }
 
+// bridgeSaid matches one of the Matter bridge's own events.
+func bridgeSaid(message string, fabric any) func(api.Event) bool {
+	return func(e api.Event) bool {
+		return e.Type == api.EventMatter && e.Ref == "matter" && e.Message == message && e.Value == fabric
+	}
+}
+
 // logged finds the first event in the log that matches, at or after from, and fails without one.
 func logged(t *testing.T, log []api.Event, from int, what string, match func(api.Event) bool) int {
 	t.Helper()
@@ -48,14 +55,9 @@ func TestADevicesHistoryIsInTheTailAndTheLog(t *testing.T) {
 	c := commissioned(t)
 	r := c.r
 	r.sync()
-	matter := func(message string, fabric any) func(api.Event) bool {
-		return func(e api.Event) bool {
-			return e.Type == api.EventMatter && e.Ref == "matter" && e.Message == message && e.Value == fabric
-		}
-	}
 	// The node tells of its window and fabrics once it has advertised them, a moment after pairing.
 	r.until("the pairing to be in the log", func() bool {
-		return slices.ContainsFunc(r.eventLog(), matter(api.MatterControllerPaired, 1.0))
+		return slices.ContainsFunc(r.eventLog(), bridgeSaid(api.MatterControllerPaired, 1.0))
 	})
 	events := r.tailing()
 	tailStarted(r, events)
@@ -77,9 +79,9 @@ func TestADevicesHistoryIsInTheTailAndTheLog(t *testing.T) {
 	awaitEvent(t, events, forgotten)
 
 	log := r.eventLog()
-	opened := logged(t, log, 0, "window opening", matter(api.MatterWindowOpened, nil))
-	logged(t, log, opened, "window closing", matter(api.MatterWindowClosed, nil))
-	paired := logged(t, log, opened, "controller pairing", matter(api.MatterControllerPaired, 1.0))
+	opened := logged(t, log, 0, "window opening", bridgeSaid(api.MatterWindowOpened, nil))
+	logged(t, log, opened, "window closing", bridgeSaid(api.MatterWindowClosed, nil))
+	paired := logged(t, log, opened, "controller pairing", bridgeSaid(api.MatterControllerPaired, 1.0))
 	offline := logged(t, log, paired, "device going offline", availability(api.AvailabilityOffline))
 	online := logged(t, log, offline, "device coming back", availability(api.AvailabilityOnline))
 	went := slices.DeleteFunc(slices.Clone(log), func(e api.Event) bool { return e.Type != api.EventAvailability })
@@ -105,4 +107,24 @@ func TestARenameIsInTheTailAndTheLog(t *testing.T) {
 	r.mustDeploy("plugins-mains")
 	awaitEvent(t, events, renamed)
 	logged(t, r.eventLog(), 0, "rename", renamed)
+}
+
+// A window still open when the host stops closes in the log, so the next host's is a new one, and
+// each opening has its closing.
+func TestAWindowOpenWhenTheHostStopsClosesInTheLog(t *testing.T) {
+	t.Parallel()
+	r := prepare(t)
+	launch := func(flag string) { r.launchAttached(flag) }
+	opened, closed := bridgeSaid(api.MatterWindowOpened, nil), bridgeSaid(api.MatterWindowClosed, nil)
+	windows := func() []api.Event {
+		return slices.DeleteFunc(r.eventLog(), func(e api.Event) bool { return e.Type != api.EventMatter })
+	}
+	port := r.serveMatter(freeUDP(t), launch)
+	r.until("the window to be in the log", func() bool { return len(windows()) == 1 })
+	r.stop()
+	r.serveMatter(port, launch)
+	r.until("the next host's window to be in the log", func() bool { return len(windows()) == 3 })
+	if log := windows(); !opened(log[0]) || !closed(log[1]) || !opened(log[2]) {
+		t.Errorf("the bridge's events are %+v, want a window opened, closed as the host stopped, and opened", log)
+	}
 }

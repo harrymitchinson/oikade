@@ -91,9 +91,9 @@ An `Event`'s `type` is one of:
 | `rule` | A rule's run ended | `rule`, `result` |
 | `pause` | A rule was paused or resumed | `rule`, `message` |
 | `call` | A flow made an outside call, which a replay answers rather than makes. Only in the event log, not a tail | `rule`: the flow, `message`: the call, `value`: its result, `result`: its error |
-| `availability` | A device went offline, or came back. Not each report of the same, nor a device first heard of online | `device`, `message`: `offline` or `online`, `result`: its driver's problem with it then, such as a missing LAN key, if it has one |
-| `plugin` | A plugin's own problem started, changed or cleared, such as a refused login | `ref`: the plugin's, `message`: the problem, or none once it has cleared |
-| `matter` | The Matter bridge's commissioning window opened or closed, or a controller paired or left. The bridge says so once it has advertised the change, which can be a second or two after | `message`: `window opened`, `window closed`, `controller paired` or `controller left`, `value`: the controller's fabric |
+| `availability` | A device went offline, or came back. Not each report of the same, nor a device first heard of online. The host doesn't keep how a device was, so one that's offline when the host starts is said to have gone offline then | `device`, `message`: `offline` or `online`, `result`: its driver's problem with it as it went offline, such as a missing LAN key, if it has one |
+| `plugin` | A plugin's own problem started, changed or cleared, such as a refused login. A plugin that's down says nothing of its problem, so going down doesn't clear one, and coming back with the same one doesn't start it again. A host that starts again says a problem still there again | `ref`: the plugin's, `message`: the problem, or none once it has cleared |
+| `matter` | The Matter bridge's commissioning window opened or closed, or a controller paired or left. A window has opened once it's advertised, and one still open when the host stops closes then. The bridge says each once it has advertised the change, which can be a second or two after | `message`: `window opened`, `window closed`, `controller paired` or `controller left`, `value`: the controller's fabric |
 | `forget` | A device was forgotten, so its history stops here | `device` |
 | `rename` | A deploy renamed a device, or gave its hardware the name your home declares | `device`: its name from then on, `previous`: its name before |
 | `process` | Your process connected or disconnected | `message` |

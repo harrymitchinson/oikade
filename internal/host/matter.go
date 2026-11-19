@@ -151,6 +151,8 @@ type matterBridge struct {
 	emit   atomic.Pointer[func(api.Event)]
 	pairs  sync.Mutex
 	paired map[uint8]bool
+	// window is whether the log's last word on the commissioning window is that it opened.
+	window atomic.Bool
 }
 
 // record puts one of the bridge's own events in the event log, once there's one to put it in.
@@ -162,11 +164,20 @@ func (m *matterBridge) record(message string, fabric any) {
 
 // windowChanged records the commissioning window opening or closing.
 func (m *matterBridge) windowChanged(open bool) {
+	m.window.Store(open)
 	if open {
 		m.record(api.MatterWindowOpened, nil)
 		return
 	}
 	m.record(api.MatterWindowClosed, nil)
+}
+
+// stopped records that a window still open has closed, once the bridge has stopped for good: nothing
+// can pair through it now, and the next host opens its own.
+func (m *matterBridge) stopped() {
+	if m.window.Load() {
+		m.windowChanged(false)
+	}
 }
 
 // pairedNow are the fabrics whose pairing is complete: not one a controller is still commissioning,

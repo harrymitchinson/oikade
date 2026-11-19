@@ -115,7 +115,9 @@ func (s *simulator) read(r io.Reader) {
 		}
 		if c.Online != nil {
 			s.store.Availability(dev, *c.Online)
-			continue
+			if c.Capability == "" {
+				continue
+			}
 		}
 		if err := s.report(dev, c.Capability, c.Value); err != nil {
 			s.log.Error("Ignored simulated change", "err", err, "device", c.Device, "capability", c.Capability)

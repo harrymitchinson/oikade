@@ -275,7 +275,10 @@ func (h *Host) Run(ctx context.Context) error {
 		}},
 	}
 	if bridge.working() {
-		phases = append(phases, stopPhase{name: "Stopping Matter bridge", run: func(context.Context) { matterServing.stop() }})
+		phases = append(phases, stopPhase{name: "Stopping Matter bridge", run: func(context.Context) {
+			matterServing.stop()
+			bridge.stopped()
+		}})
 	}
 	phases = append(phases, stopPhase{name: "Closing store", run: func(context.Context) {
 		background.stop()

@@ -513,7 +513,7 @@ const (
 	// EventDeploy is a new version taking over.
 	EventDeploy = "deploy"
 	// EventAvailability is a device going offline or coming back. Message is offline or online, and
-	// Result its driver's problem with it then, if it has one.
+	// Result its driver's problem with it as it went offline, if it has one.
 	EventAvailability = "availability"
 	// EventPlugin is a plugin's own problem starting or clearing, such as a refused login. Ref is the
 	// plugin's, and Message the problem, or empty once it has cleared.

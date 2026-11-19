@@ -351,8 +351,9 @@ func TestStatusError(t *testing.T) {
 	if st := i.Stats(); !st.Up || i.Problem() != "" {
 		t.Errorf("error not cleared: %+v %q", st, i.Problem())
 	}
-	// Each start and each end was heard once, for the event log.
-	if want := []string{"login refused", "", "login refused", ""}; !slices.Equal(problems, want) {
+	// The start and the end were heard once each, for the event log: going down didn't end it, and
+	// coming back with it didn't start it again.
+	if want := []string{"login refused", ""}; !slices.Equal(problems, want) {
 		t.Errorf("OnProblem heard %q, want %q", problems, want)
 	}
 

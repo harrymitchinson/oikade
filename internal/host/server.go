@@ -831,15 +831,16 @@ func (s *server) Changed(changes ...driver.Update) {
 	}
 }
 
-// went puts a device going offline, or coming back, in the event log, with its driver's problem with
-// it, if it has one.
+// went puts a device going offline, or coming back, in the event log. One going offline has its
+// driver's problem with it, if it has one. One coming back doesn't: its driver may not have said yet
+// that the problem has gone.
 func (s *server) went(dev ident.ID, online bool) {
-	e := api.Event{Time: time.Now(), Type: api.EventAvailability, Device: dev.Name, Message: api.AvailabilityOffline}
-	if online {
-		e.Message = api.AvailabilityOnline
-	}
-	if snap, ok := s.devices.Get(dev); ok {
-		e.Result = snap.Info.Error
+	e := api.Event{Time: time.Now(), Type: api.EventAvailability, Device: dev.Name, Message: api.AvailabilityOnline}
+	if !online {
+		e.Message = api.AvailabilityOffline
+		if snap, ok := s.devices.Get(dev); ok {
+			e.Result = snap.Info.Error
+		}
 	}
 	s.emit(e)
 }

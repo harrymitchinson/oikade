@@ -42,8 +42,10 @@ type Instance struct {
 	Sink driver.Sink
 	Now  func() time.Time
 	Log  *slog.Logger
-	// OnProblem, if set, hears the plugin's own problem start, change or clear, where the log says
-	// so: its one line, or empty once it has cleared. It's called in the order they happen.
+	// OnProblem, if set, hears the plugin's own problem start, change or clear: its one line, or empty
+	// once it has cleared. A plugin that's down says nothing of its problem, so going down doesn't
+	// clear one, and coming back with the same one doesn't start it again. It's called in the order
+	// they happen.
 	OnProblem func(problem string)
 
 	// counting is held from computing the undeclared count until it's sent, so an older count
@@ -57,6 +59,8 @@ type Instance struct {
 	removed map[string]bool
 	// status is nil until the plugin's status topic is seen.
 	status *contractv1.Status
+	// told is the problem OnProblem last heard.
+	told string
 	// announced is nil until the devices topic is seen.
 	announced map[string]driver.Info
 	// discovered is nil unless the plugin sends a discovered list.
@@ -338,7 +342,8 @@ func (i *Instance) handleStatus(topic string, payload []byte) {
 		i.Log.Warn("Plugin reported a problem", "plugin", i.Key, "problem", problem)
 	}
 	var events []func()
-	if problem != was && i.OnProblem != nil {
+	if up && problem != i.told && i.OnProblem != nil {
+		i.told = problem
 		events = append(events, func() { i.OnProblem(problem) })
 	}
 	switch {
