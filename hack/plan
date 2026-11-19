@@ -299,7 +299,8 @@ lock() {
 	done
 	local hint="rm -r $l"
 	taker=$(cat "$l.stale" 2>/dev/null || true)
-	if [[ -e "$l.stale" ]]; then hint+=" $l.stale"; fi
+	# One an older hack/plan left is a symlink to its pid, which -e doesn't see.
+	if [[ -e "$l.stale" || -L "$l.stale" ]]; then hint+=" $l.stale"; fi
 	die "the plan has been locked for $LOCK_WAIT s${pid:+ by process $pid}${taker:+, and process $taker was taking it over}. If nothing holds it: $hint"
 }
 # make_lock LOCK: make LOCK, holding this process's pid, unless it's there.
