@@ -132,6 +132,41 @@ func TestUnchangedCodeShowsNoDifferences(t *testing.T) {
 	}
 }
 
+// The log has a controller's write and oikade set's, each saying whose it is. Neither is your
+// automations', so a replay doesn't count them, and the change each made goes in as one from outside
+// rather than as a device answering a write.
+func TestAPersonsWritesArentYourAutomations(t *testing.T) {
+	log := recorded(t, fanAbove(70), damp)
+	for i := range log {
+		if log[i].Type == api.EventWrite {
+			log[i].By = "case/fan/on/humid"
+		}
+	}
+	tap, command := monday.Add(4*time.Hour), monday.Add(5*time.Hour)
+	log = append(log,
+		api.Event{Time: tap, Type: api.EventWrite, Device: "lamp", Capability: on, Value: true, By: "matter"},
+		api.Event{Time: tap.Add(50 * time.Millisecond), Type: api.EventChange, Device: "lamp", Capability: on, Value: true},
+		api.Event{Time: command, Type: api.EventWrite, Device: "lamp", Capability: on, Value: false, By: "command"},
+		api.Event{Time: command.Add(50 * time.Millisecond), Type: api.EventChange, Device: "lamp", Capability: on, Value: false},
+	)
+	slices.SortStableFunc(log, func(a, b api.Event) int { return a.Time.Compare(b.Time) })
+	opts := options(t, fanAbove(70))
+	opts.Devices = append(opts.Devices, simhome.Device{Name: "lamp", Capabilities: []string{on}, Values: map[string]any{on: false}})
+	r, err := simhome.Replay(opts, head(monday.Add(end)), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Removed)+len(r.Added) != 0 {
+		t.Fatalf("Differences from a person's writes: removed %v, added %v", r.Removed, r.Added)
+	}
+	if r.Deployed != 6 || r.Yours != 6 {
+		t.Fatalf("%d writes deployed and %d replayed, want the rule's 6 of each", r.Deployed, r.Yours)
+	}
+	if r.Changes != len(damp)+2 {
+		t.Fatalf("%d changes went in, want %d: what a person's write changed is an outside change", r.Changes, len(damp)+2)
+	}
+}
+
 func TestAChangedThresholdShowsExactlyTheWritesThatMoved(t *testing.T) {
 	log := recorded(t, fanAbove(70), damp)
 	r, err := simhome.Replay(options(t, fanAbove(60)), head(monday.Add(end)), log)

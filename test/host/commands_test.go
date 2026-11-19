@@ -466,6 +466,43 @@ func TestTailStreamsChangesAndRunsAcrossAProcessRestart(t *testing.T) {
 	})
 }
 
+// Every write in a tail says whose it is: the case whose hold set it, the case whose claim won, a
+// flow's step, a controller's and oikade set's.
+func TestATailSaysWhoseEachWriteIs(t *testing.T) {
+	t.Parallel()
+	c := commissioned(t)
+	r := c.r
+	r.sync()
+	events := r.tailing(nil)
+	tailStarted(r, events)
+	wroteBy := func(device, capability string, value any, by string) {
+		t.Helper()
+		awaitEvent(t, events, func(e api.Event) bool {
+			if e.Type != api.EventWrite || e.Device != device || e.Capability != capability || e.Value != value {
+				return false
+			}
+			if e.By != by {
+				t.Errorf("the write of %s %s = %v is by %q, want %q", device, capability, value, e.By, by)
+			}
+			return true
+		})
+	}
+
+	// The fan isn't arbitrated, so your process writes it for the case.
+	r.change("bathroom-sensor", humidityCap, 80)
+	wroteBy("fan", "on", true, "case/fan/on/fan")
+	// The valve is, so the host writes it for the claim that won.
+	r.change("leak-sensor", "open", true)
+	wroteBy("valve", "on", false, "case/valve/on/leak-shutoff")
+	r.contact("study-go", true)
+	wroteBy("study-heater", "setpoint", 18.0, "flow/study-setback")
+
+	c.command(c.endpoint("claimed"), turnOff)
+	wroteBy("claimed", "on", false, "matter")
+	r.stdout(nil, "set", "device/lamp-0/on", "true")
+	wroteBy("lamp-0", "on", true, "command")
+}
+
 func TestMetricsAndHealthAreServedOverHTTP(t *testing.T) {
 	t.Parallel()
 	r := start(t)

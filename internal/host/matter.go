@@ -368,7 +368,7 @@ func (w *matterWrites) Set(ctx context.Context, dev ident.ID, name string, value
 	if snap, ok := w.devices.Get(dev); ok && (snap.Online == nil || *snap.Online) {
 		w.engine.MatterWrote(dev, name, value)
 	}
-	err := w.setter.Set(ctx, dev, name, value)
+	err := w.setter.Set(driver.WithWriter(ctx, control.SourceMatter), dev, name, value)
 	if err != nil {
 		w.engine.ForgetMatterWrite(dev, name)
 		w.restore(dev, name, nil)

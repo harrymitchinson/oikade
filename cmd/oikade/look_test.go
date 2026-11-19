@@ -204,6 +204,9 @@ func TestTheRestLookTheSame(t *testing.T) {
 		{Type: api.EventChange, Ref: "device/desk-plug/on", Capability: "on", Value: true, Previous: false},
 		{Type: api.EventChange, Ref: "device/office-ac/setpoint", Capability: "setpoint", Value: 21.5},
 		{Type: api.EventWrite, Ref: "device/desk-plug/on", Capability: "on", Value: false},
+		{Type: api.EventWrite, Ref: "device/desk-plug/on", Capability: "on", Value: true, By: "case/desk-plug/on/occupied"},
+		{Type: api.EventWrite, Ref: "device/office-ac/setpoint", Capability: "setpoint", Value: 20.0, By: "matter"},
+		{Type: api.EventWrite, Ref: "device/hall-blind/position", Capability: "position", Value: 40.0, By: "command"},
 		{
 			Type: api.EventRefused, Ref: "device/desk-plug/on", Capability: "on", Value: true,
 			Message: "case/desk-plug/on/hall-too-humid holds it at Safety",

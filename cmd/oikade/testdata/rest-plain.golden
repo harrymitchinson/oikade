@@ -8,6 +8,9 @@ Paired controllers
 14:02:07  device/desk-plug/on  true  was false
 14:02:07  device/office-ac/setpoint  21.5°C
 14:02:07  device/desk-plug/on  wrote false
+14:02:07  device/desk-plug/on  wrote true  by case/desk-plug/on/occupied
+14:02:07  device/office-ac/setpoint  wrote 20°C  by matter
+14:02:07  device/hall-blind/position  wrote 40%  by command
 14:02:07  device/desk-plug/on  refused a Matter write of true  case/desk-plug/on/hall-too-humid holds it at Safety
 14:02:07  flow/morning  ran
 14:02:07  case/towel-rail/on/after-shower  didn't run: its condition couldn't be read

@@ -324,7 +324,17 @@ func (e *Engine) decide(ctx context.Context, dev ident.ID, name string, ar *arb)
 	}
 	ar.writing = true
 	value := d.Value
-	e.goBusy(func() { e.writeControl(ctx, dev, name, ar, value) })
+	e.goBusy(func() { e.writeControl(writtenFor(ctx, d.Source), dev, name, ar, value) })
+}
+
+// writtenFor is ctx saying a write under it is a rule's, when source is one's. A decision no rule's
+// claim won, the default's or an outside change's, is nobody's write but arbitration's own, so it
+// says nothing.
+func writtenFor(ctx context.Context, source string) context.Context {
+	if !strings.HasPrefix(source, rulePrefix) {
+		return ctx
+	}
+	return driver.WithWriter(ctx, source)
 }
 
 // earliestOf returns the earlier of two times, where zero means none.

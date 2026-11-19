@@ -887,7 +887,7 @@ func (e *Engine) applyHold(ctx context.Context, key ident.ID, t HoldTarget, star
 			retry, failed = max(retry, retryUndiscovered), fmt.Errorf("device %s isn't discovered", dev.Name)
 			continue
 		}
-		if err := e.Setter.Set(ctx, dev, t.Capability, value); err != nil {
+		if err := e.Setter.Set(writtenFor(ctx, ruleSource(key.Name)), dev, t.Capability, value); err != nil {
 			if ctx.Err() == nil {
 				log.Error("Failed to write hold", "err", err, "device", dev.Name)
 			}

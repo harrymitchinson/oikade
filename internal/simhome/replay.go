@@ -10,6 +10,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/control"
 	"github.com/harrymitchinson/oikade/internal/host/api"
 )
 
@@ -161,7 +162,7 @@ func Replay(o Options, head ReplayHeader, events []api.Event) (Report, error) {
 	}
 	var deployed, yours []Write
 	for _, e := range events {
-		if e.Type == api.EventWrite && counts(e.Time) {
+		if automationsWrote(e) && counts(e.Time) {
 			deployed = append(deployed, Write{Time: e.Time, Device: e.Device, Capability: e.Capability, Value: e.Value})
 		}
 	}
@@ -218,7 +219,7 @@ func processStart(events []api.Event) (time.Time, bool) {
 	}
 	connected, at := events[i].Time, events[i].Time
 	for _, e := range events {
-		if e.Type != api.EventWrite || !e.Time.Before(connected) {
+		if !automationsWrote(e) || !e.Time.Before(connected) {
 			continue
 		}
 		if connected.Sub(e.Time) > connectLag {
@@ -347,10 +348,10 @@ func withoutEchoes(events []api.Event) []api.Event {
 	var out []api.Event
 	for _, e := range events {
 		t := target{e.Device, e.Capability}
-		switch e.Type {
-		case api.EventWrite:
+		switch {
+		case automationsWrote(e):
 			wrote[t] = e
-		case api.EventChange:
+		case e.Type == api.EventChange:
 			w, ok := wrote[t]
 			if !ok || e.Time.Sub(w.Time) > echoWindow {
 				out = append(out, e)
@@ -366,6 +367,17 @@ func withoutEchoes(events []api.Event) []api.Event {
 		}
 	}
 	return out
+}
+
+// automationsWrote says an event is a write your automations made: a rule's, or one that doesn't say
+// whose it is, which is arbitration's own or from before writes said. A controller's and oikade
+// set's are a person's. A replay makes neither, and takes the change each made as one from outside.
+func automationsWrote(e api.Event) bool {
+	if e.Type != api.EventWrite {
+		return false
+	}
+	_, err := control.RuleKey(e.By)
+	return e.By == "" || err == nil
 }
 
 // diffWrites pairs each write with the same one in the other list, and returns those with no pair.

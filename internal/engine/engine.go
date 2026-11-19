@@ -825,7 +825,7 @@ func (e *Engine) act(ctx context.Context, key ident.ID, a action) (ok bool, arbi
 	if e.arbitrated(dev, a.capability) && e.claim(ctx, key, dev, a.capability, e.setClaim(key, a)) {
 		return true, nil
 	}
-	if err := e.Setter.Set(ctx, dev, a.capability, a.value); err != nil {
+	if err := e.Setter.Set(writtenFor(ctx, ruleSource(key.Name)), dev, a.capability, a.value); err != nil {
 		e.Log.Error("Failed to run Rule action", "err", err, "rule", ruleRef(key), "device", a.device, "capability", a.capability)
 		return false, nil
 	}
@@ -862,7 +862,7 @@ func (e *Engine) setRoom(ctx context.Context, key ident.ID, a action) (ok bool, 
 				continue
 			}
 		}
-		if err := e.Setter.Set(ctx, dev, a.capability, a.value); err != nil {
+		if err := e.Setter.Set(writtenFor(ctx, ruleSource(key.Name)), dev, a.capability, a.value); err != nil {
 			log.Error("Failed to run Rule action", "err", err, "device", dev.Name, "room", a.room, "capability", a.capability)
 			ok = false
 		}

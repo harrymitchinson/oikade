@@ -75,6 +75,33 @@ func TestScenario6WallSwitchOverridesUntilNext(t *testing.T) {
 	r.expect(call{"hall-light", capability.On, true}, call{"hall-light", capability.On, true})
 }
 
+// Each write says whose it is, for the event log: the rule whose hold or step set it, the rule whose
+// claim won, and nobody's when arbitration puts the default back.
+func TestAWriteSaysWhichRuleItIsFor(t *testing.T) {
+	light := holdRule(t, "hall-motion-light", Hold{Device: "hall-light", Capability: capability.On, Value: true, When: isTrue("hall-motion", capability.Occupied)})
+	heater := holdRule(t, "water-heater-night", heaterNight)
+	pump := flowRule(t, "pump-run", steps{Timers: []Timer{At{Time: "22:30"}}, Since: local("2026-10-21 12:00 BST"), Do: []Action{Set{Device: "pump", Capability: capability.On, Value: true}}})
+	r := startRigWith(t, rigOptions{
+		now:     local("2026-10-21 21:59 BST"),
+		values:  map[string]map[string]any{"hall-motion": {capability.Occupied: false}, "hall-light": {capability.On: false}},
+		control: map[string][]control.Entry{"hall-light": {entry(capability.On, "false", control.NameOverride, "Next")}},
+	}, light, heater, pump)
+	r.expect()
+	r.at("2026-10-21 22:00 BST")
+	r.change("hall-motion", capability.Occupied, true)
+	r.change("hall-light", capability.On, true)
+	r.change("hall-motion", capability.Occupied, false)
+	r.at("2026-10-21 22:30 BST")
+	r.expect(
+		call{"water-heater", capability.On, true}, call{"hall-light", capability.On, true},
+		call{"hall-light", capability.On, false}, call{"pump", capability.On, true},
+	)
+	want := []string{"Rule/water-heater-night", "Rule/hall-motion-light", "", "Rule/pump-run"}
+	if got := r.setter.writers(); !slices.Equal(got, want) {
+		t.Fatalf("the writes were for %q, want %q", got, want)
+	}
+}
+
 func testScenario7BoostEndsAtTheFirstOfForAndNext(t *testing.T, states *storeBackend) {
 	t.Helper()
 	rail := entry(capability.On, "false", control.NameOverride, "Next")
