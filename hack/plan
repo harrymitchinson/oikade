@@ -44,7 +44,7 @@ die() {
 	# A write that stops part-way gives the plan's lock back, unless this is a
 	# command substitution inside it, whose caller still holds it.
 	if (( ${LOCKS:-0} > 0 )) && [[ "$BASH_SUBSHELL" == "${LOCK_DEPTH:-}" && -n "${PLAN_DIR:-}" ]]; then
-		uninterrupted rm -rf "$PLAN_DIR/.git/plan.lock"
+		uninterrupted rm -f "$PLAN_DIR/.git/plan.lock"
 	fi
 	exit 1
 }
@@ -279,9 +279,9 @@ is_user() { [[ "$1" == "$USER_NAME" || "$1" == "$USER_NAME, by hand" ]]; }
 
 # --- Writing the plan ---------------------------------------------------------
 
-# lock and unlock: the plan's lock, a directory, since mkdir either makes it or
-# fails, whichever of two processes asks first. A lock whose process has gone
-# is taken over. It counts, so a write inside a write takes it once.
+# lock and unlock: the plan's lock, a file holding its holder's pid. A lock
+# whose process has gone is taken over. It counts, so a write inside a write
+# takes it once.
 LOCKS=0
 # How long a write waits for the lock, in seconds.
 LOCK_WAIT="${PLAN_LOCK_WAIT:-30}"
@@ -293,18 +293,22 @@ lock() {
 			LOCKS=1 LOCK_DEPTH="$BASH_SUBSHELL"
 			return
 		fi
-		pid=$(cat "$l/pid" 2>/dev/null || true)
+		pid=$(cat "$l" 2>/dev/null || true)
 		if [[ -n "$pid" ]] && ! kill -0 "$pid" 2>/dev/null && uninterrupted drop_stale_lock "$l" "$pid"; then continue; fi
 		sleep 0.1
 	done
 	local hint="rm -r $l"
-	taker=$(readlink "$l.stale" 2>/dev/null || true)
-	if [[ -n "$taker" ]]; then hint+=" $l.stale"; fi
+	taker=$(cat "$l.stale" 2>/dev/null || true)
+	# One an older hack/plan left is a symlink to its pid, which -e doesn't see.
+	if [[ -e "$l.stale" || -L "$l.stale" ]]; then hint+=" $l.stale"; fi
 	die "the plan has been locked for $LOCK_WAIT s${pid:+ by process $pid}${taker:+, and process $taker was taking it over}. If nothing holds it: $hint"
 }
-# make_lock LOCK: make the lock, with this process's pid in it, if no one holds
-# it.
-make_lock() { mkdir "$1" 2>/dev/null && echo $$ >"$1/pid"; }
+# make_lock LOCK: make LOCK, holding this process's pid, unless it's there.
+# Bash makes it itself, under noclobber, with an open that fails if the file is
+# there, so of two processes at once only one does. Not with mkdir, which isn't
+# always atomic: Ubuntu 26.04's, from uutils, lets two at once both make one
+# directory (OIK-359).
+make_lock() { (set -C && echo $$ >"$1") 2>/dev/null; }
 # drop_stale_lock LOCK PID: remove the lock PID left behind, PID having gone,
 # and say whether it did. The lock may have changed hands since PID was read
 # from it: its holder finished and went, and another process took it. So this
@@ -314,22 +318,20 @@ make_lock() { mkdir "$1" 2>/dev/null && echo $$ >"$1/pid"; }
 # each see PID's lock and the slower remove the one the faster then took
 # (OIK-357). That lock is never taken over, as that would race the same way one
 # level up. It's held for a moment, uninterrupted, so only a kill -9 leaves it
-# behind, and lock's error then names it. It's a symlink to its holder's pid,
-# made in one step, so the error can say whose it is.
+# behind, and lock's error then names it, and whose it is.
 drop_stale_lock() {
 	local l="$1" pid="$2" dropped=1
-	ln -sn "$$" "$l.stale" 2>/dev/null || return 1
-	if [[ "$(cat "$l/pid" 2>/dev/null || true)" == "$pid" ]]; then
-		rm -rf "$l"
+	make_lock "$l.stale" || return 1
+	if [[ "$(cat "$l" 2>/dev/null || true)" == "$pid" ]]; then
+		rm -f "$l"
 		dropped=0
 	fi
 	rm -f "$l.stale"
 	return "$dropped"
 }
 # uninterrupted CMD...: run CMD with Ctrl-C, TERM and HUP held off, it and its
-# children, so a lock is never left half made or half removed: a lock with no
-# pid in it, or a takeover's left behind, holds every write up until someone
-# removes it.
+# children, so a lock is never left made but empty, nor a takeover's behind:
+# either holds every write up until someone removes it.
 uninterrupted() {
 	local r=0
 	trap '' INT TERM HUP
@@ -339,7 +341,7 @@ uninterrupted() {
 }
 unlock() {
 	LOCKS=$((LOCKS - 1))
-	if (( LOCKS == 0 )); then uninterrupted rm -rf "$PLAN_DIR/.git/plan.lock"; fi
+	if (( LOCKS == 0 )); then uninterrupted rm -f "$PLAN_DIR/.git/plan.lock"; fi
 }
 
 # plan_write MESSAGE FUNC ARGS...: run FUNC under the lock, then commit what it
