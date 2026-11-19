@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/host/api"
+	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/hub"
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/logging"
@@ -44,7 +46,7 @@ func TestAFailedSetLeavesTheDevicesNextChangeItsOwn(t *testing.T) {
 	devices.Changed(driver.Update{Device: dev, Capability: capability.On, Value: false, Time: now.Now()})
 	idle(t, eng)
 
-	s := &apiServer{srv: &server{engine: eng, devices: devices, outside: &writes{err: errors.New("no answer")}, feed: newFeed()}}
+	s := &apiServer{srv: &server{engine: eng, devices: devices, setter: &writes{err: errors.New("no answer")}, feed: newFeed()}}
 	resp := s.set(ctx, api.Request{Type: api.TypeSet, Device: "fan", Capability: capability.On, Value: true})
 	if resp.Error == "" {
 		t.Fatalf("the failure was lost: %+v", resp)
@@ -77,5 +79,45 @@ func idle(t *testing.T, eng *engine.Engine) {
 			t.Fatal("the engine didn't settle")
 		}
 		time.Sleep(time.Millisecond)
+	}
+}
+
+// Every write goes into the log with whose it is: a rule's, as your process says of its own, a
+// controller's, and nobody's when nothing says. Your process can't write as anyone but a rule.
+func TestAWriteIsLoggedWithWhoseItIs(t *testing.T) {
+	data := openStore(t, t.TempDir())
+	t.Cleanup(func() { _ = data.Close() })
+	eng := &engine.Engine{
+		Log:      logging.Discard(),
+		Controls: &engine.Stored[engine.ControlState]{Values: data.Namespace(engine.ControlStatesNamespace), Log: logging.Discard()},
+	}
+	devices := hub.NewStore(logging.Discard(), eng)
+	eng.Store = devices
+	eng.Init()
+	var events []api.Event
+	recorded := recordedSetter{emit: func(e api.Event) { events = append(events, e) }, setter: &writes{}}
+	srv := &server{ctx: t.Context(), setter: recorded}
+	for _, source := range []string{"Rule/fan on humid", "Rule/morning", control.SourceMatter, ""} {
+		m := wire.Message{Type: wire.TypeSet, Device: "fan", Capability: capability.On, Value: true, Source: source}
+		if reply := srv.answer(m); reply.Error != "" {
+			t.Fatal(reply.Error)
+		}
+	}
+	bridge := &matterWrites{engine: eng, devices: devices, setter: recorded, restore: func(ident.ID, string, any) {}}
+	if err := bridge.Set(t.Context(), key("fan"), capability.On, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := recorded.Set(driver.WithWriter(t.Context(), control.SourceCommand), key("fan"), capability.On, true); err != nil {
+		t.Fatal(err)
+	}
+	by := make([]string, 0, len(events))
+	for _, e := range events {
+		if e.Type != api.EventWrite || e.Device != "fan" || e.Capability != capability.On {
+			t.Fatalf("event %+v", e)
+		}
+		by = append(by, e.By)
+	}
+	if want := []string{"case/fan/on/humid", "flow/morning", "", "", "matter", "command"}; !slices.Equal(by, want) {
+		t.Fatalf("the writes are by %q, want %q", by, want)
 	}
 }

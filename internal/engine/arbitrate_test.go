@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -73,6 +74,33 @@ func TestScenario6WallSwitchOverridesUntilNext(t *testing.T) {
 	r.at("2026-10-21 20:20 BST")
 	r.change("hall-motion", capability.Occupied, true)
 	r.expect(call{"hall-light", capability.On, true}, call{"hall-light", capability.On, true})
+}
+
+// Each write says whose it is, for the event log: the rule whose hold or step set it, the rule whose
+// claim won, and nobody's when arbitration puts the default back.
+func TestAWriteSaysWhichRuleItIsFor(t *testing.T) {
+	light := holdRule(t, "hall-motion-light", Hold{Device: "hall-light", Capability: capability.On, Value: true, When: isTrue("hall-motion", capability.Occupied)})
+	heater := holdRule(t, "water-heater-night", heaterNight)
+	pump := flowRule(t, "pump-run", steps{Timers: []Timer{At{Time: "22:30"}}, Since: local("2026-10-21 12:00 BST"), Do: []Action{Set{Device: "pump", Capability: capability.On, Value: true}}})
+	r := startRigWith(t, rigOptions{
+		now:     local("2026-10-21 21:59 BST"),
+		values:  map[string]map[string]any{"hall-motion": {capability.Occupied: false}, "hall-light": {capability.On: false}},
+		control: map[string][]control.Entry{"hall-light": {entry(capability.On, "false", control.NameOverride, "Next")}},
+	}, light, heater, pump)
+	r.expect()
+	r.at("2026-10-21 22:00 BST")
+	r.change("hall-motion", capability.Occupied, true)
+	r.change("hall-light", capability.On, true)
+	r.change("hall-motion", capability.Occupied, false)
+	r.at("2026-10-21 22:30 BST")
+	r.expect(
+		call{"water-heater", capability.On, true}, call{"hall-light", capability.On, true},
+		call{"hall-light", capability.On, false}, call{"pump", capability.On, true},
+	)
+	want := []string{"Rule/water-heater-night", "Rule/hall-motion-light", "", "Rule/pump-run"}
+	if got := r.setter.writers(); !slices.Equal(got, want) {
+		t.Fatalf("the writes were for %q, want %q", got, want)
+	}
 }
 
 func testScenario7BoostEndsAtTheFirstOfForAndNext(t *testing.T, states *storeBackend) {
@@ -291,6 +319,37 @@ func TestEditingControlDuringAWriteKeepsWriting(t *testing.T) {
 	r.e.Remove(c.Key)
 	r.settle()
 	r.expect(call{"towel-rail", capability.On, true}, call{"towel-rail", capability.On, false})
+}
+
+// A claim that ends while its write is under way is followed by the default's write, which is
+// nobody's: it doesn't take the name of the rule whose write it waited for.
+func TestAWriteDecidedDuringAnotherIsntThatOnes(t *testing.T) {
+	r := railRig(t)
+	g := &gate{fakeSetter: r.setter, open: make(chan struct{})}
+	r.e.Setter = g
+	// A failure before the write is let through mustn't leave the engine waiting for it.
+	open := sync.OnceFunc(func() { close(g.open) })
+	t.Cleanup(open)
+	c := holdRule(t, "rail", railHold)
+	r.e.Load(c)
+	// writing says the write is under way, and whether another decision waits for it.
+	writing := func() (under, another bool) {
+		r.e.mu.Lock()
+		defer r.e.mu.Unlock()
+		ar := r.e.arbs[ident.ID{Name: "towel-rail"}][capability.On]
+		return ar != nil && ar.writing, ar != nil && ar.pending
+	}
+	r.eventually("the write to start", func() bool { under, _ := writing(); return under })
+	r.e.Remove(c.Key)
+	if under, another := writing(); !under || !another {
+		t.Fatalf("writing %t with another decision waiting %t, want the claim to end during the write", under, another)
+	}
+	open()
+	r.settle()
+	r.expect(call{"towel-rail", capability.On, true}, call{"towel-rail", capability.On, false})
+	if got, want := r.setter.writers(), []string{"Rule/rail", ""}; !slices.Equal(got, want) {
+		t.Fatalf("the writes were for %q, want %q", got, want)
+	}
 }
 
 func TestAReportDuringAWriteIsLookedAtAgain(t *testing.T) {

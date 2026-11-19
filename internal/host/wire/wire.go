@@ -276,7 +276,8 @@ type Message struct {
 	Discovered *Device   `json:"discovered,omitempty"`
 	Time       time.Time `json:"time,omitzero"`
 
-	// Claim is a claim's, and Source a release's. Below limits a releaseAll to lower levels.
+	// Claim is a claim's, and Source a release's, or the rule a set is for. Below limits a releaseAll
+	// to lower levels.
 	Claim  *control.Claim `json:"claim,omitempty"`
 	Source string         `json:"source,omitempty"`
 	Below  control.Level  `json:"below,omitempty"`

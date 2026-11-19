@@ -43,12 +43,10 @@ type server struct {
 	ctx     context.Context
 	devices *hub.Store
 	engine  *engine.Engine
-	// setter is for your automations, and outside for a person's writes, which the log shows as the
-	// change they make.
-	setter  driver.Setter
-	outside driver.Setter
-	holds   *engine.Stored[engine.HoldState]
-	fires   *engine.Stored[time.Time]
+	// setter makes every write to a device, and logs whose it is.
+	setter driver.Setter
+	holds  *engine.Stored[engine.HoldState]
+	fires  *engine.Stored[time.Time]
 	// averages are the rolling averages the process's conditions read.
 	averages *engine.Stored[engine.AverageState]
 	journal  *store.Journal
@@ -860,7 +858,7 @@ func (s *server) answer(m wire.Message) wire.Message {
 			err = s.engine.ReleaseClaims(s.ctx, m.Source, m.Below)
 		}
 	case wire.TypeSet:
-		err = s.setter.Set(s.ctx, key(m.Device), m.Capability, m.Value)
+		err = s.setter.Set(writtenByRule(s.ctx, m.Source), key(m.Device), m.Capability, m.Value)
 	case wire.TypeSaveHold:
 		if m.Hold == nil {
 			err = errors.New("saving a hold needs its state")

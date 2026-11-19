@@ -170,7 +170,7 @@ func (h *Host) Run(ctx context.Context) error {
 	var writing atomic.Int64
 	setter := claimedSetter{engine: eng, setter: routedSetter{devices: devices, simulated: sim, plugins: h.plugins, writing: &writing}}
 	recorded := recordedSetter{emit: srv.emit, setter: setter}
-	eng.Store, eng.Setter, srv.devices, srv.setter, srv.outside = devices, recorded, devices, recorded, setter
+	eng.Store, eng.Setter, srv.devices, srv.setter = devices, recorded, devices, recorded
 	eng.Init()
 	// Before any driver attaches, so devices come in under the names the home declares.
 	if err := known.loadDeclared(); err != nil {
@@ -178,7 +178,7 @@ func (h *Host) Run(ctx context.Context) error {
 		h.Log.Error("Failed to apply the home's device declarations", "err", err)
 	}
 	if bridge.working() {
-		bridge.connect(devices, known, options, eng, setter, srv.emit)
+		bridge.connect(devices, known, options, eng, recorded, srv.emit)
 	}
 	if err := sim.start(h.Devices); err != nil {
 		return err

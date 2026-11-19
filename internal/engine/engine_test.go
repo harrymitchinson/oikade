@@ -252,17 +252,20 @@ type call struct {
 type fakeSetter struct {
 	mu    sync.Mutex
 	calls []call
-	err   error
+	// by is whose write each call's context said it was.
+	by  []string
+	err error
 	// fail names devices whose Set fails.
 	fail map[string]bool
 	// before, when set, runs as each Set arrives.
 	before func()
 }
 
-func (f *fakeSetter) Set(_ context.Context, dev ident.ID, c string, v any) error {
+func (f *fakeSetter) Set(ctx context.Context, dev ident.ID, c string, v any) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, call{dev.Name, c, v})
+	f.by = append(f.by, driver.Writer(ctx))
 	if f.before != nil {
 		f.before()
 	}
@@ -270,6 +273,12 @@ func (f *fakeSetter) Set(_ context.Context, dev ident.ID, c string, v any) error
 		return errors.New("not responding")
 	}
 	return f.err
+}
+
+func (f *fakeSetter) writers() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.by)
 }
 
 func (f *fakeSetter) got() []call {

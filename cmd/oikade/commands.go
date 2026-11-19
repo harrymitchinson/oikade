@@ -596,7 +596,10 @@ func describe(e api.Event) (what, cause string) {
 	case api.EventPause:
 		return e.Message, ""
 	case api.EventWrite:
-		return "wrote " + value(e.Value), ""
+		if e.By != "" {
+			cause = "by " + e.By
+		}
+		return "wrote " + value(e.Value), cause
 	case api.EventRefused:
 		return "refused a Matter write of " + value(e.Value), e.Message
 	case api.EventDeploy:

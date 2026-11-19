@@ -132,6 +132,75 @@ func TestUnchangedCodeShowsNoDifferences(t *testing.T) {
 	}
 }
 
+// The log has a controller's write and oikade set's, each saying whose it is. Neither is your
+// automations', so a replay doesn't count them, and the change each made goes in as one from outside
+// rather than as a device answering a write.
+func TestAPersonsWritesArentYourAutomations(t *testing.T) {
+	log := recorded(t, fanAbove(70), damp)
+	for i := range log {
+		if log[i].Type == api.EventWrite {
+			log[i].By = "case/fan/on/humid"
+		}
+	}
+	tap, command := monday.Add(4*time.Hour), monday.Add(5*time.Hour)
+	log = append(log,
+		api.Event{Time: tap, Type: api.EventWrite, Device: "lamp", Capability: on, Value: true, By: "matter"},
+		api.Event{Time: tap.Add(50 * time.Millisecond), Type: api.EventChange, Device: "lamp", Capability: on, Value: true},
+		api.Event{Time: command, Type: api.EventWrite, Device: "lamp", Capability: on, Value: false, By: "command"},
+		api.Event{Time: command.Add(50 * time.Millisecond), Type: api.EventChange, Device: "lamp", Capability: on, Value: false},
+	)
+	slices.SortStableFunc(log, func(a, b api.Event) int { return a.Time.Compare(b.Time) })
+	opts := options(t, fanAbove(70))
+	opts.Devices = append(opts.Devices, simhome.Device{Name: "lamp", Capabilities: []string{on}, Values: map[string]any{on: false}})
+	r, err := simhome.Replay(opts, head(monday.Add(end)), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Removed)+len(r.Added) != 0 {
+		t.Fatalf("Differences from a person's writes: removed %v, added %v", r.Removed, r.Added)
+	}
+	if r.Deployed != 6 || r.Yours != 6 {
+		t.Fatalf("%d writes deployed and %d replayed, want the rule's 6 of each", r.Deployed, r.Yours)
+	}
+	if r.Changes != len(damp)+2 {
+		t.Fatalf("%d changes went in, want %d: what a person's write changed is an outside change", r.Changes, len(damp)+2)
+	}
+}
+
+// A person's write straight after a rule's, to the same capability, isn't the device answering the
+// rule: what it changed goes in, though it's a level within the time an answer takes.
+func TestAPersonsWriteAfterARulesIsntItsAnswer(t *testing.T) {
+	const position = string(oikade.Position)
+	blind := oikade.Number{Device: "blind", Capability: oikade.Position}
+	home := oikade.NewHome(oikade.Options{})
+	home.Flow("shade", func(r *oikade.FlowRun) { r.Set(blind.To(50)) }).When(contactOf("door"))
+	opts := options(t, home)
+	opts.Devices = append(opts.Devices,
+		simhome.Device{Name: "door", Capabilities: []string{contact}, Values: map[string]any{contact: false}},
+		simhome.Device{Name: "blind", Capabilities: []string{position}, Values: map[string]any{position: 0.0}},
+	)
+	at := monday.Add(time.Hour)
+	log := []api.Event{
+		{Time: monday, Type: api.EventChange, Device: "door", Capability: contact, Value: false},
+		{Time: monday, Type: api.EventChange, Device: "blind", Capability: position, Value: 0.0},
+		{Time: at, Type: api.EventChange, Device: "door", Capability: contact, Value: true},
+		{Time: at, Type: api.EventWrite, Device: "blind", Capability: position, Value: 50.0, By: "flow/shade"},
+		{Time: at.Add(time.Second), Type: api.EventChange, Device: "blind", Capability: position, Value: 50.0},
+		{Time: at.Add(3 * time.Second), Type: api.EventWrite, Device: "blind", Capability: position, Value: 30.0, By: "matter"},
+		{Time: at.Add(4 * time.Second), Type: api.EventChange, Device: "blind", Capability: position, Value: 30.0},
+	}
+	r, err := simhome.Replay(opts, head(monday.Add(2*time.Hour)), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(r.Removed)+len(r.Added) != 0 || r.Deployed != 1 {
+		t.Fatalf("removed %v, added %v, %d deployed", r.Removed, r.Added, r.Deployed)
+	}
+	if r.Changes != 2 {
+		t.Fatalf("%d changes went in, want the door's and the blind's from the controller", r.Changes)
+	}
+}
+
 func TestAChangedThresholdShowsExactlyTheWritesThatMoved(t *testing.T) {
 	log := recorded(t, fanAbove(70), damp)
 	r, err := simhome.Replay(options(t, fanAbove(60)), head(monday.Add(end)), log)

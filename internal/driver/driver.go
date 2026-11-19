@@ -138,6 +138,23 @@ func (f SetterFunc) Set(ctx context.Context, dev ident.ID, capability string, va
 	return f(ctx, dev, capability, value)
 }
 
+// writerKey is where a context says whose write a Set under it is.
+type writerKey struct{}
+
+// WithWriter returns ctx saying whose write a Set under it is, by its claim source: a rule's
+// (Rule/<key>), or a Matter controller's or oikade set's. A Setter passes the write on whoever's it
+// is, and the host's event log reads this to say who wrote.
+func WithWriter(ctx context.Context, source string) context.Context {
+	return context.WithValue(ctx, writerKey{}, source)
+}
+
+// Writer is whose write ctx says a Set under it is, as WithWriter was given it, and empty when
+// nothing said.
+func Writer(ctx context.Context) string {
+	source, _ := ctx.Value(writerKey{}).(string)
+	return source
+}
+
 // Refused is a write that arbitration turned away because a claim holds the capability: the rule
 // working, not a fault. Callers recognise it with errors.AsType.
 type Refused struct {

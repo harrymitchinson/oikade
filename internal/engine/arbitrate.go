@@ -324,7 +324,18 @@ func (e *Engine) decide(ctx context.Context, dev ident.ID, name string, ar *arb)
 	}
 	ar.writing = true
 	value := d.Value
-	e.goBusy(func() { e.writeControl(ctx, dev, name, ar, value) })
+	source := d.Source
+	e.goBusy(func() { e.writeControl(ctx, dev, name, ar, value, source) })
+}
+
+// writtenFor is ctx saying a write under it is a rule's, when source is one's. A decision no rule's
+// claim won, the default's or an outside change's, is nobody's write but arbitration's own, so it
+// says nothing.
+func writtenFor(ctx context.Context, source string) context.Context {
+	if !strings.HasPrefix(source, rulePrefix) {
+		return ctx
+	}
+	return driver.WithWriter(ctx, source)
 }
 
 // earliestOf returns the earlier of two times, where zero means none.
@@ -335,9 +346,10 @@ func earliestOf(a, b time.Time) time.Time {
 	return a
 }
 
-// writeControl writes a decision, records it, and decides again.
-func (e *Engine) writeControl(ctx context.Context, dev ident.ID, name string, ar *arb, value float64) {
-	err := e.Setter.Set(ctx, dev, name, ValueOf(name, value))
+// writeControl writes a decision, for the claim source that won it, records it, and decides again.
+// Only the write is the winner's: the next decision may be anyone's.
+func (e *Engine) writeControl(ctx context.Context, dev ident.ID, name string, ar *arb, value float64, source string) {
+	err := e.Setter.Set(writtenFor(ctx, source), dev, name, ValueOf(name, value))
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	ar.writing = false

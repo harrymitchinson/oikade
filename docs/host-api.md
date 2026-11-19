@@ -86,7 +86,7 @@ An `Event`'s `type` is one of:
 | `type` | What happened | Fields |
 |---|---|---|
 | `change` | A device reported a new value | `device`, `capability`, `value`, `previous` |
-| `write` | Your automations wrote to a device. A person's write shows up as the `change` it makes | `device`, `capability`, `value` |
+| `write` | The host wrote to a device, whether or not the device took it. `by` is the ref of whose write it is: the rule whose claim won or whose step set it (`case/porch-light/on/dusk`, `flow/morning`), `matter` for a Matter controller's, such as a Home app tap, or `command` for `oikade set`'s. It has no `by` when no rule's claim decided it, as when arbitration puts a capability back to its default. A `change` with no write before it was made at the device, by its switch or its maker's app. `oikade replay` counts a write only if its `by` is a rule's or it has none | `device`, `capability`, `value`, `by` |
 | `refused` | A controller's write, such as a Home app tap, that a claim turned away. The device wasn't written, and `oikade replay` doesn't count it as a write | `device`, `capability`, `value`, `message`: which claim holds it, and at what level |
 | `rule` | A rule's run ended | `rule`, `result` |
 | `pause` | A rule was paused or resumed | `rule`, `message` |

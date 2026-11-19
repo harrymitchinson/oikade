@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/control"
+	"github.com/harrymitchinson/oikade/internal/driver"
 	"github.com/harrymitchinson/oikade/internal/engine"
 	"github.com/harrymitchinson/oikade/internal/fault"
 	"github.com/harrymitchinson/oikade/internal/ident"
@@ -266,9 +267,11 @@ func (c *Client) ReleaseClaims(ctx context.Context, source string, below control
 	return err
 }
 
-// Set writes a capability through the host.
+// Set writes a capability through the host, for the rule ctx says it's for.
 func (c *Client) Set(ctx context.Context, dev ident.ID, capability string, value any) error {
-	_, err := c.request(ctx, Message{Type: TypeSet, Device: dev.Name, Capability: capability, Value: value})
+	_, err := c.request(ctx, Message{
+		Type: TypeSet, Device: dev.Name, Capability: capability, Value: value, Source: driver.Writer(ctx),
+	})
 	return err
 }
 

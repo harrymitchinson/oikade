@@ -501,8 +501,9 @@ const (
 	EventRule    = "rule"
 	EventProcess = "process"
 	EventPause   = "pause"
-	// EventWrite is your automations writing to a device. A person's write isn't one: oikade set and
-	// the Home app show up as the change they make.
+	// EventWrite is the host writing to a device, for whoever By says: a rule, a Matter controller or
+	// oikade set. A change with no write before it was made at the device, by its switch or its
+	// maker's app.
 	EventWrite = "write"
 	// EventRefused is a controller's write that a claim turned away, such as a Home app tap against a
 	// Safety hold. Message says which claim holds it, and at what level.
@@ -532,6 +533,11 @@ type Event struct {
 	// Ref is the ref of what it's about: the capability's, the device's or the rule's.
 	Ref    string `json:"ref,omitempty"`
 	Result string `json:"result,omitempty"`
+	// By is whose write it is, as a ref: the rule whose claim won or whose step set it
+	// (case/porch-light/on/dusk, flow/morning), matter for a Matter controller, or command for oikade
+	// set. A write has none when no rule's claim decided it, as when a capability goes back to its
+	// default, and when it's from before writes said.
+	By string `json:"by,omitempty"`
 	// Message says what happened to the process or the pause, which version a deploy brought, which
 	// outside call this is, or why a write was refused.
 	Message string `json:"message,omitempty"`

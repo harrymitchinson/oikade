@@ -220,7 +220,7 @@ func (s *apiServer) set(ctx context.Context, req api.Request) api.Response {
 	events, stop := s.srv.feed.subscribe()
 	defer stop()
 	s.srv.engine.CommandWrote(dev, req.Capability, value)
-	if err := s.srv.outside.Set(ctx, dev, req.Capability, value); err != nil {
+	if err := s.srv.setter.Set(driver.WithWriter(ctx, control.SourceCommand), dev, req.Capability, value); err != nil {
 		s.srv.engine.ForgetCommandWrite(dev, req.Capability)
 		return api.Response{Error: err.Error()}
 	}
@@ -339,8 +339,8 @@ func (s claimedSetter) Set(ctx context.Context, dev ident.ID, name string, value
 	return s.setter.Set(ctx, dev, name, value)
 }
 
-// recordedSetter logs what your automations write, whether or not the device takes it: that's what
-// the version did, and all a replay can compare with.
+// recordedSetter logs every write and whose it is, whether or not the device takes it: that's what
+// the version did, and all a replay can compare with. Every write to a device goes through it.
 type recordedSetter struct {
 	emit   func(api.Event)
 	setter driver.Setter
@@ -348,8 +348,21 @@ type recordedSetter struct {
 
 // Set implements driver.Setter.
 func (s recordedSetter) Set(ctx context.Context, dev ident.ID, name string, value any) error {
-	s.emit(api.Event{Time: time.Now(), Type: api.EventWrite, Device: dev.Name, Capability: name, Value: value})
+	e := api.Event{Time: time.Now(), Type: api.EventWrite, Device: dev.Name, Capability: name, Value: value}
+	if source := driver.Writer(ctx); source != "" {
+		e.By = control.SourceRef(source).String()
+	}
+	s.emit(e)
 	return s.setter.Set(ctx, dev, name, value)
+}
+
+// writtenByRule is ctx saying a write under it is the rule's that source names, as your process says
+// of its own. Only a rule's counts: your process doesn't write for a controller or for oikade set.
+func writtenByRule(ctx context.Context, source string) context.Context {
+	if !strings.HasPrefix(source, control.SourceRule) {
+		return ctx
+	}
+	return driver.WithWriter(ctx, source)
 }
 
 func safetyHolder(c control.Status) string {
