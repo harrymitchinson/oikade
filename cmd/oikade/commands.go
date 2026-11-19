@@ -558,7 +558,7 @@ func tail(ctx context.Context, t api.Transport, host string, asJSON bool, stdout
 		}
 	}
 	p := printerOf(stdout)
-	return api.Tail(ctx, t, opened, func(e api.Event) error {
+	return api.Tail(ctx, t, api.EventFilter{}, opened, func(e api.Event) error {
 		if asJSON {
 			return out.Encode(e)
 		}

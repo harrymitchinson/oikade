@@ -43,6 +43,8 @@ type server struct {
 	ctx     context.Context
 	devices *hub.Store
 	engine  *engine.Engine
+	// emitting orders the log and the feed: emit.
+	emitting sync.Mutex
 	// setter makes every write to a device, and logs whose it is.
 	setter driver.Setter
 	holds  *engine.Stored[engine.HoldState]
@@ -773,21 +775,38 @@ func (s *server) ping(id uint64) (last time.Time, ok bool) {
 // recordCall logs a flow's outside call from its journal entry, for a replay to answer it with.
 func (s *server) recordCall(run string, entry []byte) {
 	if name, result, failure, ok := flow.CallIn(entry); ok {
-		e := api.Event{
+		s.emit(api.Event{
 			Time: time.Now(), Type: api.EventCall, Rule: flow.FlowOf(run), Message: name, Value: result, Result: failure,
-		}
-		e.Ref = eventRef(e)
-		s.events.add(e)
+		})
 	}
 }
 
-// emit passes an event to whoever's tailing, and on to the log. Neither waits.
+// emit passes an event on to the log, and to whoever's tailing. Neither waits. They take it together,
+// so that a tail that starts with the log's past has every event once: tailWithPast.
 func (s *server) emit(e api.Event) {
 	if e.Ref == "" {
 		e.Ref = eventRef(e)
 	}
-	s.feed.publish(e)
+	s.emitting.Lock()
+	defer s.emitting.Unlock()
 	s.events.add(e)
+	s.feed.publish(e)
+}
+
+// tailWithPast starts a tail that the log's past comes before: the events from now on, how to stop,
+// and the place of the last record in the log from before them. The log's events up to there, then
+// these, are every event once.
+func (s *server) tailWithPast() (events <-chan api.Event, stop func(), upTo uint64, err error) {
+	upTo, err = s.events.flushedAt(func(take func()) {
+		s.emitting.Lock()
+		defer s.emitting.Unlock()
+		events, stop = s.feed.subscribe()
+		take()
+	})
+	if err != nil {
+		stop()
+	}
+	return events, stop, upTo, err
 }
 
 // eventRef is the ref of what an event is about: the capability changed, written or refused, the

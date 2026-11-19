@@ -83,7 +83,7 @@ func (e *Events) Add(records []Record, now time.Time, bound Bound, fold Fold) er
 		}
 		log.FillPercent = fillPercent
 		size := decodeSize(root.Get(sizeKey))
-		for _, r := range records {
+		for i, r := range records {
 			seq, err := log.NextSequence()
 			if err != nil {
 				return err
@@ -93,6 +93,7 @@ func (e *Events) Add(records []Record, now time.Time, bound Bound, fold Fold) er
 			if err := log.Put(binary.BigEndian.AppendUint64(nil, seq), value); err != nil {
 				return err
 			}
+			records[i].Seq = seq
 			size += keyBytes + uint64(len(value))
 		}
 		dropped, size := oldest(log, size, now, bound, max(minDrop, dropPerAdd*len(records)))
@@ -185,6 +186,18 @@ func (e *Events) Start(limit int) ([]byte, []Record, error) {
 		return nil
 	})
 	return baseline, out, err
+}
+
+// Last is the Seq of the newest record the log holds, and 0 for a log with none.
+func (e *Events) Last() (uint64, error) {
+	var out uint64
+	err := e.view(func(_, log *bolt.Bucket) error {
+		if k, _ := log.Cursor().Last(); k != nil {
+			out = binary.BigEndian.Uint64(k)
+		}
+		return nil
+	})
+	return out, err
 }
 
 // Size is how many bytes the log holds, as Bound counts them.

@@ -573,11 +573,72 @@ type Event struct {
 	Message string `json:"message,omitempty"`
 }
 
+// EventFilter narrows what the event log and a tail send. Its zero value narrows nothing.
+type EventFilter struct {
+	// Since and Until are the times events are from and to, both included. Zero is no limit. A tail
+	// with a Since starts with the log's events from then, and has no Until.
+	Since, Until time.Time
+	// Refs are what the events are about: a device's ref for it and its capabilities, under each name
+	// it had while it had it, a capability's, a room's for the devices in it now, a case's or a flow's
+	// for its runs, pauses, calls and the writes it made, a plugin's for its own problems,
+	// and matter for the bridge's events and controllers' writes. The home's own events, a deploy and
+	// your automations connecting or disconnecting, pass whatever the refs. With no refs every event
+	// passes.
+	Refs []string
+}
+
+// The query parameters an EventFilter goes in.
+const (
+	querySince = "since"
+	queryUntil = "until"
+	queryRef   = "ref"
+)
+
+// Query is the filter as the query of a GET, empty for one that narrows nothing.
+func (f EventFilter) Query() url.Values {
+	q := url.Values{}
+	if !f.Since.IsZero() {
+		q.Set(querySince, f.Since.Format(time.RFC3339Nano))
+	}
+	if !f.Until.IsZero() {
+		q.Set(queryUntil, f.Until.Format(time.RFC3339Nano))
+	}
+	for _, ref := range f.Refs {
+		q.Add(queryRef, ref)
+	}
+	return q
+}
+
+// ParseEventFilter reads a filter from a GET's query, and says which parameter it can't read.
+func ParseEventFilter(q url.Values) (EventFilter, error) {
+	f := EventFilter{Refs: q[queryRef]}
+	for _, p := range []struct {
+		name string
+		into *time.Time
+	}{{querySince, &f.Since}, {queryUntil, &f.Until}} {
+		if !q.Has(p.name) {
+			continue
+		}
+		at, err := time.Parse(time.RFC3339Nano, q.Get(p.name))
+		if err != nil {
+			return EventFilter{}, fmt.Errorf("%s=%q isn't a time: give one as 2026-11-18T03:00:00Z", p.name, q.Get(p.name))
+		}
+		*p.into = at
+	}
+	if !f.Since.IsZero() && !f.Until.IsZero() && f.Until.Before(f.Since) {
+		return EventFilter{}, fmt.Errorf("%s is before %s, so no event is between them", queryUntil, querySince)
+	}
+	return f, nil
+}
+
 // EventLog opens the host's event log, which comes as lines of JSON: this, then an Event for each
 // thing it holds, oldest first.
 type EventLog struct {
 	// Now is when the host read it.
 	Now time.Time `json:"now"`
+	// Start is when the oldest event the log holds is from, whatever the filter: nothing before it is
+	// kept. A log with no events has none.
+	Start time.Time `json:"start,omitzero"`
 	// Zone is the IANA name of the time zone your automations run in on the host, and Offset that
 	// zone's seconds east of UTC now, for a host that can't name it.
 	Zone   string `json:"zone,omitempty"`
@@ -669,11 +730,12 @@ var errUnreachable = errors.New("reaching the host")
 // ErrHostStopped is a stream whose host ended it without saying why, as a host does when it stops.
 var ErrHostStopped = errors.New("the host stopped")
 
-// Tail streams events to each until ctx ends, each returns an error, or the host goes: ErrHostStopped
-// if it stopped, or why it ended the tail if it carries on. It starts once the host is listening,
-// which the first Event, with no type, says: then it calls opened, if there is one.
-func Tail(ctx context.Context, t Transport, opened func(), each func(Event) error) error {
-	body, err := open(ctx, t, Request{Type: TypeTail})
+// Tail streams the events that pass f to each until ctx ends, each returns an error, or the host
+// goes: ErrHostStopped if it stopped, or why it ended the tail if it carries on. With f.Since, the
+// log's events from then come first. It's following once the host is listening, which an Event with
+// no type says: then it calls opened, if there is one.
+func Tail(ctx context.Context, t Transport, f EventFilter, opened func(), each func(Event) error) error {
+	body, err := openFiltered(ctx, t, TypeTail, f)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil
@@ -709,10 +771,11 @@ func Tail(ctx context.Context, t Transport, opened func(), each func(Event) erro
 	}
 }
 
-// Events reads the host's event log to its end: begin gets its opening, and each gets every event. It
-// returns ErrHostStopped if the host stopped before the end, or why the host ended it.
-func Events(ctx context.Context, t Transport, begin func(EventLog) error, each func(Event) error) error {
-	body, err := open(ctx, t, Request{Type: TypeEvents})
+// Events reads the host's event log to its end: begin gets its opening, and each gets every event
+// that passes f. It returns ErrHostStopped if the host stopped before the end, or why the host ended
+// it.
+func Events(ctx context.Context, t Transport, f EventFilter, begin func(EventLog) error, each func(Event) error) error {
+	body, err := openFiltered(ctx, t, TypeEvents, f)
 	if err != nil {
 		return err
 	}
@@ -772,6 +835,16 @@ func open(ctx context.Context, t Transport, req Request) (io.ReadCloser, error) 
 		body, length = bytes.NewReader(raw), int64(len(raw))
 	}
 	return send(ctx, t, route, route.Path, body, length, ContentType)
+}
+
+// openFiltered starts a stream of events narrowed by f.
+func openFiltered(ctx context.Context, t Transport, kind string, f EventFilter) (io.ReadCloser, error) {
+	route, _ := routeOf(kind)
+	target := route.Path
+	if q := f.Query(); len(q) > 0 {
+		target += "?" + q.Encode()
+	}
+	return send(ctx, t, route, target, nil, 0, ContentType)
 }
 
 // send makes a call to target, a route's path and query, with body as its content.

@@ -1,6 +1,7 @@
 package host
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -87,10 +88,42 @@ func (l *eventLog) run(ctx context.Context) {
 func (l *eventLog) flush() {
 	l.flushing.Lock()
 	defer l.flushing.Unlock()
+	l.commit(l.take())
+}
+
+// flushedAt is flush for a tail that starts with the log's past: it returns the place of the log's
+// last record once what's queued is in it. at is given the taking of the queue to call, so that its
+// caller can start listening at that same moment: every event is then in the log up to that place,
+// or heard, and none is both. Nothing is added to the log meanwhile, as a flush under way has it.
+func (l *eventLog) flushedAt(at func(take func())) (uint64, error) {
+	l.flushing.Lock()
+	defer l.flushing.Unlock()
+	var queue []api.Event
+	var dropped int
+	at(func() { queue, dropped = l.take() })
+	if last := l.commit(queue, dropped); last != 0 {
+		return last, nil
+	}
+	// Nothing was queued, or it was lost: the log ends where it did.
+	last, err := l.store.Last()
+	if err != nil {
+		return 0, fmt.Errorf("reading the event log: %w", err)
+	}
+	return last, nil
+}
+
+// take empties the queue.
+func (l *eventLog) take() (queue []api.Event, dropped int) {
 	l.mu.Lock()
-	queue, dropped := l.queue, l.dropped
+	defer l.mu.Unlock()
+	queue, dropped = l.queue, l.dropped
 	l.queue, l.dropped = nil, 0
-	l.mu.Unlock()
+	return queue, dropped
+}
+
+// commit adds a queue to the log, and returns the place of the last record it added, or 0 if it
+// added none. Call it with flushing held.
+func (l *eventLog) commit(queue []api.Event, dropped int) uint64 {
 	if dropped > 0 {
 		l.log.Info("Dropped events from the log; they came too fast", "events", dropped)
 	}
@@ -105,7 +138,12 @@ func (l *eventLog) flush() {
 	}
 	if err := l.store.Add(records, time.Now(), l.bound, foldBaseline); err != nil {
 		l.log.Error("Failed to add to the event log", "err", err, "events", len(records))
+		return 0
 	}
+	if len(records) == 0 {
+		return 0
+	}
+	return records[len(records)-1].Seq
 }
 
 // encodeEvent is an event as the log keeps it. The store has its time, and decodeEvent works out a
@@ -164,10 +202,10 @@ type lineWriter interface {
 	flush() bool
 }
 
-// stream writes the log to out, a page at a time, until it catches up or ctx ends, which its last
-// line says if the client was revoked. Events added meanwhile are included. A log that can't be read
-// goes to fail instead, before any line.
-func (l *eventLog) stream(ctx context.Context, out lineWriter, fail func(error)) {
+// stream writes the log's events that pass to out, a page at a time, until it catches up or ctx ends,
+// which its last line says if the client was revoked. Events added meanwhile are included. A nil
+// pass lets every event through. A log that can't be read goes to fail instead, before any line.
+func (l *eventLog) stream(ctx context.Context, out lineWriter, fail func(error), pass func(api.Event) bool) {
 	l.flush()
 	now := time.Now()
 	head := api.EventLog{Now: now, Zone: zoneName()}
@@ -181,43 +219,99 @@ func (l *eventLog) stream(ctx context.Context, out lineWriter, fail func(error))
 		fail(fmt.Errorf("reading the event log: %w", err))
 		return
 	}
-	end := func(message string) {
-		if out.write(api.LogEnd(message)) {
-			out.flush()
-		}
+	if len(page) > 0 {
+		head.Start = page[0].Time
 	}
 	if !out.write(head) {
 		return
 	}
+	if short, told := l.send(ctx, out, page, 0, pass); told {
+		endLines(out, short)
+	}
+}
+
+// endLines closes a stream, saying why if it stopped short.
+func endLines(out lineWriter, short string) {
+	if out.write(api.LogEnd(short)) {
+		out.flush()
+	}
+}
+
+// history writes the log's events that pass to out, up to the record at upTo, which flushedAt gave. It
+// says why it stopped short, if it did, and told is false if there's nobody to tell, as send's is.
+func (l *eventLog) history(ctx context.Context, out lineWriter, upTo uint64, pass func(api.Event) bool) (short string, told bool) {
+	if upTo == 0 {
+		return "", true
+	}
+	_, page, err := l.store.Start(eventPage)
+	if err != nil {
+		return fmt.Sprintf("reading the event log: %v", err), true
+	}
+	return l.send(ctx, out, page, upTo, pass)
+}
+
+// send writes the events that pass, from page on: to the record at upTo, or with none, until it
+// catches up with the log. short is why it stopped before that, if it did. told is false if there's
+// nobody to tell: the caller went, or the host is stopping, which says nothing, as a host that
+// crashed can't, so that its caller reads it as a stop. A revoked client is told why.
+func (l *eventLog) send(ctx context.Context, out lineWriter, page []store.Record, upTo uint64,
+	pass func(api.Event) bool,
+) (short string, told bool) {
 	for len(page) > 0 {
 		if ctx.Err() != nil {
-			// A host that stops says nothing, as one that crashed can't, and its caller reads that as a
-			// stop. A revoked client is told why.
 			if errors.Is(context.Cause(ctx), errRevoked) {
-				end(errRevoked.Error())
+				return errRevoked.Error(), true
 			}
-			return
+			return "", false
 		}
 		for _, r := range page {
+			if upTo != 0 && r.Seq > upTo {
+				return "", out.flush()
+			}
 			e, err := decodeEvent(r)
 			if err != nil {
-				end(fmt.Sprintf("event %d: %v", r.Seq, err))
-				return
+				return fmt.Sprintf("event %d: %v", r.Seq, err), true
 			}
-			if !out.write(e) {
-				return
+			if (pass == nil || pass(e)) && !out.write(e) {
+				return "", false
 			}
 		}
 		if !out.flush() {
-			return
+			return "", false
 		}
+		var err error
 		if page, err = l.store.Read(page[len(page)-1].Seq, eventPage); err != nil {
-			end(err.Error())
-			return
+			return err.Error(), true
 		}
 	}
-	end("")
+	return "", true
 }
+
+// renames are the log's rename events, oldest first: what a device's ref needs to find it under the
+// names it had. It reads the log through, decoding only those.
+func (l *eventLog) renames(ctx context.Context) ([]api.Event, error) {
+	l.flush()
+	var out []api.Event
+	_, page, err := l.store.Start(eventPage)
+	for err == nil && len(page) > 0 && ctx.Err() == nil {
+		for _, r := range page {
+			if !bytes.Contains(r.Data, renameMark) {
+				continue
+			}
+			if e, err := decodeEvent(r); err == nil && e.Type == api.EventRename {
+				out = append(out, e)
+			}
+		}
+		page, err = l.store.Read(page[len(page)-1].Seq, eventPage)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return out, ctx.Err()
+}
+
+// renameMark is in every rename event as the log keeps it, and in few others.
+var renameMark = []byte(`"type":"` + api.EventRename + `"`)
 
 // zoneName finds this machine's time zone's IANA name, which Go doesn't say, by the rules Go uses to
 // choose it. Empty means it can't tell.

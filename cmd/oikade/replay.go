@@ -106,7 +106,7 @@ func fetchLog(ctx context.Context, t api.Transport, path string, since time.Dura
 	defer func() { _ = f.Close() }()
 	buffered := bufio.NewWriter(f)
 	lines := json.NewEncoder(buffered)
-	err = api.Events(ctx, t, func(log api.EventLog) error {
+	err = api.Events(ctx, t, api.EventFilter{}, func(log api.EventLog) error {
 		return lines.Encode(simhome.ReplayHeader{Log: log, Since: log.Now.Add(-since), Devices: devices})
 	}, func(e api.Event) error { return lines.Encode(e) })
 	if err != nil {

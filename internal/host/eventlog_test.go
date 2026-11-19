@@ -184,7 +184,7 @@ func TestAStreamCutShortSaysWhyOnlyToARevokedClient(t *testing.T) {
 	revoked, cancel := context.WithCancelCause(t.Context())
 	cancel(errRevoked)
 	var out recorded
-	log.stream(revoked, &out, fail)
+	log.stream(revoked, &out, fail, nil)
 	if len(out.lines) != 2 || out.lines[1] != api.LogEnd(errRevoked.Error()) {
 		t.Errorf("a revoked client's stream: %+v", out.lines)
 	}
@@ -193,13 +193,13 @@ func TestAStreamCutShortSaysWhyOnlyToARevokedClient(t *testing.T) {
 	stopped, stop := context.WithCancel(t.Context())
 	stop()
 	out = recorded{}
-	log.stream(stopped, &out, fail)
+	log.stream(stopped, &out, fail, nil)
 	if len(out.lines) != 1 {
 		t.Errorf("a stopped host's stream: %+v", out.lines)
 	}
 
 	out = recorded{}
-	log.stream(t.Context(), &out, fail)
+	log.stream(t.Context(), &out, fail, nil)
 	if len(out.lines) != 3 || out.lines[2] != api.LogEnd("") {
 		t.Errorf("a whole stream: %+v", out.lines)
 	}
@@ -233,7 +233,7 @@ func TestTheLogGivesBackWhatWasReported(t *testing.T) {
 		log.add(reported[i])
 	}
 	var out recorded
-	log.stream(t.Context(), &out, func(err error) { t.Fatalf("the log failed: %v", err) })
+	log.stream(t.Context(), &out, func(err error) { t.Fatalf("the log failed: %v", err) }, nil)
 	if len(out.lines) != len(reported)+2 {
 		t.Fatalf("%d lines, want the opening, %d events and the end", len(out.lines), len(reported))
 	}
@@ -300,5 +300,100 @@ func TestEventsReachTheStoreWithinAFlush(t *testing.T) {
 	case <-stopped:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the flushes went on after the host stopped")
+	}
+}
+
+// A tail that starts with the log's past has every event once, in order: the log's up to where the
+// tail began, then the feed's, though events and flushes keep coming as it starts.
+func TestATailsPastMeetsItsFeedWithNoGapOrRepeat(t *testing.T) {
+	data, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = data.Close() }()
+	srv := &server{feed: newFeed(), events: newEventLog(data.Events(), store.Bound{}, logging.Discard())}
+	const total = 2000
+	emitted := make(chan struct{})
+	go func() {
+		defer close(emitted)
+		for n := range total {
+			srv.emit(api.Event{Time: time.Now(), Type: api.EventChange, Device: "counter", Capability: "brightness", Value: float64(n)})
+			if n%97 == 0 {
+				// As the host's own flush does, whenever it likes.
+				srv.events.flush()
+			}
+		}
+	}()
+	for range 20 {
+		events, stop, upTo, err := srv.tailWithPast()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var past recorded
+		if short, told := srv.events.history(t.Context(), &past, upTo, nil); short != "" || !told {
+			t.Fatalf("the past stopped short: %q, told %t", short, told)
+		}
+		next := 0.0
+		for _, line := range past.lines {
+			if v := line.(api.Event).Value; v != next {
+				t.Fatalf("the past has %v where %v should be", v, next)
+			}
+			next++
+		}
+		// The feed carries on from exactly there. Its next event shows it, unless they've all been, or
+		// so many came while the past was read that the feed cut this tail off.
+		carriesOn := func(e api.Event, open bool) {
+			if open && e.Value != next {
+				t.Fatalf("the feed starts at %v after a past of %v events", e.Value, next)
+			}
+		}
+		select {
+		case e, open := <-events:
+			carriesOn(e, open)
+		case <-emitted:
+			select {
+			case e, open := <-events:
+				carriesOn(e, open)
+			default:
+				if next != total {
+					t.Fatalf("the past has %v events and the feed none, of %d", next, total)
+				}
+			}
+		}
+		stop()
+	}
+	<-emitted
+}
+
+// A tail writing the log's past has its feed's events kept for it, in order, where the feed alone
+// would have cut it off, and is cut off only when even that's full.
+func TestATailsFeedWaitsWhileItWritesItsPast(t *testing.T) {
+	f := newFeed()
+	sub, stop := f.subscribe()
+	defer stop()
+	events := queued(sub, 4*feedBuffer)
+	publish := func(from, to int, paced bool) {
+		for n := from; n < to; n++ {
+			f.publish(api.Event{Type: api.EventChange, Value: float64(n)})
+			// The queue takes each as it comes: paced, the feed's own buffer never fills.
+			for paced && len(sub) == feedBuffer {
+				time.Sleep(time.Millisecond)
+			}
+		}
+	}
+	publish(0, 3*feedBuffer, true)
+	for n := range 3 * feedBuffer {
+		if e, open := <-events; !open || e.Value != float64(n) {
+			t.Fatalf("event %d came as %+v, open %t", n, e, open)
+		}
+	}
+	// Nobody reads, and more come than even the queue holds.
+	publish(3*feedBuffer, 9*feedBuffer, false)
+	last := -1.0
+	for e := range events {
+		last = e.Value.(float64)
+	}
+	if last >= float64(9*feedBuffer-1) {
+		t.Errorf("the tail was never cut off: it read to %v", last)
 	}
 }

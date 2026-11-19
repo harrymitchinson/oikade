@@ -23,9 +23,13 @@ func TestEventsComeBackInOrderAcrossPages(t *testing.T) {
 	s := open(t, t.TempDir())
 	at := time.Date(2030, 1, 7, 8, 0, 0, 0, time.UTC)
 	for i := range 5 {
-		r := Record{Time: at.Add(time.Duration(i) * time.Second), Data: fmt.Appendf(nil, "%d", i)}
-		if err := s.Events().Add([]Record{r}, at, Bound{}, countDropped); err != nil {
+		added := []Record{{Time: at.Add(time.Duration(i) * time.Second), Data: fmt.Appendf(nil, "%d", i)}}
+		if err := s.Events().Add(added, at, Bound{}, countDropped); err != nil {
 			t.Fatal(err)
+		}
+		// Add says where it put each record, and that's where the log then ends.
+		if last, err := s.Events().Last(); err != nil || last != added[0].Seq || last == 0 {
+			t.Fatalf("after record %d the log ends at %d, %v, and the record is at %d", i, last, err, added[0].Seq)
 		}
 	}
 	first, err := s.Events().Read(0, 3)
@@ -55,6 +59,9 @@ func TestAnEmptyLogReadsAsEmpty(t *testing.T) {
 	}
 	if raw, first, err := s.Events().Start(10); err != nil || raw != nil || len(first) != 0 {
 		t.Fatalf("Start = %q, %v, %v", raw, first, err)
+	}
+	if last, err := s.Events().Last(); err != nil || last != 0 {
+		t.Fatalf("Last = %d, %v", last, err)
 	}
 }
 
