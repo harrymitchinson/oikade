@@ -775,13 +775,9 @@ func (s *server) ping(id uint64) (last time.Time, ok bool) {
 // recordCall logs a flow's outside call from its journal entry, for a replay to answer it with.
 func (s *server) recordCall(run string, entry []byte) {
 	if name, result, failure, ok := flow.CallIn(entry); ok {
-		e := api.Event{
+		s.emit(api.Event{
 			Time: time.Now(), Type: api.EventCall, Rule: flow.FlowOf(run), Message: name, Value: result, Result: failure,
-		}
-		e.Ref = eventRef(e)
-		s.emitting.Lock()
-		s.events.add(e)
-		s.emitting.Unlock()
+		})
 	}
 }
 

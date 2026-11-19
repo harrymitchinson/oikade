@@ -578,9 +578,9 @@ type EventFilter struct {
 	// Since and Until are the times events are from and to, both included. Zero is no limit. A tail
 	// with a Since starts with the log's events from then, and has no Until.
 	Since, Until time.Time
-	// Refs are what the events are about: a device's ref for it and its capabilities, under the names
-	// it had before a deploy renamed it, a capability's, a room's for the devices in it now, a case's
-	// or a flow's for its runs, pauses, calls and the writes it made, a plugin's for its own problems,
+	// Refs are what the events are about: a device's ref for it and its capabilities, under each name
+	// it had while it had it, a capability's, a room's for the devices in it now, a case's or a flow's
+	// for its runs, pauses, calls and the writes it made, a plugin's for its own problems,
 	// and matter for the bridge's events and controllers' writes. The home's own events, a deploy and
 	// your automations connecting or disconnecting, pass whatever the refs. With no refs every event
 	// passes.
@@ -612,15 +612,18 @@ func (f EventFilter) Query() url.Values {
 // ParseEventFilter reads a filter from a GET's query, and says which parameter it can't read.
 func ParseEventFilter(q url.Values) (EventFilter, error) {
 	f := EventFilter{Refs: q[queryRef]}
-	for name, into := range map[string]*time.Time{querySince: &f.Since, queryUntil: &f.Until} {
-		if !q.Has(name) {
+	for _, p := range []struct {
+		name string
+		into *time.Time
+	}{{querySince, &f.Since}, {queryUntil, &f.Until}} {
+		if !q.Has(p.name) {
 			continue
 		}
-		at, err := time.Parse(time.RFC3339Nano, q.Get(name))
+		at, err := time.Parse(time.RFC3339Nano, q.Get(p.name))
 		if err != nil {
-			return EventFilter{}, fmt.Errorf("%s=%q isn't a time: give one as 2026-11-18T03:00:00Z", name, q.Get(name))
+			return EventFilter{}, fmt.Errorf("%s=%q isn't a time: give one as 2026-11-18T03:00:00Z", p.name, q.Get(p.name))
 		}
-		*into = at
+		*p.into = at
 	}
 	if !f.Since.IsZero() && !f.Until.IsZero() && f.Until.Before(f.Since) {
 		return EventFilter{}, fmt.Errorf("%s is before %s, so no event is between them", queryUntil, querySince)

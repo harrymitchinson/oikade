@@ -2,7 +2,9 @@ package host
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"time"
 
@@ -34,49 +36,100 @@ type deviceMatch struct {
 	capability string
 }
 
-// deviceNames are the names a device has had: the one it has now, with no time, and each one before,
-// to when a deploy renamed it. Another device may have that name since.
-type deviceNames map[string]time.Time
+// deviceNames are the names a device has had, each for the time it had it.
+type deviceNames []namedFor
+
+// namedFor is a name a device had from one deploy's rename until another's. A zero time is no
+// limit: it was paired under the name, or has it still. Another device may have the name outside.
+type namedFor struct {
+	name        string
+	from, until time.Time
+}
 
 func (n deviceNames) has(name string, at time.Time) bool {
-	until, ok := n[name]
-	return ok && (until.IsZero() || !at.After(until))
+	return slices.ContainsFunc(n, func(s namedFor) bool {
+		return s.name == name && (s.from.IsZero() || !at.Before(s.from)) && (s.until.IsZero() || !at.After(s.until))
+	})
 }
 
-// namesOf follows a device back through renames, oldest first, to the names it had before.
-func namesOf(name string, renames []api.Event) deviceNames {
-	names := deviceNames{name: {}}
+// namesOf follows a device back through the log's renames, oldest first, to the names it had before,
+// from the name it has now, or, for one that isn't onRecord, the name it last had.
+func namesOf(name string, onRecord bool, renames []api.Event) deviceNames {
+	var names deviceNames
+	var until time.Time
 	for _, r := range slices.Backward(renames) {
 		before, ok := r.Previous.(string)
-		if !ok || !names.has(r.Device, r.Time) {
-			continue
-		}
-		if _, known := names[before]; !known {
-			names[before] = r.Time
+		switch {
+		case !ok || !until.IsZero() && r.Time.After(until):
+		case r.Device == name:
+			// How it got the name: before this it had another.
+			names = append(names, namedFor{name: name, from: r.Time, until: until})
+			name, until = before, r.Time
+		case before == name && until.IsZero() && !onRecord && len(names) == 0:
+			// Nothing has the name now, so the device asked for is the one that last left it.
+			until = r.Time
+		case before == name:
+			// Another device left the name then, so this one has had it only since.
+			return append(names, namedFor{name: name, from: r.Time, until: until})
 		}
 	}
-	return names
+	return append(names, namedFor{name: name, until: until})
 }
 
-// newEventMatcher makes a filter's matcher, or says which ref can't narrow events. rooms gives the devices in
-// a room now, and renames the log's rename events, which is only asked for if a ref names a device.
-func newEventMatcher(f api.EventFilter, rooms func(string) []ident.ID, renames func() ([]api.Event, error)) (*eventMatcher, error) {
+// renamed takes a rename that happens as a tail follows: a device the filter names carries on under
+// its new name, and the name it left is its no longer.
+func (m *eventMatcher) renamed(e api.Event) {
+	before, ok := e.Previous.(string)
+	if !ok || e.Type != api.EventRename {
+		return
+	}
+	for i, d := range m.devices {
+		for j, n := range d.names {
+			if n.name == before && n.until.IsZero() && (n.from.IsZero() || !e.Time.Before(n.from)) {
+				d.names[j].until = e.Time
+				m.devices[i].names = append(d.names, namedFor{name: e.Device, from: e.Time})
+				break
+			}
+		}
+	}
+}
+
+// home is what a matcher needs of the home as it is now.
+type home struct {
+	// rooms gives the devices in a room.
+	rooms func(room string) []ident.ID
+	// onRecord says a device has this name.
+	onRecord func(name string) bool
+	// renames gives the log's rename events, oldest first. It's only asked if a ref names a device.
+	renames func() ([]api.Event, error)
+}
+
+// errLogUnread is a matcher that couldn't be made because the log couldn't be read, which is the
+// host's failure and not the filter's.
+var errLogUnread = errors.New("reading the event log")
+
+// newEventMatcher makes a filter's matcher, or says which ref can't narrow events.
+func newEventMatcher(f api.EventFilter, h home) (*eventMatcher, error) {
 	m := &eventMatcher{
 		since: f.Since, until: f.Until, narrowed: len(f.Refs) > 0,
 		rules: map[string]bool{}, writers: map[string]bool{}, refs: map[string]bool{},
 	}
 	var renamed []api.Event
 	var asked bool
-	device := func(name, capability string) error {
+	names := func(device string) (deviceNames, error) {
 		if !asked {
 			var err error
-			if renamed, err = renames(); err != nil {
-				return err
+			if renamed, err = h.renames(); err != nil {
+				return nil, fmt.Errorf("%w: %w", errLogUnread, err)
 			}
 			asked = true
 		}
-		m.devices = append(m.devices, deviceMatch{names: namesOf(name, renamed), capability: capability})
-		return nil
+		return namesOf(device, h.onRecord(device), renamed), nil
+	}
+	device := func(name, capability string) error {
+		had, err := names(name)
+		m.devices = append(m.devices, deviceMatch{names: had, capability: capability})
+		return err
 	}
 	for _, ref := range f.Refs {
 		kind, parts, err := ident.ParseRef(ref)
@@ -87,14 +140,20 @@ func newEventMatcher(f api.EventFilter, rooms func(string) []ident.ID, renames f
 		case kind == ident.Device && len(parts) > 0:
 			err = device(parts[0], capabilityOf(parts))
 		case kind == ident.Room:
-			for _, dev := range rooms(parts[0]) {
+			for _, dev := range h.rooms(parts[0]) {
 				if err = device(dev.Name, capabilityOf(parts)); err != nil {
 					break
 				}
 			}
-		case kind == ident.Case || kind == ident.Flow:
-			key, _ := control.RuleKey(ref)
-			m.rules[key], m.writers[control.RuleRef(key).String()] = true, true
+		case kind == ident.Flow:
+			m.rule(parts[0])
+		case kind == ident.Case:
+			// A case is keyed by its device's name, so it had another key under each name before.
+			var had deviceNames
+			had, err = names(parts[0])
+			for _, n := range had {
+				m.rule(control.CaseKey(n.name, parts[1], parts[2]))
+			}
 		case kind == ident.Plugin:
 			m.refs[ident.NewRef(kind, parts...).String()] = true
 		case kind == ident.Matter:
@@ -108,6 +167,11 @@ func newEventMatcher(f api.EventFilter, rooms func(string) []ident.ID, renames f
 		}
 	}
 	return m, nil
+}
+
+// rule adds a rule to those the filter names, by its key.
+func (m *eventMatcher) rule(key string) {
+	m.rules[key], m.writers[control.RuleRef(key).String()] = true, true
 }
 
 // capabilityOf is the capability a device's or a room's ref ends with, if it has one.
@@ -153,7 +217,20 @@ func (d deviceMatch) covers(e api.Event) bool {
 	return named && (d.capability == "" || e.Capability == "" || e.Capability == d.capability)
 }
 
-// matcher makes the matcher of a call's filter, from the rooms as they are and the log's renames.
+// matcher makes the matcher of a call's filter, from the home as it is and the log's renames.
 func (s *apiServer) matcher(ctx context.Context, f api.EventFilter) (*eventMatcher, error) {
-	return newEventMatcher(f, s.srv.devices.Room, func() ([]api.Event, error) { return s.srv.events.renames(ctx) })
+	return newEventMatcher(f, home{
+		rooms:    s.srv.devices.Room,
+		onRecord: func(name string) bool { _, ok := s.srv.devices.Get(key(name)); return ok },
+		renames:  func() ([]api.Event, error) { return s.srv.events.renames(ctx) },
+	})
+}
+
+// filterStatus is the status a filter that couldn't be used is answered with: refused, unless what
+// failed was the host reading its log.
+func filterStatus(err error) int {
+	if errors.Is(err, errLogUnread) {
+		return http.StatusInternalServerError
+	}
+	return http.StatusUnprocessableEntity
 }

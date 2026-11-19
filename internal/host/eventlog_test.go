@@ -364,3 +364,36 @@ func TestATailsPastMeetsItsFeedWithNoGapOrRepeat(t *testing.T) {
 	}
 	<-emitted
 }
+
+// A tail writing the log's past has its feed's events kept for it, in order, where the feed alone
+// would have cut it off, and is cut off only when even that's full.
+func TestATailsFeedWaitsWhileItWritesItsPast(t *testing.T) {
+	f := newFeed()
+	sub, stop := f.subscribe()
+	defer stop()
+	events := queued(sub, 4*feedBuffer)
+	publish := func(from, to int, paced bool) {
+		for n := from; n < to; n++ {
+			f.publish(api.Event{Type: api.EventChange, Value: float64(n)})
+			// The queue takes each as it comes: paced, the feed's own buffer never fills.
+			for paced && len(sub) == feedBuffer {
+				time.Sleep(time.Millisecond)
+			}
+		}
+	}
+	publish(0, 3*feedBuffer, true)
+	for n := range 3 * feedBuffer {
+		if e, open := <-events; !open || e.Value != float64(n) {
+			t.Fatalf("event %d came as %+v, open %t", n, e, open)
+		}
+	}
+	// Nobody reads, and more come than even the queue holds.
+	publish(3*feedBuffer, 9*feedBuffer, false)
+	last := -1.0
+	for e := range events {
+		last = e.Value.(float64)
+	}
+	if last >= float64(9*feedBuffer-1) {
+		t.Errorf("the tail was never cut off: it read to %v", last)
+	}
+}

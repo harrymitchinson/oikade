@@ -305,7 +305,7 @@ func (l *eventLog) renames(ctx context.Context) ([]api.Event, error) {
 		page, err = l.store.Read(page[len(page)-1].Seq, eventPage)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("reading the event log: %w", err)
+		return nil, err
 	}
 	return out, ctx.Err()
 }

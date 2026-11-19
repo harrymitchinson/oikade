@@ -213,7 +213,7 @@ func (s *apiServer) handler(route api.Route) http.HandlerFunc {
 				}
 			}
 			if err != nil {
-				respond(s.log, w, http.StatusUnprocessableEntity, api.Response{Error: err.Error()})
+				respond(s.log, w, filterStatus(err), api.Response{Error: err.Error()})
 				return
 			}
 			out := newLines(w)
@@ -324,7 +324,7 @@ func (s *apiServer) tail(w http.ResponseWriter, r *http.Request) {
 		m, err = s.matcher(ctx, filter)
 	}
 	if err != nil {
-		respond(s.log, w, http.StatusUnprocessableEntity, api.Response{Error: err.Error()})
+		respond(s.log, w, filterStatus(err), api.Response{Error: err.Error()})
 		return
 	}
 	var events <-chan api.Event
@@ -335,6 +335,9 @@ func (s *apiServer) tail(w http.ResponseWriter, r *http.Request) {
 	} else if events, stop, upTo, err = s.srv.tailWithPast(); err != nil {
 		respond(s.log, w, http.StatusInternalServerError, api.Response{Error: err.Error()})
 		return
+	} else {
+		// Writing the past can take a while, and the feed doesn't wait that long for anyone.
+		events = queued(events, backlog)
 	}
 	defer stop()
 	out := newLines(w)
@@ -361,6 +364,7 @@ func (s *apiServer) tail(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			// Not its time: an event is as old as its driver says, and it's happening now.
+			m.renamed(e)
 			if m.about(e) && !write(e) {
 				return
 			}
