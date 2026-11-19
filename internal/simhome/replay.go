@@ -351,6 +351,9 @@ func withoutEchoes(events []api.Event) []api.Event {
 		switch {
 		case automationsWrote(e):
 			wrote[t] = e
+		case e.Type == api.EventWrite:
+			// A person's: what changes next is theirs, not the device answering an earlier write.
+			delete(wrote, t)
 		case e.Type == api.EventChange:
 			w, ok := wrote[t]
 			if !ok || e.Time.Sub(w.Time) > echoWindow {
@@ -373,12 +376,14 @@ func withoutEchoes(events []api.Event) []api.Event {
 // whose it is, which is arbitration's own or from before writes said. A controller's and oikade
 // set's are a person's. A replay makes neither, and takes the change each made as one from outside.
 func automationsWrote(e api.Event) bool {
-	if e.Type != api.EventWrite {
-		return false
-	}
-	_, err := control.RuleKey(e.By)
-	return e.By == "" || err == nil
+	return e.Type == api.EventWrite && e.By != personMatter && e.By != personCommand
 }
+
+// A write's by when it's a person's: a Matter controller's, and oikade set's.
+var (
+	personMatter  = control.SourceRef(control.SourceMatter).String()
+	personCommand = control.SourceRef(control.SourceCommand).String()
+)
 
 // diffWrites pairs each write with the same one in the other list, and returns those with no pair.
 // A retry of a write isn't a new one, so neither list counts repeats within the tolerance.
