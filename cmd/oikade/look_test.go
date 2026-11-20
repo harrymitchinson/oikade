@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -32,44 +33,21 @@ func aHome() (registry.Snapshot, deviceMarks) {
 			Manufacturer: "Somfy", Model: "Somfy RS100 io"},
 		{Name: "porch-light", ID: "1000ddeeff", Driver: "plugin/ewelink-lan", Endpoint: 5, Declared: true,
 			Capabilities: []string{"on"}},
-	}}, deviceMarks{
-		hidden:   map[string]bool{"study-blind": true},
-		problems: map[string]string{"porch-light": "no LAN key: oikade secret set 1000ddeeff"},
-	}
+	}}, deviceMarks{hidden: map[string]bool{"study-blind": true}}
 }
 
-func TestDevicesFitTheTerminal(t *testing.T) {
-	for _, width := range []int{80, 120} {
-		for name, printer := range printers {
-			list, marks := aHome()
-			var b bytes.Buffer
-			_, dropped := printDevices(printer(&b, width), list, marks, false)
-			_, _ = fmt.Fprintf(&b, "dropped: %v\n", dropped)
-			testkit.Golden(t, fmt.Sprintf("devices-%s-%d", name, width), b.Bytes())
-			// At 80, a device's problem, which never shortens as it names the fix, can push past it.
-			if width < 120 {
-				continue
-			}
-			for i, line := range strings.Split(strings.TrimSuffix(b.String(), "\n"), "\n") {
-				if n := len([]rune(stripStyles(line))); n > width {
-					t.Errorf("%s at %d: line %d is %d wide: %q", name, width, i, n, line)
-				}
-			}
-		}
-	}
+// --wide shows a device's hardware and endpoint, which go first on a narrow terminal.
+func TestDevicesWideShowsEveryColumn(t *testing.T) {
 	list, marks := aHome()
 	var b bytes.Buffer
+	if _, dropped := printDevices(cli.Plain(&b, 80), list, marks, false); !slices.Contains(dropped, "HARDWARE") {
+		t.Errorf("at 80 columns, dropped %v:\n%s", dropped, b.String())
+	}
+	b.Reset()
 	if _, dropped := printDevices(cli.Plain(&b, 80), list, marks, true); len(dropped) != 0 ||
-		!strings.Contains(b.String(), "hardware/toshiba/5f1c0c2e-77b3-4f8e-9d4a-1b2c3d4e5f60") {
+		!strings.Contains(b.String(), "hardware/toshiba/5f1c0c2e-77b3-4f8e-9d4a-1b2c3d4e5f60") ||
+		!strings.Contains(strings.Split(b.String(), "\n")[0], "ENDPOINT") {
 		t.Errorf("--wide dropped %v:\n%s", dropped, b.String())
-	}
-	for _, want := range []string{"SONOFF MINIR4", "Toshiba ", " Somfy RS100 io ", "1000aabbcc  3.6.0"} {
-		if !strings.Contains(b.String(), want) {
-			t.Errorf("--wide has no %q:\n%s", want, b.String())
-		}
-	}
-	if strings.Contains(b.String(), "Somfy Somfy") {
-		t.Errorf("a model that starts with its manufacturer names it twice:\n%s", b.String())
 	}
 }
 
@@ -85,7 +63,7 @@ func stripStyles(line string) string {
 	}
 }
 
-// oikade devices | cat writes no escape codes, as stdout isn't a terminal.
+// oikade list devices | cat writes no escape codes, as stdout isn't a terminal.
 func TestDevicesToAPipeAreUnstyled(t *testing.T) {
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -103,25 +81,6 @@ func TestDevicesToAPipeAreUnstyled(t *testing.T) {
 	}
 	if p.Styled || bytes.Contains(out, []byte("\x1b")) || !bytes.Contains(out, []byte("hall-lamp")) {
 		t.Errorf("styled %v:\n%q", p.Styled, out)
-	}
-}
-
-func TestClientsAndSecretsInTheLook(t *testing.T) {
-	now := time.Date(2026, 11, 18, 14, 30, 0, 0, time.Local)
-	clients := []api.Client{
-		{Name: "laptop", Created: now.AddDate(0, 0, -8), LastUsed: now.Add(-8 * time.Second)},
-		{Name: "ci", Created: time.Date(2026, 11, 18, 8, 45, 53, 0, time.Local)},
-	}
-	secrets := []api.Secret{{Name: "ewelink-1000aabbcc"}, {Name: "toshiba-password"}}
-	for name, printer := range printers {
-		var b bytes.Buffer
-		if err := printClients(printer(&b, 80), cli.Plain(io.Discard, 80), clients, false, now); err != nil {
-			t.Fatal(err)
-		}
-		if err := printSecrets(printer(&b, 80), cli.Plain(io.Discard, 80), secrets, false); err != nil {
-			t.Fatal(err)
-		}
-		testkit.Golden(t, "clients-secrets-"+name, b.Bytes())
 	}
 }
 
@@ -343,20 +302,5 @@ func TestOnlyAChangeGetsATick(t *testing.T) {
 	}
 	if stuck("on", nil, true) || !stuck("brightness", 33.1, 33.0) || stuck("brightness", 30.0, 33.0) {
 		t.Error("stuck")
-	}
-}
-
-func TestAModelNamesItsManufacturerOnce(t *testing.T) {
-	for _, c := range []struct{ manufacturer, model, want string }{
-		{"Somfy", "Somfy RS100 io", "Somfy RS100 io"},
-		{"somfy", "Somfy", "Somfy"},
-		{"Aqara", "AqaraHub-M2", "Aqara AqaraHub-M2"},
-		{"Toshiba", "", "Toshiba"},
-		{"", "MINIR4", "MINIR4"},
-		{"Bosch", "Bo", "Bosch Bo"},
-	} {
-		if got := modelOf(registry.Device{Manufacturer: c.manufacturer, Model: c.model}); got != c.want {
-			t.Errorf("%q and %q gave %q, want %q", c.manufacturer, c.model, got, c.want)
-		}
 	}
 }

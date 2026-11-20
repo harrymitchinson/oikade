@@ -801,21 +801,19 @@ func TestAControllerReadsTheDeviceTypeYouDeclareThroughARestart(t *testing.T) {
 	if got := c.endpoint("porch-relay"); got != endpoint {
 		t.Errorf("the relay moved from endpoint %d to %d", endpoint, got)
 	}
-	var listed struct {
-		Devices []struct {
-			Name        string   `json:"name"`
-			DeviceTypes []string `json:"deviceTypes"`
-		} `json:"devices"`
+	var listed []struct {
+		Name        string   `json:"name"`
+		DeviceTypes []string `json:"deviceTypes"`
 	}
-	if err := json.Unmarshal(c.r.stdout(nil, "devices", "--json"), &listed); err != nil {
+	if err := json.Unmarshal(c.r.stdout(nil, "list", "devices", "--json"), &listed); err != nil {
 		t.Fatal(err)
 	}
-	for _, d := range listed.Devices {
+	for _, d := range listed {
 		if d.Name == "porch-relay" && !slices.Equal(d.DeviceTypes, []string{"OnOffLight"}) {
-			t.Errorf("oikade devices --json says porch-relay is %v", d.DeviceTypes)
+			t.Errorf("oikade list devices --json says porch-relay is %v", d.DeviceTypes)
 		}
 	}
-	table := string(c.r.stdout(nil, "devices"))
+	table := string(c.r.stdout(nil, "list", "devices"))
 	if !strings.Contains(table, "DEVICE TYPES") || !strings.Contains(table, "OnOffLight") {
 		t.Errorf("the table leaves out what it is:\n%s", table)
 	}

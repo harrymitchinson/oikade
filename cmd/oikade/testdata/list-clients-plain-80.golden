@@ -1,0 +1,7 @@
+NAME    CREATED           LAST USED
+laptop  2026-11-10 14:30  8 s ago
+ci      today 09:30       never
+--- stderr
+--- none
+--- stderr
+No clients. oikade-host client add NAME, on the host's machine, adds one.

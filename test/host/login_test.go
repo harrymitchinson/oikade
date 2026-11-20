@@ -54,9 +54,11 @@ func TestLoginFromAnotherMachineThenEveryCommandOverTLS(t *testing.T) {
 		{"set", "siren", "on", "on"},
 		{"pause", "case/fan/on/fan"},
 		{"resume", "case/fan/on/fan"},
-		{"devices", "--json"},
-		{"secret", "list"},
-		{"client", "list"},
+		{"list", "devices", "--json"},
+		{"list", "rules"},
+		{"list", "plugins"},
+		{"list", "secrets"},
+		{"list", "clients"},
 		{"backup"},
 	} {
 		if out, err := away(t, laptop, nil, args...); err != nil {

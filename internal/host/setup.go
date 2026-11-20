@@ -105,7 +105,7 @@ func (s *apiServer) setup(w http.ResponseWriter, r *http.Request) {
 	}
 	if !ok {
 		respond(s.log, w, http.StatusUnprocessableEntity, api.Response{
-			Error: fmt.Sprintf("there's no plugin %s: oikade devices lists the plugins", req.Plugin),
+			Error: fmt.Sprintf("there's no plugin %s: oikade list plugins lists them", req.Plugin),
 		})
 		return
 	}

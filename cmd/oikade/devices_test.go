@@ -56,48 +56,19 @@ func TestDevicesMarkThoseWhosePluginIsntImported(t *testing.T) {
 	}
 }
 
-func TestDevicesSayWhatsWrongWithThem(t *testing.T) {
-	list := registry.Snapshot{Devices: []registry.Device{
-		{Name: "porch-light", ID: "1000aabbcc", Driver: "plugin/ewelink-lan", Endpoint: 2},
-		{Name: "hall-light", ID: "1000ddeeff", Driver: "plugin/ewelink-lan", Endpoint: 3},
-	}}
-	problems := map[string]string{"porch-light": "no LAN key: oikade secret set 1000aabbcc"}
-
-	var out bytes.Buffer
-	printDevices(cli.Plain(&out, 0), list, deviceMarks{problems: problems}, false)
-	lines := strings.Split(out.String(), "\n")
-	if !strings.Contains(lines[2], problems["porch-light"]) || strings.Contains(lines[1], "no LAN key") {
-		t.Errorf("got\n%s", out.String())
-	}
-
-	raw, err := json.Marshal(listed(list, deviceMarks{problems: problems}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(raw), `"problem":"no LAN key: oikade secret set 1000aabbcc"`) {
-		t.Errorf("got %s", raw)
-	}
-	if strings.Count(string(raw), `"problem"`) != 1 {
-		t.Errorf("a device with no problem should leave it out: %s", raw)
-	}
-}
-
 func TestDevicesMarkThoseHiddenFromMatter(t *testing.T) {
 	list := registry.Snapshot{Devices: []registry.Device{
 		{Name: "bedroom-shutter", ID: "s1", Driver: "plugin/tahoma", Endpoint: 2},
 		{Name: "garage-door", ID: "s2", Driver: "plugin/tahoma", Endpoint: 3},
 		{Name: "attic-shutter", ID: "s3", Driver: "plugin/tahoma", Endpoint: 4},
 	}}
-	marks := deviceMarks{
-		hidden:   map[string]bool{"bedroom-shutter": true, "attic-shutter": true},
-		problems: map[string]string{"attic-shutter": "offline at the box"},
-	}
+	marks := deviceMarks{hidden: map[string]bool{"bedroom-shutter": true, "attic-shutter": true}}
 
 	var out bytes.Buffer
 	printDevices(cli.Plain(&out, 0), list, marks, false)
 	lines := strings.Split(out.String(), "\n")
 	// Sorted: attic-shutter, bedroom-shutter, garage-door.
-	if !strings.Contains(lines[1], "offline at the box, hidden from Matter") ||
+	if !strings.Contains(lines[1], "  hidden from Matter") ||
 		!strings.Contains(lines[2], "  hidden from Matter") || strings.Contains(lines[3], "hidden") {
 		t.Errorf("got\n%s", out.String())
 	}
@@ -265,8 +236,8 @@ func TestStatusMarksADeviceNotInYourCode(t *testing.T) {
 		!strings.Contains(out.String(), "attic-fan        on true  "+notInYourCode) {
 		t.Errorf("want each device marked once:\n%s", out.String())
 	}
-	// How to declare them is oikade devices' to say.
-	const once = "\n2 devices aren't in your code: oikade devices shows how to declare them\n"
+	// How to declare them is oikade list devices' to say.
+	const once = "\n2 devices aren't in your code: oikade list devices shows how to declare them\n"
 	if !strings.HasSuffix(stderr.String(), once) ||
 		strings.Contains(stderr.String(), "home.Device") {
 		t.Errorf("got:\n%s", stderr.String())
@@ -291,17 +262,15 @@ func TestDevicesShowTheirHardwareByItsRef(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var listing struct {
-		Devices []struct {
-			Name     string `json:"name"`
-			Hardware string `json:"hardware"`
-		} `json:"devices"`
+	var listing []struct {
+		Name     string `json:"name"`
+		Hardware string `json:"hardware"`
 	}
 	if err := json.Unmarshal(raw, &listing); err != nil {
 		t.Fatal(err)
 	}
 	hardware := map[string]string{}
-	for _, d := range listing.Devices {
+	for _, d := range listing {
 		hardware[d.Name] = d.Hardware
 	}
 	if hardware["study-blind"] != ref || hardware["kettle"] != "" {

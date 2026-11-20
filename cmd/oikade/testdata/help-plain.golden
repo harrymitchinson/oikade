@@ -15,6 +15,7 @@ Ship it
   rollback  Go back to the version the host ran before this one.
 
 Watch and drive
+  list      List what's on record, and how each is set up.
   status    Show what your home is doing now, and what's wrong.
   history   Show what your home did: each change, write and run, and why.
   tail      Follow your home's events as they happen.
@@ -23,14 +24,14 @@ Watch and drive
   resume    Resume a rule you paused.
 
 Devices and pairing
-  devices   List the host's devices and how each is doing, or remove one.
+  devices   Remove a device from the host, or every device of a plugin.
   setup     Give a plugin what it needs, such as a sign-in, on the host.
   matter    Show the Matter bridge, or open its window to pair a controller.
 
 Host access
   login     Trust a host's network API, and use it from now on.
-  client    List or revoke who may call the host's network API.
-  secret    List, set or remove the secrets your home and its plugins read.
+  client    Revoke a client of the host's network API.
+  secret    Set or remove the secrets your home and its plugins read.
   backup    Back up the host's store, on the host, and print where it went.
   version   Print this oikade's version, and its host's when one answers.
 

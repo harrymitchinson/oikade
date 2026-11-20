@@ -62,7 +62,7 @@ func TestSetupRunsAPluginsSetupFromTheCommandLine(t *testing.T) {
 			t.Errorf("stderr lacks %q:\n%s", want, &stderr)
 		}
 	}
-	if listed := string(r.stdout(nil, "secret", "list")); !strings.Contains(listed, relays.PairingSecret) {
+	if listed := string(r.stdout(nil, "list", "secrets")); !strings.Contains(listed, relays.PairingSecret) {
 		t.Errorf("secret list: %s", listed)
 	}
 	if strings.Contains(r.dump(), "pairing-code-7c1f") {

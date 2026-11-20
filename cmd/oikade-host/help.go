@@ -39,7 +39,7 @@ var others = []cli.Command{
 		Summary: "Print a code for oikade login, or a token for CI, from the host running here.",
 		Usage:   []string{"oikade-host client add NAME [--token] [--data-dir DIR] [--json]"},
 		About: "It goes only over the host's socket, so a stolen token can't make more clients. " +
-			"oikade client lists and revokes them.",
+			"oikade list clients lists them, and oikade client revoke revokes one.",
 		Example: []string{"sudo oikade-host client add laptop"},
 	},
 	{

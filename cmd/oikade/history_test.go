@@ -311,7 +311,7 @@ func TestTailSaysARefNamesNothing(t *testing.T) {
 	dir, _ := aHost(t, api.EventLog{}, nil, st)
 	_, errs, _ := runOikade(t, cli.Plain, "tail", "porch-lihgt", "room/porch", "flow/morning", "--data-dir", dir)
 	want := "Following device/porch-lihgt, room/porch, flow/morning on this machine's host\n" +
-		"There's no device/porch-lihgt on record: oikade devices lists them.\n" +
+		"There's no device/porch-lihgt on record: oikade list devices lists them.\n" +
 		"There's no flow/morning in the running version: oikade status lists its rules.\n"
 	if !strings.HasPrefix(errs, want) {
 		t.Errorf("stderr:\n%s\nwant it to start:\n%s", errs, want)

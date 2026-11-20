@@ -179,7 +179,7 @@ func runClient(ctx context.Context, args []string) error {
 	switch {
 	case len(words) == 0 || words[0] != "add":
 		return cli.UsageErrorf("oikade-host client only adds one").
-			WithHint("oikade client lists and revokes them, from anywhere")
+			WithHint("oikade list clients lists them, and oikade client revoke revokes one, from anywhere")
 	case len(words) != 2:
 		return cli.UsageErrorf("oikade-host client add takes the client's name")
 	}

@@ -1,0 +1,9 @@
+[1mNAME[0m         [1mSTATE[0m                                      [1mDEVICES[0m
+ewelink-lan  needs setup: run oikade setup ewelink-lan  porch-light
+overkiz                                                 study-blind
+zigbee2mqtt  plugin not imported                        shed-relay
+--- stderr
+[2mHint: oikade status plugin/NAME says what's wrong with one[0m
+--- none
+--- stderr
+No plugins. Your home imports one with oikade.Plugin, and oikade deploy starts it.

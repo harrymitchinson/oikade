@@ -1,0 +1,9 @@
+[1mNAME[0m                              [1mKIND[0m  [1mSTATE[0m
+case/office-ac/on/too-warm        case
+flow/morning                      flow
+case/mains-valve/on/leak-shutoff  case  Safety, paused
+--- stderr
+[2mHint: oikade status REF shows what one is doing now[0m
+--- none
+--- stderr
+No rules. A case or a flow in your home's code is one, once oikade deploy runs it.

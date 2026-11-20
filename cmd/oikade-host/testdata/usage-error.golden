@@ -4,4 +4,4 @@ exit 2
 Error: oikade-host client only adds one
 Usage:
   oikade-host client add NAME [--token] [--data-dir DIR] [--json]
-Hint: oikade client lists and revokes them, from anywhere
+Hint: oikade list clients lists them, and oikade client revoke revokes one, from anywhere

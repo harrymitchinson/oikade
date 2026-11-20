@@ -298,7 +298,7 @@ func TestHistoryShowsWhoWroteADevice(t *testing.T) {
 	}
 	stderr, err := r.oikade(nil, "history", "device/nothing")
 	if err != nil || !strings.Contains(stderr, "No events of device/nothing since ") ||
-		!strings.Contains(stderr, "There's no device/nothing on record: oikade devices lists them.") {
+		!strings.Contains(stderr, "There's no device/nothing on record: oikade list devices lists them.") {
 		t.Errorf("a history of nothing: %v: %s", err, stderr)
 	}
 

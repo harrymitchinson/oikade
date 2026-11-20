@@ -208,9 +208,6 @@ type Response struct {
 	// Unimported are the devices on record of plugins the version doesn't import: a deploy's or a
 	// rollback's for the version now running, and a devices request's for the one running now.
 	Unimported []Unimported `json:"unimported,omitempty"`
-	// Problems are a devices request's: what's wrong with a device, by name: offline, as its driver
-	// says, and the driver's error, such as "offline: unreachable".
-	Problems map[string]string `json:"problems,omitempty"`
 	// OutsidePlugins are a devices request's: the plugins that run as processes of their own, which no
 	// version imports.
 	OutsidePlugins []string `json:"outsidePlugins,omitempty"`
@@ -305,7 +302,7 @@ func UnimportedOf(list registry.Snapshot, imported, outside []string, safety fun
 	return out
 }
 
-// Client is a client of the network API. Its JSON is what oikade client list --json prints, so
+// Client is a client of the network API. Its JSON is what oikade list clients --json prints, so
 // scripts rely on it: add to it, and don't rename.
 type Client struct {
 	Name string `json:"name"`
@@ -322,14 +319,16 @@ func Pin(publicKeyInfo []byte) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// Secret is what the host says about a credential. Its JSON is what oikade secret list --json prints,
+// Secret is what the host says about a credential. Its JSON is what oikade list secrets --json prints,
 // so scripts rely on it: add to it, and don't rename.
 type Secret struct {
 	Name string `json:"name"`
 	// Ref is its ref, such as secret/broker.
 	Ref string `json:"ref"`
 	// Changed is when its value last changed.
-	Changed time.Time `json:"changed"`
+	Changed time.Time `json:"changed,omitzero"`
+	// Unset is a secret the running version uses that isn't set, which oikade list secrets adds.
+	Unset bool `json:"unset,omitempty"`
 }
 
 // Matter is the host's Matter bridge. Its JSON is what oikade matter --json prints, so scripts rely on

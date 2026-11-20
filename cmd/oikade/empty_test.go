@@ -21,7 +21,7 @@ func TestEmptyListsSayWhatWouldFillThem(t *testing.T) {
 		hint  string
 	}{
 		{"secrets", func(stdout, stderr *bytes.Buffer, asJSON bool) error {
-			return printSecrets(cli.Plain(stdout, 0), cli.Plain(stderr, 0), nil, asJSON)
+			return printSecrets(cli.Plain(stdout, 0), cli.Plain(stderr, 0), nil, nil, asJSON, time.Now())
 		}, "No secrets. oikade secret set NAME adds one."},
 		{"clients", func(stdout, stderr *bytes.Buffer, asJSON bool) error {
 			return printClients(cli.Plain(stdout, 0), cli.Plain(stderr, 0), nil, asJSON, time.Now())
@@ -55,14 +55,14 @@ func TestNoDevicesSaysWhatReportsThem(t *testing.T) {
 	stderr.Reset()
 	noDevices(&stderr, 2)
 	got := stderr.String()
-	if !strings.Contains(got, "2 removed devices") || !strings.Contains(got, "oikade devices --all") {
-		t.Errorf("with removed devices: %q", stderr.String())
+	if !strings.Contains(got, "2 forgotten devices keep their") || !strings.Contains(got, "oikade list devices --all") {
+		t.Errorf("with forgotten devices: %q", stderr.String())
 	}
 	raw, err := json.Marshal(listed(registry.Snapshot{}, deviceMarks{}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), `"devices":[]`) {
+	if string(raw) != "[]" {
 		t.Errorf("--json: %s", raw)
 	}
 }
@@ -110,7 +110,7 @@ func TestStatusStartsWithWhatsLeftToSetUp(t *testing.T) {
 	want := []string{
 		"No home deployed. Run oikade deploy from your home's module.",
 		"The Matter bridge has no controller. oikade matter says how to pair one.",
-		"Devices with a problem: attic-fan. oikade devices says what's wrong.",
+		"Devices with a problem: attic-fan. Their STATE says what's wrong.",
 		"Devices whose plugin isn't imported: shed-relay. " +
 			"Import it in your home and run oikade deploy, or remove the device with oikade devices remove.",
 	}
@@ -193,7 +193,7 @@ func TestAPluginsProblemIsLeftToSetUp(t *testing.T) {
 	want := []string{
 		"Plugin blinds: hub unreachable",
 		`Plugin thermostats: login refused, check the secret "thermostats"`,
-		"Devices with a problem: study-heater. oikade devices says what's wrong.",
+		"Devices with a problem: study-heater. Their STATE says what's wrong.",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("got %q", got)

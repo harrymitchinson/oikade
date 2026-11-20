@@ -26,7 +26,7 @@ const (
 // capability there is.
 type Capability[T Value] string
 
-// The capabilities, as oikade devices shows them and plugins name them in contract/v1.
+// The capabilities, as oikade list devices shows them and plugins name them in contract/v1.
 const (
 	// On is whether a light, switch or outlet is on.
 	On Capability[bool] = contractv1.On
@@ -181,7 +181,7 @@ func (c becomes) changes() []engine.Change {
 	return out
 }
 
-// DeviceType is what a device that's on or off is, in Matter's names, as oikade devices shows it. A
+// DeviceType is what a device that's on or off is, in Matter's names, as oikade list devices shows it. A
 // Kind from Kinds is some of them.
 type DeviceType string
 

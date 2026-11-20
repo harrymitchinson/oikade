@@ -20,8 +20,12 @@ import (
 	"github.com/harrymitchinson/oikade/internal/registry"
 )
 
-// nameHeader is the header of a table's first column, of what each row is.
-const nameHeader = "NAME"
+// nameHeader is the header of a table's first column, of what each row is, and stateHeader of a
+// column that says how each is.
+const (
+	nameHeader  = "NAME"
+	stateHeader = "STATE"
+)
 
 // verbRemove is the one verb --plugin goes with.
 const verbRemove = "remove"
@@ -30,13 +34,14 @@ func runDevices(ctx context.Context, args []string) error {
 	fs := newFlags("devices")
 	target := addTarget(fs)
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
-	all := fs.Bool("all", false, "List removed devices too, which keep their Matter endpoints.")
-	wide := fs.Bool("wide", false, "Show every column, however wide the terminal.")
 	allow := fs.Bool("allow-safety", false, "Remove a device under a Safety claim.")
 	plugin := fs.String("plugin", "", "Remove every device of this plugin, such as one your home no longer imports.")
+	// Gone with the list, and kept so that one typed from habit says where it went.
+	_ = fs.Bool("all", false, "")
+	_ = fs.Bool("wide", false, "")
 	words := cli.Parse(fs, args)
 	if len(words) == 0 {
-		return listDevices(ctx, target, *asJSON, *all, *wide)
+		return cli.UsageErrorf("oikade devices doesn't list devices any more").WithHint("%s", instead["devices"])
 	}
 
 	verb, words := words[0], words[1:]
@@ -61,7 +66,7 @@ func runDevices(ctx context.Context, args []string) error {
 				"If it's still paired, it comes back when it next reports", words[0])
 		}
 	default:
-		return cli.UsageErrorf("oikade devices takes nothing, remove DEVICE, or remove --plugin NAME").
+		return cli.UsageErrorf("oikade devices takes remove DEVICE, or remove --plugin NAME").
 			WithHint("a device's name, room and type are your home's code's: home.Device declares them")
 	}
 	resp, err := api.Call(ctx, target.transport(), req)
@@ -101,41 +106,6 @@ func devicesOf(ctx context.Context, t api.Transport) (api.Response, error) {
 	return resp, nil
 }
 
-func listDevices(ctx context.Context, target target, asJSON, all, wide bool) error {
-	resp, err := devicesOf(ctx, target.transport())
-	if err != nil {
-		return err
-	}
-	list := *resp.Registry
-	removed := 0
-	if !all {
-		before := len(list.Devices)
-		list.Devices = slices.DeleteFunc(list.Devices, func(d registry.Device) bool { return d.Removed })
-		removed = before - len(list.Devices)
-	}
-	marks := deviceMarks{unimported: map[string]bool{}, hidden: map[string]bool{}, problems: resp.Problems}
-	for _, u := range resp.Unimported {
-		marks.unimported[u.Device] = true
-	}
-	for _, name := range resp.HiddenFromMatter {
-		marks.hidden[name] = true
-	}
-	if asJSON {
-		return cli.PrintJSON(listed(list, marks))
-	}
-	if len(list.Devices) == 0 {
-		noDevices(os.Stderr, removed)
-		return nil
-	}
-	stderr := std.err
-	undeclared, dropped := printDevices(std.out, list, marks, wide)
-	if len(dropped) > 0 {
-		stderr.Hint("--wide shows %s", andList(dropped))
-	}
-	printUndeclared(stderr, undeclared)
-	return nil
-}
-
 // andList is "A", "A and B", or "A, B and C".
 func andList(items []string) string {
 	if len(items) < 2 {
@@ -157,21 +127,19 @@ func printUndeclared(out io.Writer, lines []string) {
 	}
 }
 
-// deviceMarks are what the host says of devices beyond the registry, by name.
-type deviceMarks struct {
-	// unimported are those whose plugin the running version doesn't import, and hidden those your
-	// home keeps off Matter.
-	unimported, hidden map[string]bool
-	// problems are what's wrong with them, as their drivers say.
-	problems map[string]string
-}
+// deviceMarks are what the host says of devices beyond the registry, by name: those whose plugin the
+// running version doesn't import, and those your home keeps off Matter.
+type deviceMarks struct{ unimported, hidden map[string]bool }
 
-// noDevices says what would put devices on record, and that --all shows any removed ones.
-func noDevices(stderr io.Writer, removed int) {
+// noDevices says what would put devices on record, and that --all shows any forgotten ones.
+func noDevices(stderr io.Writer, forgotten int) {
 	_, _ = fmt.Fprintln(stderr, "No devices. A plugin your home imports reports its devices once you deploy it.")
-	if removed > 0 {
+	switch {
+	case forgotten == 1:
+		_, _ = fmt.Fprintln(stderr, "A forgotten device keeps its Matter endpoint: oikade list devices --all lists it.")
+	case forgotten > 1:
 		_, _ = fmt.Fprintf(stderr,
-			"%d removed devices keep their Matter endpoints: oikade devices --all lists them.\n", removed)
+			"%d forgotten devices keep their Matter endpoints: oikade list devices --all lists them.\n", forgotten)
 	}
 }
 
@@ -185,22 +153,22 @@ const (
 )
 
 // printDevices prints the table, fitted to out's width unless wide, and returns the lines that would
-// declare the devices that are marked not in your code, and the columns that didn't fit.
+// declare the devices that are marked not in your code, and the columns that didn't fit. A device's
+// STATE is its record's, and never what's wrong with it now, which is oikade status's.
 func printDevices(out *cli.Printer, list registry.Snapshot, marks deviceMarks, wide bool,
 ) (undeclared, dropped []string) {
+	list.Devices = slices.Clone(list.Devices)
 	slices.SortFunc(list.Devices, func(a, b registry.Device) int { return strings.Compare(a.Name, b.Name) })
 	table := cli.Table{
 		Columns: []cli.Column{
 			{Header: nameHeader},
 			{Header: "ROOM"},
-			{Header: "STATE"},
-			{Header: "MODEL", Drop: 5, Shrink: true},
-			{Header: "SERIAL", Drop: 1, Shrink: true},
-			{Header: "FIRMWARE", Drop: 2, Shrink: true},
-			{Header: "HARDWARE", Drop: 3, Dim: true},
-			{Header: "ENDPOINT", Drop: 4},
-			{Header: "DEVICE TYPES", Shrink: true},
+			{Header: stateHeader},
+			{Header: "DEVICE TYPES", Drop: 3, Shrink: true},
 			{Header: "CAPABILITIES", Shrink: true},
+			{Header: "PLUGIN"},
+			{Header: "HARDWARE", Drop: 1, Dim: true},
+			{Header: "ENDPOINT", Drop: 2},
 		},
 		Wide: wide,
 	}
@@ -208,13 +176,11 @@ func printDevices(out *cli.Printer, list registry.Snapshot, marks deviceMarks, w
 		state := "paired"
 		switch {
 		case d.Removed:
-			state = "removed"
+			state = "forgotten"
 		case d.Reserved():
 			state = "reserved"
 		case marks.unimported[d.Name]:
 			state = notImported
-		case marks.problems[d.Name] != "":
-			state = marks.problems[d.Name]
 		}
 		if !d.Removed && marks.hidden[d.Name] {
 			if state == "paired" {
@@ -231,23 +197,11 @@ func printDevices(out *cli.Printer, list registry.Snapshot, marks deviceMarks, w
 		if d.Endpoint != 0 {
 			endpoint = strconv.Itoa(int(d.Endpoint))
 		}
-		table.Rows = append(table.Rows, []string{d.Name, d.Room, state, modelOf(d), d.SerialNumber, d.FirmwareVersion,
-			or(registry.HardwareRef(d).String(), hardwareOf(d)), endpoint,
-			devicetype.Join(d.DeviceTypes()), strings.Join(d.Capabilities, ", ")})
+		plugin, _ := api.PluginOf(d)
+		table.Rows = append(table.Rows, []string{d.Name, d.Room, state, devicetype.Join(d.DeviceTypes()),
+			strings.Join(d.Capabilities, ", "), plugin, or(registry.HardwareRef(d).String(), hardwareOf(d)), endpoint})
 	}
 	return undeclared, out.Table(table)
-}
-
-// modelOf is a device's manufacturer and model, as its driver says, with the manufacturer once if its
-// model already starts with it as a word.
-func modelOf(d registry.Device) string {
-	m, model := d.Manufacturer, d.Model
-	startsWith := len(model) >= len(m) && strings.EqualFold(model[:len(m)], m) &&
-		(len(model) == len(m) || model[len(m)] == ' ')
-	if m == "" || startsWith {
-		return model
-	}
-	return strings.TrimSpace(d.Manufacturer + " " + d.Model)
 }
 
 // hardwareOf names hardware that isn't a plugin's, such as a simulated device's, by its driver and
@@ -259,7 +213,7 @@ func hardwareOf(d registry.Device) string {
 	return registry.DescribeHardware(d.Driver, d.ID)
 }
 
-// listedDevice is a device as oikade devices --json prints it: as on record, with what it is.
+// listedDevice is a device as oikade list devices --json prints it: as on record, with what it is.
 type listedDevice struct {
 	registry.Device
 	// Ref is its ref, such as device/desk-plug.
@@ -270,41 +224,26 @@ type listedDevice struct {
 	DeviceTypes []devicetype.Type `json:"deviceTypes"`
 	// PluginNotImported is a device whose plugin the running version doesn't import.
 	PluginNotImported bool `json:"pluginNotImported,omitempty"`
-	// Problem is what's wrong with it, as its driver says.
-	Problem string `json:"problem,omitempty"`
 	// Matter is false for a device your home keeps off Matter, and left out otherwise.
 	Matter *bool `json:"matter,omitempty"`
 }
 
-// removedHasNone is a device's problem, which a removed one doesn't have.
-func removedHasNone(d registry.Device, problems map[string]string) string {
-	if d.Removed {
-		return ""
-	}
-	return problems[d.Name]
-}
-
-// listed is the registry as oikade devices --json prints it.
-func listed(list registry.Snapshot, marks deviceMarks) any {
+// listed is the devices on record as oikade list devices --json prints them: an array, each with its
+// ref.
+func listed(list registry.Snapshot, marks deviceMarks) []listedDevice {
 	devices := make([]listedDevice, 0, len(list.Devices))
 	for _, d := range list.Devices {
 		l := listedDevice{
 			Device: d, Ref: ident.DeviceRef(d.Name).String(), Hardware: registry.HardwareRef(d).String(),
 			DeviceTypes:       append([]devicetype.Type{}, d.DeviceTypes()...),
 			PluginNotImported: !d.Removed && marks.unimported[d.Name],
-			Problem:           removedHasNone(d, marks.problems),
 		}
 		if !d.Removed && marks.hidden[d.Name] {
 			l.Matter = new(bool)
 		}
 		devices = append(devices, l)
 	}
-	// Devices here is shallower than the Snapshot's, so it's the one encoding/json writes, and any
-	// other field of a Snapshot comes along.
-	return struct {
-		registry.Snapshot
-		Devices []listedDevice `json:"devices"`
-	}{list, devices}
+	return devices
 }
 
 func runTypes(ctx context.Context, args []string) error {

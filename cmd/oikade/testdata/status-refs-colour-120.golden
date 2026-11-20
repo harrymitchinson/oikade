@@ -39,4 +39,4 @@ To add another controller, run oikade matter open, or share the bridge from one 
 [1mPaired controllers[0m
   fabric 1: Home, vendor 0x0000
 --- stderr
-[2moffice-ac isn't in your code: oikade devices shows how to declare it[0m
+[2moffice-ac isn't in your code: oikade list devices shows how to declare it[0m

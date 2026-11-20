@@ -17,8 +17,8 @@ import (
 func (r *rig) devices() registry.Snapshot {
 	r.t.Helper()
 	var list registry.Snapshot
-	out := r.stdout(nil, "devices", "--json", "--all")
-	if err := json.Unmarshal(out, &list); err != nil {
+	out := r.stdout(nil, "list", "devices", "--json", "--all")
+	if err := json.Unmarshal(out, &list.Devices); err != nil {
 		r.t.Fatalf("reading devices: %v: %s", err, out)
 	}
 	return list
@@ -61,7 +61,7 @@ func TestAPairedDeviceIsUsableAtOnce(t *testing.T) {
 	}
 	r.stdout(nil, "set", "hall-lamp", "on", "on")
 	r.wrote("hall-lamp", true)
-	if !strings.Contains(string(r.stdout(nil, "devices")), "hall-lamp") {
+	if !strings.Contains(string(r.stdout(nil, "list", "devices")), "hall-lamp") {
 		t.Error("the table left it out")
 	}
 }
@@ -75,7 +75,7 @@ func TestARemovedDeviceComesBackOnItsOwnEndpoint(t *testing.T) {
 	if _, err := r.oikade(nil, "set", "shed-lamp", "on", "on"); err == nil {
 		t.Error("set a removed device")
 	}
-	if strings.Contains(string(r.stdout(nil, "devices")), "shed-lamp") {
+	if strings.Contains(string(r.stdout(nil, "list", "devices")), "shed-lamp") {
 		t.Error("the table still lists it")
 	}
 	r.pair("other-lamp", "other-lamp")

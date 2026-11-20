@@ -26,7 +26,7 @@ type group struct {
 }
 
 // targetValues name the values of the flags every command that talks to a host takes.
-var targetValues = map[string]string{"data-dir": "DIR", "context": "NAME"}
+var targetValues = map[string]string{flagDataDir: "DIR", flagContext: "NAME"}
 
 // groups are oikade's commands, by what you're doing.
 var groups = []group{
@@ -94,6 +94,18 @@ var groups = []group{
 	}},
 	{"Watch and drive", []cli.Command{
 		{
+			Name:    "oikade list",
+			Summary: "List what's on record, and how each is set up.",
+			Usage:   []string{"oikade list KIND [--wide] [--all] [--json]"},
+			About: "KIND is devices, rules, plugins, secrets, clients or contexts, singular or plural. devices are each " +
+				"device's record: its room, whether it's paired, reserved, forgotten, hidden from Matter or not in your " +
+				"code, what it is, and its plugin, with its hardware and Matter endpoint under --wide, and the forgotten " +
+				"ones under --all. secrets have when each changed, and those your home uses that aren't set. contexts " +
+				"are the hosts this machine has logged in to, with the current one marked. --json prints an array, each " +
+				"with its ref. oikade status says what each is doing now.",
+			Example: []string{"oikade list devices --wide", "oikade list secrets"},
+		},
+		{
 			Name:    "oikade status",
 			Summary: "Show what your home is doing now, and what's wrong.",
 			Usage:   []string{"oikade status [REF...] [--check] [--wide] [--json]"},
@@ -156,15 +168,16 @@ var groups = []group{
 	{"Devices and pairing", []cli.Command{
 		{
 			Name:    "oikade devices",
-			Summary: "List the host's devices and how each is doing, or remove one.",
+			Summary: "Remove a device from the host, or every device of a plugin.",
 			Usage: []string{
-				"oikade devices [--all] [--wide] [--json]",
 				"oikade devices remove DEVICE [--allow-safety] [--json]",
 				"oikade devices remove --plugin NAME [--allow-safety] [--json]",
 			},
 			About: "A device's name, room and type are your home's code's: home.Device declares them. A removed " +
-				"device keeps its Matter endpoint, so hardware that comes back is the same device.",
-			Example: []string{"oikade devices --wide", "oikade devices remove --plugin zigbee2mqtt"},
+				"device keeps its Matter endpoint, so hardware that comes back is the same device. oikade list devices " +
+				"lists them.",
+			Example: []string{"oikade devices remove --plugin zigbee2mqtt"},
+			Hide:    []string{"all", "wide"},
 		},
 		{
 			Name:    "oikade setup",
@@ -190,20 +203,20 @@ var groups = []group{
 		},
 		{
 			Name:    "oikade client",
-			Summary: "List or revoke who may call the host's network API.",
-			Usage:   []string{"oikade client list [--json]", "oikade client revoke NAME [--json]"},
-			About:   "To add one, run oikade-host client add NAME on the host's machine.",
+			Summary: "Revoke a client of the host's network API.",
+			Usage:   []string{"oikade client revoke NAME [--json]"},
+			About:   "To add one, run oikade-host client add NAME on the host's machine. oikade list clients lists them.",
 			Example: []string{"oikade client revoke old-laptop"},
 		},
 		{
 			Name:    "oikade secret",
-			Summary: "List, set or remove the secrets your home and its plugins read.",
+			Summary: "Set or remove the secrets your home and its plugins read.",
 			Usage: []string{
-				"oikade secret list [--json]",
 				"oikade secret set NAME [--json]",
 				"oikade secret remove NAME [--json]",
 			},
-			About:   "set takes the value from stdin, or asks for it, and never from an argument, which ps would show.",
+			About: "set takes the value from stdin, or asks for it, and never from an argument, which ps would show. " +
+				"oikade list secrets lists them.",
 			Example: []string{"oikade secret set weather-api-key"},
 		},
 		{
@@ -226,7 +239,7 @@ func runners() map[string]func(ctx context.Context, args []string) error {
 	return map[string]func(ctx context.Context, args []string) error{
 		"init": runInit, "check": runCheck, "test": runTest, "dev": runDev, "replay": runReplay, "types": runTypes,
 		"deploy": runDeploy, "rollback": runRollback,
-		"status": runStatus, "history": runHistory, "tail": runTail, "set": runSet,
+		verbList: runList, "status": runStatus, "history": runHistory, "tail": runTail, "set": runSet,
 		"pause":   func(ctx context.Context, args []string) error { return runPause(ctx, args, true) },
 		"resume":  func(ctx context.Context, args []string) error { return runPause(ctx, args, false) },
 		"devices": runDevices, "setup": runSetup, "matter": runMatter,
@@ -337,8 +350,22 @@ func newFlags(word string) *flag.FlagSet {
 	return fs
 }
 
-// unknown says there's no command word, and names the one it's likely a slip for.
+// instead names the command to use for a word from another tool, or from before, that oikade has
+// no command for, or none that does that any more.
+var instead = map[string]string{
+	"devices": "oikade list devices lists them",
+	"logs":    "oikade history shows what your home did, and oikade tail follows it",
+	"events":  "oikade history shows what your home did, and oikade tail follows it",
+	"ls":      "oikade list KIND lists " + orList(listKinds),
+	"get":     "oikade status REF shows what something is doing now, and oikade list KIND what's on record",
+	"show":    "oikade status REF shows what something is doing now, and oikade list KIND what's on record",
+}
+
+// unknown says there's no command word, and names the one to use, or the one it's likely a slip for.
 func unknown(word string) error {
+	if use, ok := instead[word]; ok {
+		return cli.UsageErrorf("oikade has no %s command", word).WithHint("%s", use)
+	}
 	hint := "oikade help lists them"
 	if slip := cli.Closest(word, words()); slip != "" {
 		hint = fmt.Sprintf("did you mean %s? %s", slip, hint)

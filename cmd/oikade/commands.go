@@ -29,11 +29,17 @@ type target struct {
 	dataDir, context *string
 }
 
+// The flags that say which host a command is for.
+const (
+	flagDataDir = "data-dir"
+	flagContext = "context"
+)
+
 func addTarget(fs *flag.FlagSet) target {
 	return target{
 		fs:      fs,
-		dataDir: fs.String("data-dir", cli.DefaultDataDir, "The host's data directory, on this machine."),
-		context: fs.String("context", "", "The host to reach over its network API, from oikade login."),
+		dataDir: fs.String(flagDataDir, cli.DefaultDataDir, "The host's data directory, on this machine."),
+		context: fs.String(flagContext, "", "The host to reach over its network API, from oikade login."),
 	}
 }
 
@@ -93,7 +99,7 @@ const thisMachine = "this machine's host"
 // resolve is transport, and what to call the host it reaches: its context's name, or thisMachine.
 func (t target) resolve() (api.Transport, string) {
 	given := false
-	t.fs.Visit(func(f *flag.Flag) { given = given || f.Name == "data-dir" })
+	t.fs.Visit(func(f *flag.Flag) { given = given || f.Name == flagDataDir })
 	if given && *t.context == "" {
 		return api.Local{DataDir: *t.dataDir}, thisMachine
 	}

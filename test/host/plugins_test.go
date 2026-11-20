@@ -132,10 +132,10 @@ func TestADeviceSaysWhatItsPluginSaysIsWrong(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)
 	const problem = "no key: give this relay one"
-	r.until("the device's problem", func() bool { return strings.Contains(string(r.stdout(nil, "devices")), problem) })
-	listed := string(r.stdout(nil, "devices", "--json"))
-	if !strings.Contains(listed, `"problem"`) || !strings.Contains(listed, problem) {
-		t.Errorf("devices --json: %s", listed)
+	r.until("the device's problem", func() bool { return strings.Contains(string(r.stdout(nil, "status")), problem) })
+	// What's wrong now is status's, and the list is the record's.
+	if listed := string(r.stdout(nil, "list", "devices", "--json")); strings.Contains(listed, problem) {
+		t.Errorf("list devices --json: %s", listed)
 	}
 	if status := string(r.stdout(nil, "status", "locked")); !strings.Contains(status, problem) {
 		t.Errorf("status: %s", status)
@@ -366,17 +366,15 @@ func TestAHomeKeepsAPluginsDevicesOffMatter(t *testing.T) {
 	// The host still drives it.
 	r.setting("relay", "on")
 	r.untilValue("relay", true)
-	var listed struct {
-		Devices []struct {
-			Name   string `json:"name"`
-			Driver string `json:"driver"`
-			Matter *bool  `json:"matter"`
-		} `json:"devices"`
+	var listed []struct {
+		Name   string `json:"name"`
+		Driver string `json:"driver"`
+		Matter *bool  `json:"matter"`
 	}
-	if err := json.Unmarshal(r.stdout(nil, "devices", "--json"), &listed); err != nil {
+	if err := json.Unmarshal(r.stdout(nil, "list", "devices", "--json"), &listed); err != nil {
 		t.Fatal(err)
 	}
-	for _, d := range listed.Devices {
+	for _, d := range listed {
 		// Each plugin reports a spare relay, so which is whose is by driver.
 		hidden := d.Driver == "plugin/relays" && d.Name != "valve"
 		if hidden != (d.Matter != nil && !*d.Matter) {
@@ -563,11 +561,11 @@ func TestAVersionThatDropsAPluginSaysWhatItLeftBehind(t *testing.T) {
 		PluginNotImported bool   `json:"pluginNotImported"`
 	}
 	r.until("relay to be marked", func() bool {
-		var list struct{ Devices []listed }
-		if err := json.Unmarshal(r.stdout(nil, "devices", "--json"), &list); err != nil {
+		var list []listed
+		if err := json.Unmarshal(r.stdout(nil, "list", "devices", "--json"), &list); err != nil {
 			t.Fatal(err)
 		}
-		return slices.Contains(list.Devices, listed{Name: "relay", PluginNotImported: true})
+		return slices.Contains(list, listed{Name: "relay", PluginNotImported: true})
 	})
 	if !slices.ContainsFunc(r.status().Devices, func(d api.Device) bool { return d.Name == "relay" && d.PluginNotImported }) {
 		t.Fatal("status doesn't mark relay")
