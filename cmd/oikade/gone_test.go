@@ -58,9 +58,13 @@ func TestNothingNamesACommandThatsGone(t *testing.T) {
 		}
 		for i, line := range strings.Split(string(b), "\n") {
 			for _, g := range gone {
-				if m := g.pattern.FindString(line); m != "" {
+				for _, at := range g.pattern.FindAllStringIndex(line, -1) {
+					// GitHub's gh has a secret set of its own, which the docs on deploying from CI run.
+					if strings.HasSuffix(line[:at[0]], "gh ") {
+						continue
+					}
 					rel, _ := filepath.Rel(root, path)
-					t.Errorf("%s:%d names %q, which is gone: %s", rel, i+1, strings.TrimSpace(m), g.now)
+					t.Errorf("%s:%d names %q, which is gone: %s", rel, i+1, strings.TrimSpace(line[at[0]:at[1]]), g.now)
 				}
 			}
 		}

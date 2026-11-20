@@ -1,0 +1,41 @@
+name: Home
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go install github.com/harrymitchinson/oikade/cmd/oikade@main
+      - run: oikade check
+      - run: oikade test
+      - name: Deploy is off
+        if: github.event_name == 'push' && vars.OIKADE_ADDRESS == ''
+        run: |
+          echo "::notice title=Deploy is off::Set the variables OIKADE_ADDRESS and OIKADE_PIN and the secret OIKADE_TOKEN to deploy what reaches main, from a self-hosted runner: https://github.com/harrymitchinson/oikade/blob/main/docs/running-a-home.md#deploying-from-ci"
+
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && vars.OIKADE_ADDRESS != ''
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go install github.com/harrymitchinson/oikade/cmd/oikade@main
+      - name: Deploy
+        env:
+          OIKADE_TOKEN: ${{ secrets.OIKADE_TOKEN }}
+          OIKADE_ADDRESS: ${{ vars.OIKADE_ADDRESS }}
+          OIKADE_PIN: ${{ vars.OIKADE_PIN }}
+        run: |
+          oikade login "$OIKADE_ADDRESS" --pin "$OIKADE_PIN"
+          oikade deploy

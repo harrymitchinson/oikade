@@ -31,6 +31,28 @@ returns to the version before the running one. The host keeps the last five.
 
 Removing a Safety rule is refused, and so is renaming one, because a rule's claims end with it and a hold's latch lives under its name, which could reopen a valve. `--allow-safety` on either command goes ahead. `--binary FILE` deploys something already built for the host, and skips the checks that need your source.
 
+### Deploying from CI
+
+The workflow `oikade init` writes, `.github/workflows/deploy.yml`, checks and tests every change on GitHub's runners. Once you turn deploys on, it also deploys what reaches `main`, over the [network API](#the-network-api), from a runner that can reach the host. Until then a push to `main` passes, and leaves a notice that deploys are off, so a home you deploy from your laptop never fails its CI (OIK-286).
+
+CI has no one to type a code, so give it a token. On the host's machine:
+
+```sh
+sudo -u oikade oikade-host add client/ci --token     # prints a token and the pin
+```
+
+Then, in your home's repo, with [`gh`](https://cli.github.com) signed in, or in the repo's Settings → Secrets and variables → Actions:
+
+```sh
+gh secret set OIKADE_TOKEN                           # paste the token
+gh variable set OIKADE_PIN --body sha256:9f2c…
+gh variable set OIKADE_ADDRESS --body pi.home:8443   # last, because this turns deploys on
+```
+
+The deploy job runs `oikade login "$OIKADE_ADDRESS" --pin "$OIKADE_PIN"` with `OIKADE_TOKEN` set. That saves a context with no token in it, and `OIKADE_TOKEN` supplies one whenever that context is used. A context with a token of its own never sends `OIKADE_TOKEN`, so a token meant for one host doesn't reach another.
+
+GitHub's own runners reach the host only if its API is on the internet, which it shouldn't be, so the deploy job runs on `self-hosted`: add a runner on your network in the repo's Settings → Actions → Runners. Until one is online, a deploy waits in GitHub's queue. To use GitHub's runners instead, change the deploy job's `runs-on` to `ubuntu-latest`, and join the runner to your network over a VPN in a step before the deploy. `oikade remove client/ci` stops the token working.
+
 ## Running the host
 
 The host is one long-running process, `oikade-host`, with one data directory, secrets as files, logs on stdout, and metrics and health over HTTP. Take `oikade-host` from a [release](https://github.com/harrymitchinson/oikade/releases), in `oikade-host-linux-<arch>.tar.gz`, and on a machine with systemd it installs itself:
@@ -185,13 +207,7 @@ oikade login pi.home:8443 --pin sha256:9f2c… --code k7Qx…
 
 The pin is in the line, so the laptop trusts nothing it hasn't been told. It checks the pin before it sends the code, and the code works once. The login saves the host as a context in `~/.config/oikade/config.json`, with mode 0600, and makes it current. From then on `oikade status`, `deploy` and the rest go to it. `--context NAME` picks another, and `--data-dir` means the host on this machine. `oikade-host add` always means the host on its own machine, through the socket, so it has no `--context`. A config file others can read is refused.
 
-CI has no one to type a code, so give it a token instead:
-
-```sh
-sudo -u oikade oikade-host add client/ci --token     # on the host's machine: prints a token and the pin
-```
-
-Keep the token in a CI secret as `OIKADE_TOKEN`, then run `oikade login ADDRESS --pin PIN` with it set. That saves a context with no token in it, and `OIKADE_TOKEN` supplies one whenever that context is used. A context with a token of its own never sends `OIKADE_TOKEN`, so a token meant for one host doesn't reach another.
+CI has no one to type a code, so it logs in with a token instead: see [Deploying from CI](#deploying-from-ci).
 
 ```sh
 oikade list clients              # who has a token, when each last used it, and who's waiting to log in
