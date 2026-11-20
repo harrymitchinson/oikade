@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/harrymitchinson/oikade/internal/cli"
+	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
@@ -110,6 +111,44 @@ func TestEveryCommandHasHelp(t *testing.T) {
 	}
 	if len(runners) != len(words())-1 {
 		t.Errorf("%d runners for %d commands", len(runners), len(words())-1)
+	}
+}
+
+// The help of a deploy, a deploy given both --keep-vars and --env-file, and what a deploy refused for
+// a value says, with and without --keep-vars, at 80 and 120 columns (OIK-365).
+func TestTheKeepVarsHelpUsageAndHints(t *testing.T) {
+	host := startRecordingHost(t, api.Response{
+		Error:       "the version uses TOSHIBA_PASSWORD, which isn't among the host's values",
+		MissingVars: []string{"TOSHIBA_PASSWORD"},
+	})
+	var err, lacked error
+	// In the module, so the file is named as you'd type it, and back here for the goldens.
+	t.Run("in the module", func(t *testing.T) {
+		t.Chdir(homeWithValues(t, ""))
+		_, err = readValues(".", "", []string{"TOSHIBA_PASSWORD"}, func(string) (string, bool) { return "", false })
+		_, lacked = keepingValues(t, host, ".")
+	})
+	if err == nil || lacked == nil {
+		t.Fatalf("got %v and %v", err, lacked)
+	}
+	for name, printer := range printers {
+		for _, width := range []int{80, 120} {
+			var b bytes.Buffer
+			stdout, stderr, code := runOikadeAt(t, printer, width, "deploy", "--help")
+			if code != 0 || stderr != "" {
+				t.Errorf("oikade deploy --help exits %d: %s", code, stderr)
+			}
+			b.WriteString(stdout + "---\n")
+			_, stderr, code = runOikadeAt(t, printer, width, "deploy", "--keep-vars", "--env-file", "test-host.env")
+			if code != cli.ExitUsage {
+				t.Errorf("oikade deploy --keep-vars --env-file exits %d", code)
+			}
+			b.WriteString(stderr + "---\n")
+			p := printer(&b, width)
+			p.Fail(err, false)
+			p.Fail(lacked, false)
+			testkit.Golden(t, fmt.Sprintf("keep-vars-%s-%d", name, width), b.Bytes())
+		}
 	}
 }
 

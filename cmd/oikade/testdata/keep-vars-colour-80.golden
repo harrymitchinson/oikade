@@ -1,0 +1,42 @@
+oikade deploy: Check and build your home, and run it on the host.
+
+The host keeps the version it was running until the new one has stayed up, and
+puts it back if it doesn't. Your values go with it, from the .env beside your
+go.mod and the environment, which wins, and replace the host's: one your code
+uses that neither has stops the deploy. From somewhere without them, such as CI
+or a clean clone, --keep-vars sends none, and the host keeps its own and refuses
+a version that uses one they lack. A deploy that would end a Safety rule's
+claims needs --allow-safety.
+
+[1mUsage:[0m
+  oikade deploy [--module DIR | --binary FILE] [--env-file FILE] [--allow-safety]
+  oikade deploy [--module DIR | --binary FILE] --keep-vars [--allow-safety]
+
+[1mFlags:[0m
+  --module DIR     Your home's module, to check and build. (default .)
+  --binary FILE    A binary already built for the host, skipping the source
+                   checks.
+  --env-file FILE  Your values, from this file rather than the .env beside your
+                   go.mod.
+  --allow-safety   Go ahead even though a Safety rule would go, and end its
+                   claims.
+  --keep-vars      Send no values, so the host keeps its own, as from CI or a
+                   clone with no .env.
+  --context NAME   The host to reach over its network API, from oikade login.
+  --data-dir DIR   The host's data directory, on this machine. (default
+                   /var/lib/oikade)
+
+[1mExample:[0m
+  oikade deploy --module ~/my-home
+  oikade deploy --keep-vars
+---
+[31m✗[0m [31mError:[0m --keep-vars and --env-file don't go together
+[1mUsage:[0m
+  oikade deploy [--module DIR | --binary FILE] [--env-file FILE] [--allow-safety]
+  oikade deploy [--module DIR | --binary FILE] --keep-vars [--allow-safety]
+[2mHint: --keep-vars keeps the host's values, and --env-file replaces them with a file's: pass one[0m
+---
+[31m✗[0m [31mError:[0m TOSHIBA_PASSWORD isn't set
+[2mHint: add it to .env or the environment, or pass --keep-vars to use the host's, if it has it[0m
+[31m✗[0m [31mError:[0m the version uses TOSHIBA_PASSWORD, which isn't among the host's values
+[2mHint: add it to your .env, and deploy without --keep-vars, which sends your values[0m

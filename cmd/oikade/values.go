@@ -27,7 +27,8 @@ type values struct {
 	fromFile, fromEnv int
 }
 
-// readValues reads your values, as collectValues does, and refuses any of used that nothing gives.
+// readValues reads your values, as collectValues does, and refuses any of used that nothing gives,
+// which only a deploy names.
 func readValues(module, envFile string, used []string, lookup func(string) (string, bool)) (values, error) {
 	v, missing, err := collectValues(module, envFile, used, lookup)
 	switch {
@@ -35,10 +36,10 @@ func readValues(module, envFile string, used []string, lookup func(string) (stri
 		return values{}, err
 	case len(missing) == 1:
 		return values{}, cli.Errorf("%s isn't set", missing[0]).
-			WithHint("add it to %s, or set it in the environment", v.file)
+			WithHint("add it to %s or the environment, %s", v.file, keepInstead(envFile, missing))
 	case len(missing) > 1:
 		return values{}, cli.Errorf("%s aren't set", andList(missing)).
-			WithHint("add them to %s, or set them in the environment", v.file)
+			WithHint("add them to %s or the environment, %s", v.file, keepInstead(envFile, missing))
 	}
 	return v, nil
 }

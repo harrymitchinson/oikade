@@ -11,7 +11,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/host/api"
@@ -68,7 +70,7 @@ func (s *apiServer) deployUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	// Gone once the deploy has it, which moves it, or not.
 	defer func() { _ = os.Remove(path) }()
-	s.log.Info("Received deploy upload", "client", callerOf(r.Context()).name, "vars", len(vars))
+	s.log.Info("Received deploy upload", "client", callerOf(r.Context()).name, "vars", len(vars), "keepVars", vars == nil)
 	resp := s.deploys.deploy(s.ctx, path, vars, allow)
 	respond(s.log, w, statusOf(resp), resp)
 }
@@ -106,29 +108,22 @@ func (s *apiServer) spool(ctx context.Context, w http.ResponseWriter, r *http.Re
 	return vars, path, nil
 }
 
-// receive reads a deploy's parts in order: the values, then the binary, into a file whose path it
-// returns even if it fails after making it. Its errors never quote a value.
+// receive reads a deploy's parts in order: the values, if it sends them, then the binary, into a file
+// whose path it returns even if it fails after making it. Values it doesn't send are nil, so that the
+// host keeps its own. Its errors never quote a value.
 func (s *apiServer) receive(parts *multipart.Reader) (map[string]string, string, error) {
-	part, err := nextPart(parts, api.DeployVarsPart)
+	part, err := nextPart(parts, api.DeployVarsPart, api.DeployBinaryPart)
 	if err != nil {
 		return nil, "", err
-	}
-	raw, err := io.ReadAll(io.LimitReader(part, maxVars+1))
-	if err != nil {
-		return nil, "", cutShort(err)
-	}
-	if len(raw) > maxVars {
-		return nil, "", fmt.Errorf("the values can be at most %d MiB", maxVars>>20)
 	}
 	var vars map[string]string
-	if json.Unmarshal(raw, &vars) != nil {
-		return nil, "", errors.New("the values aren't a JSON object of strings")
-	}
-	if vars == nil {
-		vars = map[string]string{}
-	}
-	if part, err = nextPart(parts, api.DeployBinaryPart); err != nil {
-		return nil, "", err
+	if part.FormName() == api.DeployVarsPart {
+		if vars, err = readVars(part); err != nil {
+			return nil, "", err
+		}
+		if part, err = nextPart(parts, api.DeployBinaryPart); err != nil {
+			return nil, "", err
+		}
 	}
 	f, err := os.CreateTemp(filepath.Join(s.dataDir, uploadsDir), "deploy-*")
 	if err != nil {
@@ -152,18 +147,37 @@ func (s *apiServer) receive(parts *multipart.Reader) (map[string]string, string,
 	return vars, f.Name(), nil
 }
 
-// nextPart is the next part, which must be called name.
-func nextPart(parts *multipart.Reader, name string) (*multipart.Part, error) {
+// nextPart is the next part, which must be called one of names. A body with none names the last.
+func nextPart(parts *multipart.Reader, names ...string) (*multipart.Part, error) {
 	part, err := parts.NextPart()
 	switch {
 	case err == io.EOF: // The closing boundary, and not a body cut short.
-		return nil, fmt.Errorf("the deploy has no %s", name)
+		return nil, fmt.Errorf("the deploy has no %s", names[len(names)-1])
 	case err != nil:
 		return nil, cutShort(err)
-	case part.FormName() != name:
-		return nil, fmt.Errorf("the deploy has %q where its %s should be", part.FormName(), name)
+	case !slices.Contains(names, part.FormName()):
+		return nil, fmt.Errorf("the deploy has %q where its %s should be", part.FormName(), strings.Join(names, " or "))
 	}
 	return part, nil
+}
+
+// readVars reads the values' part: a JSON object of names to strings, which null leaves empty.
+func readVars(part *multipart.Part) (map[string]string, error) {
+	raw, err := io.ReadAll(io.LimitReader(part, maxVars+1))
+	if err != nil {
+		return nil, cutShort(err)
+	}
+	if len(raw) > maxVars {
+		return nil, fmt.Errorf("the values can be at most %d MiB", maxVars>>20)
+	}
+	var vars map[string]string
+	if json.Unmarshal(raw, &vars) != nil {
+		return nil, errors.New("the values aren't a JSON object of strings")
+	}
+	if vars == nil {
+		vars = map[string]string{}
+	}
+	return vars, nil
 }
 
 // cutShort explains a body that ended before its last boundary.

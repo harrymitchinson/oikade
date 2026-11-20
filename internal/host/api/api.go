@@ -74,7 +74,8 @@ const StreamContentType = "application/x-ndjson"
 const AllowSafetyParam = "allowSafety"
 
 // DeployContentType is a deploy's body: a part called DeployVarsPart, your values as a JSON object
-// of names to values, then one called DeployBinaryPart, the binary.
+// of names to values, then one called DeployBinaryPart, the binary. A deploy without the values'
+// part keeps the host's.
 const DeployContentType = "multipart/form-data"
 
 // A deploy's parts, in the order they come.
@@ -707,7 +708,8 @@ func Call(ctx context.Context, t Transport, req Request) (Response, error) {
 }
 
 // Deploy sends the binary at path to the host, which runs it as your home's new version, with vars as
-// your values, which replace the host's whole. It waits for as long as that takes, as Call does.
+// your values, which replace the host's whole, or, if vars is nil, the host's own. It waits for as
+// long as that takes, as Call does.
 // progress, if it isn't nil, hears the binary's bytes sent of the total as the upload goes, from the
 // goroutine sending them; sent reaches total once it's done.
 func Deploy(ctx context.Context, t Transport, path string, vars map[string]string, allowSafety bool,
@@ -751,23 +753,22 @@ func Deploy(ctx context.Context, t Transport, path string, vars map[string]strin
 	return resp, nil
 }
 
-// deployParts are what goes around a deploy's binary in its body: the values' part and the binary's
-// part's header before it, and the closing boundary after it. Knowing them first gives the body its
-// length, so the binary needn't be read twice.
+// deployParts are what goes around a deploy's binary in its body: the values' part, unless vars is
+// nil, and the binary's part's header before it, and the closing boundary after it. Knowing them first
+// gives the body its length, so the binary needn't be read twice.
 func deployParts(vars map[string]string) (head, tail []byte, contentType string, err error) {
-	if vars == nil {
-		vars = map[string]string{}
-	}
 	var b bytes.Buffer
 	parts := multipart.NewWriter(&b)
-	varsPart, err := parts.CreatePart(textproto.MIMEHeader{
-		"Content-Disposition": {`form-data; name="` + DeployVarsPart + `"`}, "Content-Type": {ContentType},
-	})
-	if err != nil {
-		return nil, nil, "", err
-	}
-	if err := json.NewEncoder(varsPart).Encode(vars); err != nil {
-		return nil, nil, "", err
+	if vars != nil {
+		varsPart, err := parts.CreatePart(textproto.MIMEHeader{
+			"Content-Disposition": {`form-data; name="` + DeployVarsPart + `"`}, "Content-Type": {ContentType},
+		})
+		if err != nil {
+			return nil, nil, "", err
+		}
+		if err := json.NewEncoder(varsPart).Encode(vars); err != nil {
+			return nil, nil, "", err
+		}
 	}
 	if _, err := parts.CreatePart(textproto.MIMEHeader{
 		"Content-Disposition": {`form-data; name="` + DeployBinaryPart + `"; filename="home"`},

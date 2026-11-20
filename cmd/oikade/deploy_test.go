@@ -94,7 +94,7 @@ func deployTo(t *testing.T, host fakeHost, binary string, live bool) (stdout, st
 		manifest: usesNothing,
 		lookup:   noEnvironment,
 	}
-	runErr := d.run(t.Context(), host, t.TempDir(), binary, "", false)
+	runErr := d.run(t.Context(), host, deployOptions{module: t.TempDir(), binary: binary})
 	_ = w.Close()
 	errOut := <-read
 	if runErr != nil {
@@ -178,7 +178,7 @@ func TestHeartbeatSaysABuildIsStillGoing(t *testing.T) {
 func TestDeployFailsWithoutAHost(t *testing.T) {
 	var b bytes.Buffer
 	d := deployer{stdout: &b, progress: &progress{w: &b}, manifest: usesNothing, lookup: noEnvironment}
-	err := d.run(t.Context(), fakeHost{addr: "127.0.0.1:1"}, t.TempDir(), binaryOf(t, 10), "", false)
+	err := d.run(t.Context(), fakeHost{addr: "127.0.0.1:1"}, deployOptions{module: t.TempDir(), binary: binaryOf(t, 10)})
 	if err == nil || !strings.HasSuffix(b.String(), "Uploading 10 B\n") {
 		t.Errorf("err %v, output %q", err, b.String())
 	}
@@ -268,13 +268,16 @@ func startRecordingHost(t *testing.T, answer api.Response) *recordingHost {
 			return
 		}
 		part, err := multipart.NewReader(r.Body, params["boundary"]).NextPart()
-		if err != nil || part.FormName() != api.DeployVarsPart {
+		if err != nil || (part.FormName() != api.DeployVarsPart && part.FormName() != api.DeployBinaryPart) {
 			t.Errorf("the first part: %v", err)
 			return
 		}
+		// A deploy that keeps the host's values sends none, and is recorded as nil.
 		var vars map[string]string
-		if err := json.NewDecoder(part).Decode(&vars); err != nil {
-			t.Error(err)
+		if part.FormName() == api.DeployVarsPart {
+			if err := json.NewDecoder(part).Decode(&vars); err != nil {
+				t.Error(err)
+			}
 		}
 		_, _ = io.Copy(io.Discard, r.Body)
 		h.mu.Lock()
@@ -329,7 +332,7 @@ func deployValues(t *testing.T, host *recordingHost, module, envFile string, use
 		},
 		lookup: func(name string) (string, bool) { v, ok := environment[name]; return v, ok },
 	}
-	err := d.run(t.Context(), host, module, "", envFile, false)
+	err := d.run(t.Context(), host, deployOptions{module: module, envFile: envFile})
 	if strings.Contains(out.String()+errOut.String(), "hunter2") {
 		t.Errorf("a value was printed: %s%s", out.String(), errOut.String())
 	}
@@ -386,12 +389,12 @@ func TestADeployMissingAValueStopsBeforeItsUpload(t *testing.T) {
 	t.Chdir(module)
 	_, err := deployValues(t, host, ".", "", []string{"TOSHIBA_USER", "TOSHIBA_PASSWORD"}, nil)
 	if err == nil || err.Error() != "TOSHIBA_PASSWORD isn't set" ||
-		hintOf(err) != "add it to .env, or set it in the environment" {
+		hintOf(err) != "add it to .env or the environment, or pass --keep-vars to use the host's, if it has it" {
 		t.Errorf("got %v, hint %q", err, hintOf(err))
 	}
 	_, err = deployValues(t, host, ".", "", []string{"TAHOMA_PIN", "TOSHIBA_PASSWORD"}, nil)
 	if err == nil || err.Error() != "TAHOMA_PIN and TOSHIBA_PASSWORD aren't set" ||
-		hintOf(err) != "add them to .env, or set them in the environment" {
+		hintOf(err) != "add them to .env or the environment, or pass --keep-vars to use the host's, if it has them" {
 		t.Errorf("got %v, hint %q", err, hintOf(err))
 	}
 	if got := host.deploys(); len(got) != 0 {
@@ -415,6 +418,13 @@ func TestADeployReadsTheEnvFileItsGiven(t *testing.T) {
 	_, err := deployValues(t, host, module, "missing.env", nil, nil)
 	if err == nil || err.Error() != "there's no missing.env" {
 		t.Errorf("got %v", err)
+	}
+	// --keep-vars doesn't go with --env-file, so the hint swaps one for the other.
+	_, err = deployValues(t, host, module, other, []string{"B"}, nil)
+	want := "add it to " + other + " or the environment, " +
+		"or swap --env-file for --keep-vars to use the host's, if it has it"
+	if err == nil || hintOf(err) != want {
+		t.Errorf("got %v, hint %q", err, hintOf(err))
 	}
 }
 
@@ -449,7 +459,7 @@ func TestAVersionTheHostRefusesForAMissingValueSaysWhereToAddIt(t *testing.T) {
 	t.Chdir(module)
 	_, err := deployValues(t, host, ".", "", nil, nil)
 	if err == nil || err.Error() != "the version uses A, which isn't among the deploy's values" ||
-		hintOf(err) != "add it to .env" {
+		hintOf(err) != "add it to .env, or pass --keep-vars to use the host's, if it has it" {
 		t.Errorf("got %v, hint %q", err, hintOf(err))
 	}
 }
@@ -522,5 +532,59 @@ echo '{"protocol":%d,"vars":["TOSHIBA_USER","TOSHIBA_PASSWORD","COZYTOUCH_USER"]
 	}
 	if got := string(raw); got != "1\n"+`{"TAHOMA_PIN":"1234","TOSHIBA_USER":"from-the-environment"}`+"\n" {
 		t.Errorf("the check ran with:\n%s", got)
+	}
+}
+
+// keepingValues deploys module with --keep-vars to host, and fails if the deploy reads your values or
+// runs your home's check to learn which it uses.
+func keepingValues(t *testing.T, host *recordingHost, module string) (string, error) {
+	t.Helper()
+	var out, errOut bytes.Buffer
+	d := deployer{
+		stdout:   &out,
+		progress: &progress{w: &errOut},
+		check:    func(string) error { return nil },
+		build: func(_ context.Context, _, out string, _ api.Response) error {
+			return os.WriteFile(out, []byte("a binary"), 0o600)
+		},
+		manifest: func(context.Context, string, string, map[string]string) (wire.Manifest, error) {
+			t.Error("a deploy that keeps the host's values ran your home's check")
+			return wire.Manifest{Vars: []string{"TOSHIBA_PASSWORD"}}, nil
+		},
+		lookup: func(name string) (string, bool) {
+			t.Errorf("a deploy that keeps the host's values read %s from the environment", name)
+			return "", false
+		},
+	}
+	err := d.run(t.Context(), host, deployOptions{module: module, keepVars: true})
+	if strings.Contains(errOut.String(), "Checking your home") {
+		t.Errorf("said it checked your home:\n%s", errOut.String())
+	}
+	return out.String(), err
+}
+
+func TestADeployThatKeepsTheHostsValuesSendsNone(t *testing.T) {
+	host := startRecordingHost(t, api.Response{Version: "v2"})
+	// The .env isn't read, nor does the module need one.
+	for _, env := range []string{"", "TOSHIBA_PASSWORD=hunter2\n"} {
+		out, err := keepingValues(t, host, homeWithValues(t, env))
+		if err != nil || out != "Deployed version v2, keeping the host's values\n" {
+			t.Errorf("got %q, %v", out, err)
+		}
+	}
+	if got := host.deploys(); len(got) != 2 || got[0] != nil || got[1] != nil {
+		t.Errorf("sent %q", got)
+	}
+}
+
+func TestADeployThatKeepsTheHostsValuesSaysHowToSendOneTheyLack(t *testing.T) {
+	host := startRecordingHost(t, api.Response{
+		Error:       "the version uses TOSHIBA_PASSWORD, which isn't among the host's values",
+		MissingVars: []string{"TOSHIBA_PASSWORD"},
+	})
+	_, err := keepingValues(t, host, homeWithValues(t, ""))
+	if err == nil || err.Error() != "the version uses TOSHIBA_PASSWORD, which isn't among the host's values" ||
+		hintOf(err) != "add it to your .env, and deploy without --keep-vars, which sends your values" {
+		t.Errorf("got %v, hint %q", err, hintOf(err))
 	}
 }

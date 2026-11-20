@@ -40,9 +40,15 @@ func runDeploy(ctx context.Context, args []string) error {
 	module := fs.String("module", ".", "Your home's module, to check and build.")
 	binary := fs.String("binary", "", "A binary already built for the host, skipping the source checks.")
 	envFile := fs.String("env-file", "", "Your values, from this file rather than the .env beside your go.mod.")
+	keepVars := fs.Bool("keep-vars", false,
+		"Send no values, so the host keeps its own, as from CI or a clone with no .env.")
 	allow := fs.Bool("allow-safety", false, "Go ahead even though a Safety rule would go, and end its claims.")
 	renamed(fs, "allow-safety-removal", "allow-safety", true)
 	_ = fs.Parse(args)
+	if *keepVars && *envFile != "" {
+		return cli.UsageErrorf("--keep-vars and --env-file don't go together").
+			WithHint("--keep-vars keeps the host's values, and --env-file replaces them with a file's: pass one")
+	}
 	if *binary == "" {
 		if err := requireHome(*module); err != nil {
 			return err
@@ -57,7 +63,21 @@ func runDeploy(ctx context.Context, args []string) error {
 		manifest: homeCheck,
 		lookup:   os.LookupEnv,
 	}
-	return d.run(ctx, target.transport(), *module, *binary, *envFile, *allow)
+	return d.run(ctx, target.transport(), deployOptions{
+		module: *module, binary: *binary, envFile: *envFile, keepVars: *keepVars, allow: *allow,
+	})
+}
+
+// deployOptions are a deploy's flags.
+type deployOptions struct {
+	// module is your home's, or binary one already built for the host.
+	module, binary string
+	// envFile is the file of your values, rather than the .env beside module's go.mod.
+	envFile string
+	// keepVars sends no values, so the host keeps its own.
+	keepVars bool
+	// allow ends a Safety rule's claims, rather than refusing a version that would.
+	allow bool
 }
 
 // deployer is a deploy, with what it writes to, the source checks, build and check of your home it
@@ -73,10 +93,12 @@ type deployer struct {
 	lookup   func(name string) (string, bool)
 }
 
-// run deploys the module, or binary if it's given, with your values, and says how it's going on the
-// way. A value your code uses that nothing gives stops it before the upload.
-func (d deployer) run(ctx context.Context, transport api.Transport, module, binary, envFile string, allow bool) error {
-	path := binary
+// run deploys the module, or the binary if it's given, with your values, and says how it's going on
+// the way. A value your code uses that nothing gives stops it before the upload. With keepVars, it
+// sends none, and the host checks the version against its own.
+func (d deployer) run(ctx context.Context, transport api.Transport, o deployOptions) error {
+	module, envFile := o.module, o.envFile
+	path := o.binary
 	var vals values
 	// Your values are read as soon as what your code uses is known, so a missing one stops the deploy
 	// before anything slow.
@@ -102,6 +124,10 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 		}
 		return read(m.Vars)
 	}
+	if o.keepVars {
+		// Only the host knows which values it has, so its check is the one that counts.
+		learn = nil
+	}
 	if path == "" {
 		info, err := api.Call(ctx, transport, api.Request{Type: api.TypeInfo})
 		if err != nil {
@@ -113,7 +139,7 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 		}
 		// What your code uses comes from its check, which only a binary for this machine can run.
 		native := info.GOOS == runtime.GOOS && info.GOARCH == runtime.GOARCH
-		if !native {
+		if !native && learn != nil {
 			stop := heartbeat(d.progress, "checking", 5*time.Second)
 			err := learn("")
 			stop()
@@ -134,13 +160,13 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 		if err != nil {
 			return err
 		}
-		if native {
+		if native && learn != nil {
 			d.progress.phase("Checking your home")
 			if err := learn(path); err != nil {
 				return err
 			}
 		}
-	} else {
+	} else if learn != nil {
 		d.progress.phase("Checking your home")
 		if err := learn(path); err != nil {
 			return err
@@ -151,7 +177,16 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 		return err
 	}
 	d.progress.startUpload(file.Size())
-	resp, err := api.Deploy(ctx, transport, path, vals.set, allow, d.progress.upload)
+	// No values keeps the host's, which only --keep-vars asks for: any other deploy sends a set, if
+	// an empty one.
+	send := vals.set
+	switch {
+	case o.keepVars:
+		send = nil
+	case send == nil:
+		send = map[string]string{}
+	}
+	resp, err := api.Deploy(ctx, transport, path, send, o.allow, d.progress.upload)
 	d.progress.end()
 	if err != nil {
 		return err
@@ -169,10 +204,14 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 		stdout.Println("Already running version " + cli.ShortVersion(resp.Version))
 		return nil
 	}
+	if o.keepVars {
+		return report(stdout, resp, "Deployed version", ", keeping the host's values",
+			fmt.Sprintf("add %s to your .env, and deploy without --keep-vars, which sends your values", them(resp.MissingVars)))
+	}
 	// The host refuses a value that's missing only when the check couldn't run here, and then the
 	// environment's go only for the file's names.
 	return report(stdout, resp, "Deployed version", vals.sent(),
-		fmt.Sprintf("add %s to %s", them(resp.MissingVars), vals.file))
+		fmt.Sprintf("add %s to %s, %s", them(resp.MissingVars), vals.file, keepInstead(envFile, resp.MissingVars)))
 }
 
 // homeCheck runs your home's check with vars, for the values its code uses: the binary at path, or
@@ -193,6 +232,16 @@ func homeCheck(ctx context.Context, module, path string, vars map[string]string)
 		return wire.Manifest{}, err
 	}
 	return checkWith(ctx, abs, vars)
+}
+
+// keepInstead says how to deploy with the host's values instead of the missing names, which works
+// only if the host has them: a name your code has just started using, it doesn't.
+func keepInstead(envFile string, missing []string) string {
+	pass := "pass --keep-vars"
+	if envFile != "" {
+		pass = "swap --env-file for --keep-vars"
+	}
+	return fmt.Sprintf("or %s to use the host's, if it has %s", pass, them(missing))
 }
 
 // them is "it" or "them", for names.

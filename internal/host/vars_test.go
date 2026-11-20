@@ -103,6 +103,27 @@ func TestAVersionThatUsesAValueTheDeployLacksIsRefused(t *testing.T) {
 	}
 }
 
+func TestADeployThatSendsNoValuesRefusesAVersionWhoseNamesTheHostsLack(t *testing.T) {
+	v, closeStore := openTestVersions(t, t.TempDir())
+	defer closeStore()
+	kept := map[string]string{"FIXTURE_TOKEN": "b"}
+	if err := v.begin(version{ID: binary(t, v, "first")}, nil, kept); err != nil {
+		t.Fatal(err)
+	}
+	if err := v.commit(); err != nil {
+		t.Fatal(err)
+	}
+	d := &deployer{log: logging.Discard(), versions: v}
+	resp := d.deploy(t.Context(), checks(t, "FIXTURE_TOKEN", "FIXTURE_EXTRA"), nil, false)
+	if resp.Error != "the version uses FIXTURE_EXTRA, which isn't among the host's values" ||
+		!slices.Equal(resp.MissingVars, []string{"FIXTURE_EXTRA"}) {
+		t.Errorf("got %+v", resp)
+	}
+	if got := ids(v); len(got) != 1 || !maps.Equal(v.state.Vars, kept) {
+		t.Errorf("the refused deploy changed the history: %+v", v.state)
+	}
+}
+
 func TestADeploysValuesNeedNamesAProcessCouldAskFor(t *testing.T) {
 	v, closeStore := openTestVersions(t, t.TempDir())
 	defer closeStore()

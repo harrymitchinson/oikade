@@ -263,9 +263,21 @@ func TestADeployMissingAValueStopsBeforeItReachesAHost(t *testing.T) {
 	}
 	nowhere := t.TempDir()
 	out, err := run(t, bin, dir, "", "deploy", "--binary", "home", "--data-dir", nowhere)
-	if err == nil || !strings.Contains(out, "Error: TOSHIBA_PASSWORD isn't set\n") ||
-		!strings.Contains(out, "Hint: add it to .env, or set it in the environment\n") || strings.Contains(out, "Uploading") {
+	hint := "Hint: add it to .env or the environment, or pass --keep-vars to use the host's, if it has it\n"
+	if err == nil || !strings.Contains(out, "Error: TOSHIBA_PASSWORD isn't set\n") || !strings.Contains(out, hint) ||
+		strings.Contains(out, "Uploading") {
 		t.Fatalf("got %v:\n%s", err, out)
+	}
+	// --keep-vars sends none, so the deploy gets as far as its upload, to a host that isn't there, which
+	// would check the version against its own.
+	out, err = run(t, bin, dir, "", "deploy", "--binary", "home", "--keep-vars", "--data-dir", nowhere)
+	if err == nil || !strings.Contains(out, "Uploading") || strings.Contains(out, "isn't set") {
+		t.Fatalf("with --keep-vars, got %v:\n%s", err, out)
+	}
+	out, err = run(t, bin, dir, "", "deploy", "--binary", "home", "--keep-vars", "--env-file", "test-host.env")
+	usage := "Error: --keep-vars and --env-file don't go together"
+	if code := exitCode(err); code != 2 || !strings.Contains(out, usage) {
+		t.Fatalf("with --keep-vars and --env-file, exit %d:\n%s", code, out)
 	}
 	// With the value, the deploy gets as far as its upload, to a host that isn't there.
 	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("TOSHIBA_PASSWORD=hunter2\n"), 0o600); err != nil {

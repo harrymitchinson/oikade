@@ -64,6 +64,7 @@ $ oikade deploy --allow-safety-removal
 Error: --allow-safety-removal is --allow-safety now
 Usage:
   oikade deploy [--module DIR | --binary FILE] [--env-file FILE] [--allow-safety]
+  oikade deploy [--module DIR | --binary FILE] --keep-vars [--allow-safety]
 Hint: oikade deploy --help says more
 exit 2
 

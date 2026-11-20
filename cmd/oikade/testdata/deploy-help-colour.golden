@@ -5,11 +5,14 @@ oikade deploy: Check and build your home, and run it on the host.
 The host keeps the version it was running until the new one has stayed up, and
 puts it back if it doesn't. Your values go with it, from the .env beside your
 go.mod and the environment, which wins, and replace the host's: one your code
-uses that neither has stops the deploy. A deploy that would end a Safety rule's
+uses that neither has stops the deploy. From somewhere without them, such as CI
+or a clean clone, --keep-vars sends none, and the host keeps its own and refuses
+a version that uses one they lack. A deploy that would end a Safety rule's
 claims needs --allow-safety.
 
 [1mUsage:[0m
   oikade deploy [--module DIR | --binary FILE] [--env-file FILE] [--allow-safety]
+  oikade deploy [--module DIR | --binary FILE] --keep-vars [--allow-safety]
 
 [1mFlags:[0m
   --module DIR     Your home's module, to check and build. (default .)
@@ -19,10 +22,13 @@ claims needs --allow-safety.
                    go.mod.
   --allow-safety   Go ahead even though a Safety rule would go, and end its
                    claims.
+  --keep-vars      Send no values, so the host keeps its own, as from CI or a
+                   clone with no .env.
   --context NAME   The host to reach over its network API, from oikade login.
   --data-dir DIR   The host's data directory, on this machine. (default
                    /var/lib/oikade)
 
 [1mExample:[0m
   oikade deploy --module ~/my-home
+  oikade deploy --keep-vars
 --- stderr

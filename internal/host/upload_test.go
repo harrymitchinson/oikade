@@ -206,17 +206,24 @@ func TestADeployCarriesItsValuesBeforeItsBinary(t *testing.T) {
 	}
 }
 
-func TestADeployWithNoValuesSendsAnEmptySet(t *testing.T) {
+func TestADeployWithNoValuesSendsAnEmptySetAndOneThatKeepsTheHostsSendsNone(t *testing.T) {
 	server, got := receiving(t)
 	path := filepath.Join(t.TempDir(), "home")
 	if err := os.WriteFile(path, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := api.Deploy(t.Context(), tcpHost(server.Listener.Addr().String()), path, nil, false, nil); err != nil {
+	addr := tcpHost(server.Listener.Addr().String())
+	if _, err := api.Deploy(t.Context(), addr, path, map[string]string{}, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	if r := <-got; r.err != nil || r.vars == nil || len(r.vars) != 0 || len(r.binary) != 0 {
-		t.Errorf("got %+v", r)
+		t.Errorf("no values: got %+v", r)
+	}
+	if _, err := api.Deploy(t.Context(), addr, path, nil, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	if r := <-got; r.err != nil || r.vars != nil || len(r.binary) != 0 {
+		t.Errorf("the host's: got %+v", r)
 	}
 }
 
@@ -226,7 +233,10 @@ func TestADeploysBodyIsRefusedUnlessItsWhole(t *testing.T) {
 	binary := fmt.Sprintf(part, "binary", "ELF")
 	for name, c := range map[string]struct{ body, want string }{
 		"no binary":           {vars + "--b--\r\n", "the deploy has no binary"},
-		"binary first":        {binary + vars + "--b--\r\n", `the deploy has "binary" where its vars should be`},
+		"nothing":             {"--b--\r\n", "the deploy has no binary"},
+		"another part first":  {fmt.Sprintf(part, "more", "") + binary + "--b--\r\n", `the deploy has "more" where its vars or binary should be`},
+		"values after":        {binary + vars + "--b--\r\n", "the deploy has a part after the binary"},
+		"values twice":        {vars + vars + binary + "--b--\r\n", `the deploy has "vars" where its binary should be`},
 		"cut off":             {vars + "--b\r\nContent-Disposition: form-data; name=\"binary\"\r\n\r\nEL", "the upload was cut short"},
 		"no closing boundary": {vars + binary, "the upload was cut short"},
 		"a part after":        {vars + binary + fmt.Sprintf(part, "more", "") + "--b--\r\n", "the deploy has a part after the binary"},

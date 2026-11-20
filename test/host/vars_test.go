@@ -149,7 +149,7 @@ func TestAMissingValueStopsADeployBeforeItsUpload(t *testing.T) {
 	r.sync()
 	out, err := r.cli(nil, "deploy", "--binary", variant(t, "vars"))
 	if err == nil || !strings.Contains(out, "Error: "+tokenVar+" isn't set") ||
-		!strings.Contains(out, "Hint: add it to .env, or set it in the environment") {
+		!strings.Contains(out, "or pass --keep-vars to use the host's, if it has it") {
 		t.Fatalf("got %v: %s", err, out)
 	}
 	if n := r.count("Received API request", "type", "deploy"); n != 0 {
@@ -204,4 +204,34 @@ func TestARollbackKeepsTheValuesAndRefusesAVersionWhoseNamesTheyLack(t *testing.
 		t.Fatalf("got %v: %s", err, out)
 	}
 	r.awaitVar(1, "vars-more", "given")
+}
+
+// A deploy from somewhere without your values, such as CI or a clean clone, keeps the host's, and
+// is refused for a value they lack, by name (OIK-365).
+func TestADeployThatKeepsTheHostsValuesRunsTheVersionWithThem(t *testing.T) {
+	t.Parallel()
+	r := start(t, settle)
+	r.sync()
+	const kept = "kept-correct-horse"
+	r.mustDeployValues("vars", map[string]string{tokenVar: kept})
+	r.awaitVar(1, "vars", kept)
+
+	pid := r.pid()
+	out, err := r.cli(nil, "deploy", "--binary", variant(t, "vars-more"), "--keep-vars")
+	if err == nil || !strings.Contains(out, "Error: the version uses "+extraVar+", which isn't among the host's values") ||
+		!strings.Contains(out, "Hint: add it to your .env, and deploy without --keep-vars, which sends your values") {
+		t.Fatalf("got %v: %s", err, out)
+	}
+	if r.pid() != pid {
+		t.Errorf("the refused deploy stopped the process. The log:\n%s", r.dump())
+	}
+
+	r.mustDeployValues("vars-more", map[string]string{tokenVar: kept, extraVar: "x"})
+	r.awaitVar(1, "vars-more", kept)
+	out, err = r.cli(nil, "deploy", "--binary", variant(t, "vars"), "--keep-vars")
+	if err != nil || !strings.Contains(out, "Deployed version ") || !strings.Contains(out, ", keeping the host's values") {
+		t.Fatalf("got %v: %s", err, out)
+	}
+	r.awaitVar(2, "vars", kept)
+	noValueIn(t, "what the deploy said", out, kept)
 }

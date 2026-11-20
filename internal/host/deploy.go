@@ -81,8 +81,8 @@ type incoming struct {
 	whose string
 }
 
-// deploy takes a new binary, and vars, which replace your values whole. Nothing stops until it has
-// passed its check.
+// deploy takes a new binary, and vars, which replace your values whole, or nil, which keeps the
+// host's. Nothing stops until it has passed its check.
 func (d *deployer) deploy(ctx context.Context, binary string, vars map[string]string, allow bool) api.Response {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -90,18 +90,21 @@ func (d *deployer) deploy(ctx context.Context, binary string, vars map[string]st
 }
 
 func (d *deployer) deployLocked(ctx context.Context, binary string, vars map[string]string, allow bool) api.Response {
-	if err := checkVarNames(vars); err != nil {
-		return api.Response{Error: "the deploy's values: " + err.Error()}
+	in := incoming{vars: d.versions.state.Vars, whose: "the host's"}
+	if vars != nil {
+		if err := checkVarNames(vars); err != nil {
+			return api.Response{Error: "the deploy's values: " + err.Error()}
+		}
+		in = incoming{vars: vars, whose: "the deploy's"}
 	}
 	id, err := d.versions.take(binary)
 	if err != nil {
 		return api.Response{Error: fmt.Sprintf("storing the binary: %s", err)}
 	}
-	in := incoming{vars: vars, whose: "the deploy's"}
 	// What confirming the version took off Matter, which the deploy's answer says too.
 	var off []string
 	if cur, ok := d.versions.current(); ok && cur.ID == id {
-		changed := len(changedVars(d.versions.state.Vars, vars)) > 0
+		changed := len(changedVars(d.versions.state.Vars, in.vars)) > 0
 		switch {
 		case d.confirmable == id:
 			resp := d.confirm(id)
