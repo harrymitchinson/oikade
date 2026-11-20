@@ -259,7 +259,7 @@ func TestTheRestLookTheSame(t *testing.T) {
 		p.Println(hostVersionLine(api.Response{HostVersion: "v0.2.0-alpha.2", GOOS: "linux", GOARCH: "arm64"}, thisMachine))
 		p.Println(hostVersionLine(api.Response{GOOS: "linux", GOARCH: "amd64"}, "europa"))
 		p.Println("---")
-		if err := report(p, api.Response{Version: "f113018fb81c06e4d5fa3500102bfbc4"}, "Deployed version"); err != nil {
+		if err := report(p, api.Response{Version: "f113018fb81c06e4d5fa3500102bfbc4"}, "Deployed version", ", with 6 values from .env", ""); err != nil {
 			t.Fatal(err)
 		}
 		testkit.Golden(t, "rest-"+name, b.Bytes())

@@ -2,8 +2,6 @@ package envfile
 
 import (
 	"maps"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -85,15 +83,5 @@ func TestParseSaysWhichLineIsWrong(t *testing.T) {
 		if err == nil || err.Error() != want {
 			t.Errorf("Parse(%q) = %v, want %s", file, err, want)
 		}
-	}
-}
-
-func TestReadNamesTheFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), ".env")
-	if err := os.WriteFile(path, []byte("A=1\nbad\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Read(path); err == nil || !strings.HasPrefix(err.Error(), path+":2: ") {
-		t.Errorf("got %v", err)
 	}
 }

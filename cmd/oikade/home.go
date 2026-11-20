@@ -45,20 +45,8 @@ func buildHome(ctx context.Context, module string) (path string, done func(), er
 // requireHome fails unless module is in a Go module, as a home is, saying how to name one. It looks
 // for a go.mod there and above, as go build does, and leaves any other trouble to go.
 func requireHome(module string) error {
-	dir, err := filepath.Abs(module)
-	if err != nil {
+	if _, ok := goModDir(module); ok {
 		return nil
-	}
-	for {
-		_, err := os.Stat(filepath.Join(dir, "go.mod"))
-		if !errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
 	}
 	where := "here"
 	if module != "." {
@@ -66,6 +54,23 @@ func requireHome(module string) error {
 	}
 	return cli.Errorf("there's no home %s: a home is a Go module, with a go.mod", where).
 		WithHint("cd into your home's module, or pass --module DIR. oikade init starts one")
+}
+
+// goModDir is the directory with the go.mod that module is in, looking there and above as go build
+// does, or module itself, made absolute, if there's none.
+func goModDir(module string) (string, bool) {
+	dir, err := filepath.Abs(module)
+	if err != nil {
+		return module, false
+	}
+	for d := dir; ; d = filepath.Dir(d) {
+		if _, err := os.Stat(filepath.Join(d, "go.mod")); !errors.Is(err, os.ErrNotExist) {
+			return d, true
+		}
+		if filepath.Dir(d) == d {
+			return dir, false
+		}
+	}
 }
 
 // ranAndFailed is err if it's a program that ran and failed, which has said why on stderr.

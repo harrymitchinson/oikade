@@ -11,24 +11,10 @@ package envfile
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/harrymitchinson/oikade/internal/ident"
 )
-
-// Read reads the file at path.
-func Read(path string) (map[string]string, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	values, err := Parse(string(raw))
-	if err != nil {
-		return nil, fmt.Errorf("%s:%w", path, err)
-	}
-	return values, nil
-}
 
 // Parse reads a file's contents. An error starts with the line it's on, such as "3: …".
 func Parse(s string) (map[string]string, error) {

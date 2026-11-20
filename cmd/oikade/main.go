@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host/api"
+	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/sourcecheck"
 )
 
@@ -37,6 +39,7 @@ func runDeploy(ctx context.Context, args []string) error {
 	target := addTarget(fs)
 	module := fs.String("module", ".", "Your home's module, to check and build.")
 	binary := fs.String("binary", "", "A binary already built for the host, skipping the source checks.")
+	envFile := fs.String("env-file", "", "Your values, from this file rather than the .env beside your go.mod.")
 	allow := fs.Bool("allow-safety", false, "Go ahead even though a Safety rule would go, and end its claims.")
 	renamed(fs, "allow-safety-removal", "allow-safety", true)
 	_ = fs.Parse(args)
@@ -51,21 +54,30 @@ func runDeploy(ctx context.Context, args []string) error {
 		progress: &progress{w: os.Stderr, live: redraws(term.IsTerminal(int(os.Stderr.Fd())), os.Getenv("TERM"))},
 		check:    checkSource,
 		build:    build,
+		manifest: homeCheck,
+		lookup:   os.LookupEnv,
 	}
-	return d.run(ctx, target.transport(), *module, *binary, *allow)
+	return d.run(ctx, target.transport(), *module, *binary, *envFile, *allow)
 }
 
-// deployer is a deploy, with what it writes to and the source checks and build it runs.
+// deployer is a deploy, with what it writes to, the source checks, build and check of your home it
+// runs, and the environment it reads your values from.
 type deployer struct {
 	stdout   io.Writer
 	progress *progress
 	check    func(module string) error
 	build    func(ctx context.Context, module, out string, info api.Response) error
+	// manifest asks your home what it is: the binary at path, or the module built for this machine
+	// if path is empty.
+	manifest func(ctx context.Context, module, path string) (wire.Manifest, error)
+	lookup   func(name string) (string, bool)
 }
 
-// run deploys the module, or binary if it's given, and says how it's going on the way.
-func (d deployer) run(ctx context.Context, transport api.Transport, module, binary string, allow bool) error {
+// run deploys the module, or binary if it's given, with your values, and says how it's going on the
+// way. A value your code uses that nothing gives stops it before the upload.
+func (d deployer) run(ctx context.Context, transport api.Transport, module, binary, envFile string, allow bool) error {
 	path := binary
+	var used []string
 	if path == "" {
 		info, err := api.Call(ctx, transport, api.Request{Type: api.TypeInfo})
 		if err != nil {
@@ -74,6 +86,17 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 		d.progress.phase("Checking your code")
 		if err := d.check(module); err != nil {
 			return err
+		}
+		// What your code uses comes from its check, which only a binary for this machine can run.
+		native := info.GOOS == runtime.GOOS && info.GOARCH == runtime.GOARCH
+		if !native {
+			stop := heartbeat(d.progress, "checking", 5*time.Second)
+			m, err := d.manifest(ctx, module, "")
+			stop()
+			if err != nil {
+				return err
+			}
+			used = m.Vars
 		}
 		dir, err := os.MkdirTemp("", "oikade-deploy")
 		if err != nil {
@@ -88,13 +111,35 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 		if err != nil {
 			return err
 		}
+		if native {
+			m, err := d.manifest(ctx, module, path)
+			if err != nil {
+				return err
+			}
+			used = m.Vars
+		}
+	} else {
+		m, err := d.manifest(ctx, module, path)
+		switch {
+		case cantRunHere(err):
+			// Built for another machine: the host checks it, and refuses it if it uses a value it
+			// isn't sent, and only the file's are.
+		case err != nil:
+			return err
+		default:
+			used = m.Vars
+		}
+	}
+	vals, err := readValues(module, envFile, used, d.lookup)
+	if err != nil {
+		return err
 	}
 	file, err := os.Stat(path)
 	if err != nil {
 		return err
 	}
 	d.progress.startUpload(file.Size())
-	resp, err := api.Deploy(ctx, transport, path, allow, d.progress.upload)
+	resp, err := api.Deploy(ctx, transport, path, vals.set, allow, d.progress.upload)
 	d.progress.end()
 	if err != nil {
 		return err
@@ -103,20 +148,60 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 	printTakenOffMatter(os.Stderr, resp.TakenOffMatter)
 	printDeviceChanges(os.Stderr, resp)
 	defer printUnsetSecrets(os.Stderr, resp.UnsetSecrets)
-	if resp.Unchanged {
-		printerOf(d.stdout).Println("Already running version " + cli.ShortVersion(resp.Version))
+	stdout := printerOf(d.stdout)
+	switch {
+	case resp.Error != "":
+	case resp.Unchanged && len(resp.VarsChanged) > 0:
+		stdout.Done("Deployed version %s again, with %s changed", cli.ShortVersion(resp.Version), andList(resp.VarsChanged))
+		return nil
+	case resp.Unchanged:
+		stdout.Println("Already running version " + cli.ShortVersion(resp.Version))
 		return nil
 	}
-	return report(printerOf(d.stdout), resp, "Deployed version")
+	// The host refuses a value that's missing only when the check couldn't run here, and then the
+	// environment's go only for the file's names.
+	return report(stdout, resp, "Deployed version", vals.sent(),
+		fmt.Sprintf("add %s to %s", them(resp.MissingVars), vals.file))
+}
+
+// homeCheck runs your home's check: the binary at path, or the module built for this machine.
+func homeCheck(ctx context.Context, module, path string) (wire.Manifest, error) {
+	if path == "" {
+		return homeManifest(ctx, module)
+	}
+	return manifestOf(ctx, path)
+}
+
+// cantRunHere is a check that failed because the binary isn't for this machine, or can't be run.
+func cantRunHere(err error) bool {
+	return errors.Is(err, syscall.ENOEXEC) || errors.Is(err, os.ErrPermission)
+}
+
+// them is "it" or "them", for names.
+func them(names []string) string {
+	if len(names) == 1 {
+		return "it"
+	}
+	return "them"
 }
 
 func runRollback(ctx context.Context, args []string) error {
 	fs := newFlags("rollback")
 	target := addTarget(fs)
+	envFile := fs.String("env-file", "", "Values to replace the host's with, from this file. Without it, the host keeps its own.")
 	allow := fs.Bool("allow-safety", false, "Go ahead even though a Safety rule would go, and end its claims.")
 	renamed(fs, "allow-safety-removal", "allow-safety", true)
 	_ = fs.Parse(args)
-	resp, err := api.Call(ctx, target.transport(), api.Request{Type: api.TypeRollback, AllowSafety: *allow})
+	req := api.Request{Type: api.TypeRollback, AllowSafety: *allow}
+	with := ""
+	if *envFile != "" {
+		vals, err := readValues(".", *envFile, nil, os.LookupEnv)
+		if err != nil {
+			return err
+		}
+		req.Vars, with = vals.set, vals.sent()
+	}
+	resp, err := api.Call(ctx, target.transport(), req)
 	if err != nil {
 		return err
 	}
@@ -124,7 +209,8 @@ func runRollback(ctx context.Context, args []string) error {
 	printTakenOffMatter(os.Stderr, resp.TakenOffMatter)
 	printDeviceChanges(os.Stderr, resp)
 	defer printUnsetSecrets(os.Stderr, resp.UnsetSecrets)
-	return report(std.out, resp, "Rolled back to version")
+	return report(std.out, resp, "Rolled back to version", with,
+		"oikade rollback --env-file FILE rolls back with values of your own")
 }
 
 // printDeviceChanges says what a version's device declarations changed, which declared names wait
@@ -141,9 +227,11 @@ func printDeviceChanges(out io.Writer, resp api.Response) {
 	}
 }
 
-func report(stdout *cli.Printer, resp api.Response, done string) error {
+// report says how a deploy or a rollback went: done, the version and with when it went ahead, and
+// the host's error when it didn't, with missingHint for a version that uses values it wasn't given.
+func report(stdout *cli.Printer, resp api.Response, done, with, missingHint string) error {
 	if resp.Error == "" {
-		stdout.Done("%s %s", done, cli.ShortVersion(resp.Version))
+		stdout.Done("%s %s%s", done, cli.ShortVersion(resp.Version), with)
 		return nil
 	}
 	for _, f := range resp.Findings {
@@ -154,6 +242,9 @@ func report(stdout *cli.Printer, resp api.Response, done string) error {
 	}
 	if resp.Restored {
 		fmt.Fprintln(os.Stderr, "Still running version", resp.Version)
+	}
+	if len(resp.MissingVars) > 0 {
+		return cli.Errorf("%s", resp.Error).WithHint("%s", missingHint)
 	}
 	return errors.New(resp.Error)
 }

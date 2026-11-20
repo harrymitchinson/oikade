@@ -74,14 +74,14 @@ exit 2
 $ oikade deploy --allow-safety-removal
 Error: --allow-safety-removal is --allow-safety now
 Usage:
-  oikade deploy [--module DIR | --binary FILE] [--allow-safety]
+  oikade deploy [--module DIR | --binary FILE] [--env-file FILE] [--allow-safety]
 Hint: oikade deploy --help says more
 exit 2
 
 $ oikade rollback --allow-safety-removal=true
 Error: --allow-safety-removal is --allow-safety now
 Usage:
-  oikade rollback [--allow-safety]
+  oikade rollback [--env-file FILE] [--allow-safety]
 Hint: oikade rollback --help says more
 exit 2
 
