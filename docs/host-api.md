@@ -13,8 +13,8 @@ A `GET` takes no body. A `POST` takes a JSON object, and every field is optional
 | `GET /v1/matter` | | `matter` |
 | `GET /v1/devices` | | `registry`; `unimported`, the devices of plugins the running version doesn't import; `outsidePlugins`; `safetyHeld`, the plugins' devices a Safety claim holds; `hiddenFromMatter`, the devices your home keeps off Matter |
 | `GET /v1/secrets` | | `secrets`, never their values |
-| `POST /v1/deploy` | The binary itself, as `application/octet-stream`, and `?allowSafety=true` in the query | `version`, `unchanged`, `restored`, `findings`; `unimported`, the devices of plugins the version doesn't import, once it's running; `unsetSecrets`, the secrets the version uses that aren't set; `takenOffMatter`, the devices on the bridge it hides from Matter |
-| `POST /v1/rollback` | `allowSafety` | `version`, `findings`, `unimported`, `unsetSecrets`, `takenOffMatter` |
+| `POST /v1/deploy` | Your values, then the binary, as `multipart/form-data` (below), and `?allowSafety=true` in the query | `version`, `unchanged`, `restored`, `findings`; `varsChanged`, the names of the values it added, changed or removed, and `missingVars`, the ones a refused version uses that it lacks; `unimported`, the devices of plugins the version doesn't import, once it's running; `unsetSecrets`, the secrets the version uses that aren't set; `takenOffMatter`, the devices on the bridge it hides from Matter |
+| `POST /v1/rollback` | `allowSafety`, and `vars`, values that replace the host's | `version`, `findings`, `varsChanged`, `missingVars`, `unimported`, `unsetSecrets`, `takenOffMatter` |
 | `POST /v1/set` | `device`, `capability`, `value` | `outcome`, the capability with its claims once the device answered and nothing wrote it back, after up to 3 seconds; none if the device hadn't answered |
 | `POST /v1/pause`, `POST /v1/resume` | `rule`, the case's or flow's [ref](devices.md#refs), such as `case/fan/on/humid`, and `allowSafety` | `needsAllowSafety`; a pause's `ended`, the claims it ended, and `kept`, its Safety claims, each as the capability's ref, such as `device/fan/on` |
 | `POST /v1/matter/open` | `windowSeconds`, 180 to 900, and 900 if it's left out | `matterWindow`: `manualCode`, `qrCode`, `passcode`, `fresh` and `expires`. It answers once the window is advertised |
@@ -31,6 +31,8 @@ A `GET` takes no body. A `POST` takes a JSON object, and every field is optional
 | `POST /v1/login` | `code` | `token`, shown only once, and `client` |
 
 A call has 5 seconds to send its body, except a deploy, which may send its binary for as long as it keeps sending: up to 30 seconds with nothing, and 1 GiB in all. The host keeps the upload in `uploads` in its data directory until the deploy has copied it, and an upload that's cut off, or a host that stops during one, leaves nothing there and deploys nothing. Secret values go only in a body, and never in a path or a log.
+
+A deploy's body has two parts, in this order: `vars`, your values as a JSON object of names to strings, up to 1 MiB, and `binary`, the binary. Only the closing boundary says it's all there. The values replace the host's whole, and a version whose code uses one they lack is refused before anything stops (OIK-365). A deploy of the version already running answers `unchanged`: with `varsChanged`, its processes started again with the new values, and without, nothing changed. A rollback keeps the host's values, unless it sends `vars` of its own. A name follows an environment variable's rule, upper-case letters, digits and underscores starting with a letter, and a set with any other is refused. No value is ever in an answer or a log, only names.
 
 **A call outlives its connection.** Once the host has a request it finishes it, so a deploy that has begun goes on after the command that asked is killed. The answer then has nowhere to go, and `oikade status` shows how it ended.
 

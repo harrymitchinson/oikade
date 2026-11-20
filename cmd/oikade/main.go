@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host/api"
+	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/sourcecheck"
 )
 
@@ -37,6 +39,7 @@ func runDeploy(ctx context.Context, args []string) error {
 	target := addTarget(fs)
 	module := fs.String("module", ".", "Your home's module, to check and build.")
 	binary := fs.String("binary", "", "A binary already built for the host, skipping the source checks.")
+	envFile := fs.String("env-file", "", "Your values, from this file rather than the .env beside your go.mod.")
 	allow := fs.Bool("allow-safety", false, "Go ahead even though a Safety rule would go, and end its claims.")
 	renamed(fs, "allow-safety-removal", "allow-safety", true)
 	_ = fs.Parse(args)
@@ -51,21 +54,49 @@ func runDeploy(ctx context.Context, args []string) error {
 		progress: &progress{w: os.Stderr, live: redraws(term.IsTerminal(int(os.Stderr.Fd())), os.Getenv("TERM"))},
 		check:    checkSource,
 		build:    build,
+		manifest: homeCheck,
+		lookup:   os.LookupEnv,
 	}
-	return d.run(ctx, target.transport(), *module, *binary, *allow)
+	return d.run(ctx, target.transport(), *module, *binary, *envFile, *allow)
 }
 
-// deployer is a deploy, with what it writes to and the source checks and build it runs.
+// deployer is a deploy, with what it writes to, the source checks, build and check of your home it
+// runs, and the environment it reads your values from.
 type deployer struct {
 	stdout   io.Writer
 	progress *progress
 	check    func(module string) error
 	build    func(ctx context.Context, module, out string, info api.Response) error
+	// manifest asks your home what it is: the binary at path, or the module built for this machine
+	// if path is empty.
+	manifest func(ctx context.Context, module, path string) (wire.Manifest, error)
+	lookup   func(name string) (string, bool)
 }
 
-// run deploys the module, or binary if it's given, and says how it's going on the way.
-func (d deployer) run(ctx context.Context, transport api.Transport, module, binary string, allow bool) error {
+// run deploys the module, or binary if it's given, with your values, and says how it's going on the
+// way. A value your code uses that nothing gives stops it before the upload.
+func (d deployer) run(ctx context.Context, transport api.Transport, module, binary, envFile string, allow bool) error {
 	path := binary
+	var vals values
+	// Your values are read as soon as what your code uses is known, so a missing one stops the deploy
+	// before anything slow.
+	read := func(used []string) (err error) {
+		vals, err = readValues(module, envFile, used, d.lookup)
+		return err
+	}
+	// learn asks your home's check which values its code uses, then reads them.
+	learn := func(path string) error {
+		m, err := d.manifest(ctx, module, path)
+		switch {
+		case cantRunHere(err):
+			// The host checks it, and refuses it if it uses a value it isn't sent, and only the
+			// file's are.
+			return read(nil)
+		case err != nil:
+			return err
+		}
+		return read(m.Vars)
+	}
 	if path == "" {
 		info, err := api.Call(ctx, transport, api.Request{Type: api.TypeInfo})
 		if err != nil {
@@ -74,6 +105,16 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 		d.progress.phase("Checking your code")
 		if err := d.check(module); err != nil {
 			return err
+		}
+		// What your code uses comes from its check, which only a binary for this machine can run.
+		native := info.GOOS == runtime.GOOS && info.GOARCH == runtime.GOARCH
+		if !native {
+			stop := heartbeat(d.progress, "checking", 5*time.Second)
+			err := learn("")
+			stop()
+			if err != nil {
+				return err
+			}
 		}
 		dir, err := os.MkdirTemp("", "oikade-deploy")
 		if err != nil {
@@ -88,13 +129,24 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 		if err != nil {
 			return err
 		}
+		if native {
+			d.progress.phase("Checking your home")
+			if err := learn(path); err != nil {
+				return err
+			}
+		}
+	} else {
+		d.progress.phase("Checking your home")
+		if err := learn(path); err != nil {
+			return err
+		}
 	}
 	file, err := os.Stat(path)
 	if err != nil {
 		return err
 	}
 	d.progress.startUpload(file.Size())
-	resp, err := api.Deploy(ctx, transport, path, allow, d.progress.upload)
+	resp, err := api.Deploy(ctx, transport, path, vals.set, allow, d.progress.upload)
 	d.progress.end()
 	if err != nil {
 		return err
@@ -103,20 +155,68 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 	printTakenOffMatter(os.Stderr, resp.TakenOffMatter)
 	printDeviceChanges(os.Stderr, resp)
 	defer printUnsetSecrets(os.Stderr, resp.UnsetSecrets)
-	if resp.Unchanged {
-		printerOf(d.stdout).Println("Already running version " + cli.ShortVersion(resp.Version))
+	stdout := printerOf(d.stdout)
+	switch {
+	case resp.Error != "":
+	case resp.Unchanged && len(resp.VarsChanged) > 0:
+		stdout.Done("Deployed version %s again, with %s changed", cli.ShortVersion(resp.Version), andList(resp.VarsChanged))
+		return nil
+	case resp.Unchanged:
+		stdout.Println("Already running version " + cli.ShortVersion(resp.Version))
 		return nil
 	}
-	return report(printerOf(d.stdout), resp, "Deployed version")
+	// The host refuses a value that's missing only when the check couldn't run here, and then the
+	// environment's go only for the file's names.
+	return report(stdout, resp, "Deployed version", vals.sent(),
+		fmt.Sprintf("add %s to %s", them(resp.MissingVars), vals.file))
+}
+
+// homeCheck runs your home's check, for the values its code uses: the binary at path, or the module
+// built for this machine. The host checks the protocol, so a deploy doesn't, and a binary that can't
+// run here, such as one for another machine, is a notHere.
+func homeCheck(ctx context.Context, module, path string) (wire.Manifest, error) {
+	if path == "" {
+		built, done, err := buildHome(ctx, module)
+		if err != nil {
+			return wire.Manifest{}, err
+		}
+		defer done()
+		path = built
+	}
+	// A bare name, as in --binary home, is a file here, not a command on the PATH.
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return wire.Manifest{}, err
+	}
+	return readManifest(ctx, abs)
+}
+
+// them is "it" or "them", for names.
+func them(names []string) string {
+	if len(names) == 1 {
+		return "it"
+	}
+	return "them"
 }
 
 func runRollback(ctx context.Context, args []string) error {
 	fs := newFlags("rollback")
 	target := addTarget(fs)
+	envFile := fs.String("env-file", "",
+		"Values to replace the host's with, from this file. Without it, the host keeps its own.")
 	allow := fs.Bool("allow-safety", false, "Go ahead even though a Safety rule would go, and end its claims.")
 	renamed(fs, "allow-safety-removal", "allow-safety", true)
 	_ = fs.Parse(args)
-	resp, err := api.Call(ctx, target.transport(), api.Request{Type: api.TypeRollback, AllowSafety: *allow})
+	req := api.Request{Type: api.TypeRollback, AllowSafety: *allow}
+	var vals values
+	if *envFile != "" {
+		var err error
+		if vals, err = readValues(".", *envFile, nil, os.LookupEnv); err != nil {
+			return err
+		}
+		req.Vars = vals.set
+	}
+	resp, err := api.Call(ctx, target.transport(), req)
 	if err != nil {
 		return err
 	}
@@ -124,7 +224,11 @@ func runRollback(ctx context.Context, args []string) error {
 	printTakenOffMatter(os.Stderr, resp.TakenOffMatter)
 	printDeviceChanges(os.Stderr, resp)
 	defer printUnsetSecrets(os.Stderr, resp.UnsetSecrets)
-	return report(std.out, resp, "Rolled back to version")
+	hint := "oikade rollback --env-file FILE rolls back with values of your own"
+	if *envFile != "" {
+		hint = fmt.Sprintf("add %s to %s", them(resp.MissingVars), vals.file)
+	}
+	return report(std.out, resp, "Rolled back to version", vals.sent(), hint)
 }
 
 // printDeviceChanges says what a version's device declarations changed, which declared names wait
@@ -141,9 +245,11 @@ func printDeviceChanges(out io.Writer, resp api.Response) {
 	}
 }
 
-func report(stdout *cli.Printer, resp api.Response, done string) error {
+// report says how a deploy or a rollback went: done, the version and with when it went ahead, and
+// the host's error when it didn't, with missingHint for a version that uses values it wasn't given.
+func report(stdout *cli.Printer, resp api.Response, done, with, missingHint string) error {
 	if resp.Error == "" {
-		stdout.Done("%s %s", done, cli.ShortVersion(resp.Version))
+		stdout.Done("%s %s%s", done, cli.ShortVersion(resp.Version), with)
 		return nil
 	}
 	for _, f := range resp.Findings {
@@ -154,6 +260,9 @@ func report(stdout *cli.Printer, resp api.Response, done string) error {
 	}
 	if resp.Restored {
 		fmt.Fprintln(os.Stderr, "Still running version", resp.Version)
+	}
+	if len(resp.MissingVars) > 0 {
+		return cli.Errorf("%s", resp.Error).WithHint("%s", missingHint)
 	}
 	return errors.New(resp.Error)
 }

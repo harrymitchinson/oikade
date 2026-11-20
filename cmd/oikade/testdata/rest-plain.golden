@@ -35,4 +35,4 @@ Paired controllers
 oikade-host v0.2.0-alpha.2 on this machine, linux/arm64
 oikade-host at europa, linux/amd64, too old to say its version
 ---
-Deployed version f113018
+Deployed version f113018, with 6 values from .env

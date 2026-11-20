@@ -144,7 +144,8 @@ func TestFirstInstall(t *testing.T) {
 	}
 	unit := m.read(UnitPath)
 	if !strings.Contains(unit, "ExecStart=/usr/local/bin/oikade-host --api-addr :8443\n") ||
-		!strings.Contains(unit, "User=oikade\n") || !strings.Contains(unit, "KillMode=mixed\n") {
+		!strings.Contains(unit, "User=oikade\n") || !strings.Contains(unit, "KillMode=mixed\n") ||
+		!strings.Contains(unit, "RuntimeDirectory=oikade\nRuntimeDirectoryMode=0700\n") {
 		t.Errorf("unit is\n%s", unit)
 	}
 	if m.running != "v0.3.0" {
@@ -220,6 +221,56 @@ func TestUpgrade(t *testing.T) {
 	if !strings.Contains(progress, "Upgrading oikade-host v0.3.0 to v0.3.1") ||
 		!strings.Contains(progress, "Backed up the store to /var/lib/oikade/backups/") {
 		t.Errorf("progress is\n%s", progress)
+	}
+}
+
+// A unit written before the host kept your values in memory gains the directory for them, and keeps
+// everything else (OIK-365).
+func TestUpgradeAddsTheRuntimeDirectory(t *testing.T) {
+	m := newMachine(t)
+	if _, _, err := m.install(t, "v0.3.0", firstOptions); err != nil {
+		t.Fatal(err)
+	}
+	runtime := strings.Join(runtimeDirLines, "")
+	old := strings.Replace(Unit(":9443"), runtime, "", 1) + "# mine\n"
+	for _, v := range []string{"v0.3.1", "v0.3.1"} {
+		if err := os.WriteFile(m.at(UnitPath), []byte(old), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		m.commands = nil
+		res, progress, err := m.install(t, v, Options{APIAddr: DefaultAPIAddr})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The same release again adds it too.
+		if got := m.read(UnitPath); got != Unit(":9443")+"# mine\n" {
+			t.Errorf("%s: the unit is\n%s", v, got)
+		}
+		if res.Unchanged || !slices.Contains(m.commands, "systemctl daemon-reload") ||
+			!strings.Contains(progress, "Added /run/oikade to /etc/systemd/system/oikade.service, for your values") {
+			t.Errorf("%s: result %+v, ran %v, progress\n%s", v, res, m.commands, progress)
+		}
+	}
+	// One that has it is left alone.
+	m.commands = nil
+	if res, _, err := m.install(t, "v0.3.1", Options{APIAddr: DefaultAPIAddr}); err != nil || !res.Unchanged {
+		t.Errorf("result %+v, %v", res, err)
+	}
+}
+
+func TestWithRuntimeDir(t *testing.T) {
+	for unit, want := range map[string]string{
+		"[Service]\nExecStart=x\n":                        "[Service]\nRuntimeDirectory=oikade\nRuntimeDirectoryMode=0700\nExecStart=x\n",
+		"[Service]\nStateDirectoryMode=0700\n[Install]\n": "[Service]\nStateDirectoryMode=0700\nRuntimeDirectory=oikade\nRuntimeDirectoryMode=0700\n[Install]\n",
+		"[Unit]\nStateDirectoryMode=1\n[Service]\nA=b":    "[Unit]\nStateDirectoryMode=1\n[Service]\nRuntimeDirectory=oikade\nRuntimeDirectoryMode=0700\nA=b",
+		"[Service]\nStateDirectoryMode=0700":              "[Service]\nStateDirectoryMode=0700\nRuntimeDirectory=oikade\nRuntimeDirectoryMode=0700\n",
+		"[Service]\nRuntimeDirectory = elsewhere\n":       "",
+		"ExecStart=x\n": "",
+	} {
+		got, ok := withRuntimeDir([]byte(unit))
+		if (want == "") == ok || ok && string(got) != want || !ok && string(got) != unit {
+			t.Errorf("%q: got %q, %v", unit, got, ok)
+		}
 	}
 }
 

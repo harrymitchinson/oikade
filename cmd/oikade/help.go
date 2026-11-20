@@ -81,17 +81,21 @@ var groups = []group{
 		{
 			Name:    "oikade deploy",
 			Summary: "Check and build your home, and run it on the host.",
-			Usage:   []string{"oikade deploy [--module DIR | --binary FILE] [--allow-safety]"},
+			Usage:   []string{"oikade deploy [--module DIR | --binary FILE] [--env-file FILE] [--allow-safety]"},
 			About: "The host keeps the version it was running until the new one has stayed up, and puts it back " +
-				"if it doesn't. A deploy that would end a Safety rule's claims needs --allow-safety.",
+				"if it doesn't. Your values go with it, from the .env beside your go.mod and the environment, " +
+				"which wins, and replace the host's: one your code uses that neither has stops the deploy. " +
+				"A deploy that would end a Safety rule's claims needs --allow-safety.",
 			Example: []string{"oikade deploy --module ~/my-home"},
 			Hide:    []string{"allow-safety-removal"},
 		},
 		{
 			Name:    "oikade rollback",
 			Summary: "Go back to the version the host ran before this one.",
-			Usage:   []string{"oikade rollback [--allow-safety]"},
-			About:   "A rollback that would end a Safety rule's claims needs --allow-safety.",
+			Usage:   []string{"oikade rollback [--env-file FILE] [--allow-safety]"},
+			About: "It keeps the host's values, and refuses a version that uses one they lack, unless " +
+				"--env-file gives it values of your own. A rollback that would end a Safety rule's claims " +
+				"needs --allow-safety.",
 			Example: []string{"oikade rollback"},
 			Hide:    []string{"allow-safety-removal"},
 		},

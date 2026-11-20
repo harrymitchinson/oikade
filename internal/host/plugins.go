@@ -51,8 +51,8 @@ type plugins struct {
 	socket  string
 	devices *hub.Store
 	known   *inventory
-	// wanted is the binary to run them from, latest first.
-	wanted chan string
+	// wanted is the binary to run them from and the values to run them with, latest first.
+	wanted chan generation
 	// refresh asks that the plugins hear of a change to the registry.
 	refresh chan struct{}
 	// returned says a plugin has a new process.
@@ -83,7 +83,7 @@ type hosted struct {
 func newPlugins(h *Host, socket string, devices *hub.Store, known *inventory) *plugins {
 	p := &plugins{
 		host: h, log: h.Log.With("logger", "plugins"), socket: socket, devices: devices, known: known,
-		wanted: make(chan string, 1), refresh: make(chan struct{}, 1), running: map[string]*hosted{},
+		wanted: make(chan generation, 1), refresh: make(chan struct{}, 1), running: map[string]*hosted{},
 	}
 	known.changed = append(known.changed, func() {
 		select {
@@ -230,14 +230,24 @@ func (p *plugins) pair(h *hosted) {
 	h.driver.SetDevices(p.onRecord(h))
 }
 
-// use asks that the plugins run from this binary. It doesn't wait, so the plugins can't hold up your
-// automations. The binary changing is the one thing that restarts a plugin that's working.
+// generation is a binary the plugins run from, and the values they run with, by their digest.
+type generation struct {
+	path, vars string
+}
+
+// use asks that the plugins run from this binary, with your values as they are now. It doesn't wait,
+// so the plugins can't hold up your automations. The binary or the values changing is the one thing
+// that restarts a plugin that's working.
 func (p *plugins) use(path string) {
+	next := generation{path: path}
+	if p.host.vars != nil {
+		next.vars = p.host.vars.set().digest
+	}
 	select {
 	case <-p.wanted:
 	default:
 	}
-	p.wanted <- path
+	p.wanted <- next
 }
 
 // run starts the outside plugins, then keeps the imported ones running until ctx ends. A binary
@@ -246,16 +256,16 @@ func (p *plugins) run(ctx context.Context) {
 	go p.startOutside(ctx)
 	go p.refreshing(ctx)
 	var (
-		current string
+		current generation
 		retry   <-chan time.Time
 		backoff = firstBackoff
 		stop    = func() {}
 	)
 	defer func() { stop() }()
-	start := func(path string) {
+	start := func(g generation) {
 		retry = nil
 		var err error
-		if stop, err = p.start(ctx, path); err != nil {
+		if stop, err = p.start(ctx, g.path); err != nil {
 			p.log.Error("Failed to find this binary's plugins", "err", err, "backoff", backoff.String())
 			retry = time.After(backoff)
 			backoff = min(backoff*2, maxBackoff)
@@ -267,17 +277,17 @@ func (p *plugins) run(ctx context.Context) {
 			return
 		case <-retry:
 			start(current)
-		case path := <-p.wanted:
-			if path == current {
+		case next := <-p.wanted:
+			if next == current {
 				continue
 			}
 			stop()
-			stop, current, retry, backoff = func() {}, path, nil, firstBackoff
+			stop, current, retry, backoff = func() {}, next, nil, firstBackoff
 			// Unknown until its check says. With no binary there's no home yet, rather than one that
 			// dropped its plugins.
 			p.setImports(nil, false)
-			if path != "" {
-				start(path)
+			if next.path != "" {
+				start(next)
 			}
 		}
 	}
@@ -451,12 +461,16 @@ func (p *plugins) runProcess(ctx context.Context, h *hosted, path string) error 
 	log := logging.FromContext(ctx)
 	cmd := exec.Command(path, wire.RolePlugin, h.name)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	cmd.Env = append(os.Environ(), wire.SocketEnv+"="+p.socket, contractv1.EnvSecretsDir+"="+p.host.SecretsDir)
+	env, err := p.host.processEnv(p.socket)
+	if err != nil {
+		return err
+	}
+	cmd.Env = env
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 	log.Info("Started plugin process", "pid", cmd.Process.Pid)
-	_, err := p.host.watch(ctx, cmd, "plugin", h.socket.ping, nil)
+	_, err = p.host.watch(ctx, cmd, "plugin", h.socket.ping, nil)
 	return err
 }
 

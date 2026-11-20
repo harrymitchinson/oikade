@@ -108,7 +108,8 @@ func runHost(ctx context.Context, args []string) error {
 		Version:     cli.Version(version),
 		MetricsAddr: *metricsAddr, APIAddr: *apiAddr,
 		Broker: *broker, PluginSetTimeout: *pluginSetTimeout, StopTimeout: *stopTimeout, SecretsDir: *secretsDir,
-		EventLog: store.Bound{MaxAge: *logAge, MaxBytes: *logMiB << 20},
+		EventLog:   store.Bound{MaxAge: *logAge, MaxBytes: *logMiB << 20},
+		RuntimeDir: runtimeDir(os.Getenv("RUNTIME_DIRECTORY")),
 	}
 	if *outside != "" {
 		if *broker == "" {
@@ -317,4 +318,12 @@ func runInstall(ctx context.Context, args []string) error {
 		_, _ = fmt.Fprintf(os.Stderr, "%s is active: %s\n", res.Firewall, res.FirewallRule)
 	}
 	return nil
+}
+
+// runtimeDir is the first of the runtime directories systemd made for the unit, listed in
+// $RUNTIME_DIRECTORY, which is where the host keeps your values for its processes. It's in memory, so
+// they're never on disk there. Outside systemd there's none.
+func runtimeDir(listed string) string {
+	first, _, _ := strings.Cut(listed, ":")
+	return first
 }

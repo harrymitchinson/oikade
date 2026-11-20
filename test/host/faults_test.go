@@ -195,3 +195,45 @@ func TestACaseKilledAsItClaimsKeepsItsLatch(t *testing.T) {
 	r.change("garage-door", "open", true)
 	r.until("the heater back on", func() bool { return onOf(t, r.status("garage-heater"), "garage-heater").Value == true })
 }
+
+// A deploy's values reach disk in the same write as its version. A host killed anywhere from there
+// to its answer comes back with a binary and values that go together: the old version with the old
+// values until the new one is confirmed, and the new with the new from then on.
+func TestKilledAsADeploysValuesSaveKeepsThemWithTheirVersion(t *testing.T) {
+	t.Parallel()
+	for point, confirmed := range map[string]bool{
+		fault.HostDeployBegun: false, fault.HostDeploySettled: false, fault.HostDeployConfirmed: true,
+	} {
+		t.Run(point, func(t *testing.T) {
+			t.Parallel()
+			r := faultRig(t)
+			r.launchAttached()
+			r.mustDeployValues("vars", map[string]string{tokenVar: "old"})
+			r.awaitVar(1, "vars", "old")
+			r.plan(point)
+			if out, err := r.deployValues("vars-more", map[string]string{tokenVar: "new", extraVar: "x"}); err == nil {
+				t.Fatalf("the deploy was answered: %s. The log:\n%s", out, r.dump())
+			}
+			r.died()
+			want, value := "vars", "old"
+			if confirmed {
+				want, value = "vars-more", "new"
+			}
+			before := map[string]int{}
+			for _, role := range []string{"automations", "plugin"} {
+				before[role] = r.readsVar(role, want, value)
+			}
+			r.launchAttached()
+			for role, n := range before {
+				r.awaitCount(n+1, readVar, "role", role, "variant", want, "sha", digest(value))
+			}
+			r.sync()
+			// Nothing ran the other binary with these values, or this one with the others.
+			for _, mixed := range [][2]string{{"vars", "new"}, {"vars-more", "old"}} {
+				if n := r.readsVar("automations", mixed[0], mixed[1]); n != 0 {
+					t.Errorf("%s ran with %q. The log:\n%s", mixed[0], mixed[1], r.dump())
+				}
+			}
+		})
+	}
+}

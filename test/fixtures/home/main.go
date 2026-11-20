@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -238,9 +240,12 @@ func setting(sets ...oikade.Set) func(*oikade.FlowRun) {
 	}
 }
 
+// automations says whether this is the automations process, rather than check mode or a plugin.
+func automations() bool { return len(os.Args) > 1 && os.Args[1] == "automations" }
+
 // start acts out the variants that fail at run time. Check mode doesn't reach this far.
 func start() {
-	if len(os.Args) < 2 || os.Args[1] != "automations" {
+	if !automations() {
 		return
 	}
 	switch variant {
@@ -268,11 +273,34 @@ var fixtureSecret = oikade.Secret("fixture-secret")
 
 // reportSecret tells the tests a secret arrived, and only how long it is: the value mustn't be logged.
 func reportSecret() {
-	if len(os.Args) < 2 || os.Args[1] != "automations" {
+	if !automations() {
 		return
 	}
 	if value, err := fixtureSecret.Read(); err == nil {
 		fmt.Printf("{\"msg\":\"Read secret\",\"length\":%d}\n", len(value))
+	}
+}
+
+// The values the tests deploy, which the variants "vars" and "vars-more" use (OIK-365).
+const (
+	fixtureToken = "FIXTURE_TOKEN"
+	fixtureExtra = "FIXTURE_EXTRA"
+)
+
+// reportVar tells the tests which value a process was given, by a digest of it: the value mustn't
+// be logged.
+func reportVar(role, name, value string) {
+	sum := sha256.Sum256([]byte(value))
+	fmt.Printf("{\"msg\":\"Read var\",\"role\":%q,\"variant\":%q,\"name\":%q,\"sha\":%q}\n",
+		role, variant, name, hex.EncodeToString(sum[:8]))
+}
+
+// keyedRelays is a plugin whose config, as a home writes one, has a value from oikade.Var. It says
+// which it was given as it starts.
+func keyedRelays(token string) plugin.Factory {
+	return func(plugin.Environment, []contractv1.DeclaredDevice) (plugin.Handler, error) {
+		reportVar("plugin", fixtureToken, token)
+		return relays.New([]contractv1.DeclaredDevice{relay("keyed")}), nil
 	}
 }
 
@@ -432,6 +460,15 @@ func home() *oikade.Home {
 			// A test's broker has a port of its own. A home writes its broker here.
 			Broker: os.Getenv("OIKADE_TEST_ZIGBEE_BROKER"),
 		}))
+	case strings.HasPrefix(variant, "vars"):
+		token := oikade.Var(fixtureToken)
+		if variant == "vars-more" {
+			_ = oikade.Var(fixtureExtra)
+		}
+		if automations() {
+			reportVar("automations", fixtureToken, token)
+		}
+		h.Plugin("keyed", keyedRelays(token))
 	}
 	return h
 }

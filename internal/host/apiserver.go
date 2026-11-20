@@ -387,7 +387,7 @@ func (s *apiServer) answer(c caller, req api.Request) api.Response {
 	case api.TypeInfo:
 		return api.Response{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, HostVersion: s.version}
 	case api.TypeRollback:
-		return s.deploys.rollback(s.ctx, req.AllowSafety)
+		return s.deploys.rollback(s.ctx, req.Vars, req.AllowSafety)
 	case api.TypeStatus:
 		return s.status()
 	case api.TypeSet:

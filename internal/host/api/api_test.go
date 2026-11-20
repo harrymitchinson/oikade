@@ -103,7 +103,7 @@ func TestADeployCutOffSaysNothingWasDeployed(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The host reads the request's head, then goes.
-	_, err := Deploy(t.Context(), dialer(hangsUp), path, false, nil)
+	_, err := Deploy(t.Context(), dialer(hangsUp), path, nil, false, nil)
 	if err == nil || !strings.Contains(err.Error(), "nothing was deployed") {
 		t.Errorf("a deploy cut off mid-upload: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestADeployRefusedBeforeItsUploadIsRaceFree(t *testing.T) {
 	if err := os.WriteFile(path, make([]byte, 4<<20), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := Deploy(t.Context(), dialer(answersEarly), path, false, func(int64, int64) {})
+	_, err := Deploy(t.Context(), dialer(answersEarly), path, nil, false, func(int64, int64) {})
 	if err == nil || err.Error() != "the host answered 503 Service Unavailable" {
 		t.Errorf("a deploy the host refused early: %v", err)
 	}

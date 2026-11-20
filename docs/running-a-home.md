@@ -31,6 +31,50 @@ returns to the version before the running one. The host keeps the last five.
 
 Removing a Safety rule is refused, and so is renaming one, because a rule's claims end with it and a hold's latch lives under its name, which could reopen a valve. `--allow-safety` on either command goes ahead. `--binary FILE` deploys something already built for the host, and skips the checks that need your source.
 
+### Your values
+
+What's yours rather than your home's, such as a login's username, a hub's address or an API key, goes in `.env` beside your `go.mod`, which Git ignores, so the code can be pushed or shared as it stands (OIK-365). Your code reads each value by its name with `oikade.Var`, which returns a string:
+
+```go
+home.Plugin("tahoma", overkiz.New(overkiz.Local{
+	Address: oikade.Var("TAHOMA_ADDRESS"), PIN: oikade.Var("TAHOMA_PIN"), Token: oikade.Secret("tahoma-token"),
+}))
+```
+
+```sh
+# .env
+TAHOMA_ADDRESS=gateway-1234-5678-9012.local:8443
+export TAHOMA_PIN="1234-5678-9012"
+```
+
+`oikade deploy` sends them to the host with the binary, and says how many went:
+
+```console
+$ oikade deploy
+Checking your code
+Building for linux/arm64
+Uploading 11 MB: 11 MB sent
+Waiting for the host to check and settle
+Deployed version 3f9c2a1, with 2 values from .env
+```
+
+A line is `NAME=VALUE`, with `export` before it if you like. Blank lines and lines starting with `#` are skipped, and in a value without quotes, a `#` after a space starts a comment. A value may be in double quotes, where `\n`, `\"` and `\\` are escapes, or in single quotes, which take it as it is, and either may span lines. Nothing is expanded, so a `$` is a `$`. A name is the same in your code, the file and the environment, and follows an environment variable's rule: upper-case letters, digits and underscores, starting with a letter, such as `TAHOMA_PIN`. Your home's check refuses any other name in your code, and `oikade deploy` any other in the file, and both suggest one. The environment wins over the file, as with other dotenv tools, for any name in the file or your code, so `TAHOMA_PIN=… oikade deploy`, or a CI job's `env:`, needs no file. Pick names your shell doesn't set already: `TOSHIBA_USER`, not `USER`. `--env-file FILE` reads another file in place of `.env`, such as a test host's.
+
+A deploy's values replace the host's whole. One your code uses that neither the file nor the environment has stops the deploy before anything is sent:
+
+```console
+$ oikade deploy
+Checking your code
+Error: TAHOMA_PIN isn't set
+Hint: add it to .env, or set it in the environment
+```
+
+To learn which names your code uses, `oikade deploy` runs your home's check here: it builds your module for this machine too when the host is another kind, and runs `--binary FILE` itself when it can. A binary that can't run here, such as one built for another kind of machine, takes only the file's values, and the host refuses it if its code uses one they lack.
+
+Deploying the running version with values that changed starts your automations and plugins again, with them, and says which changed: `Deployed version 3f9c2a1 again, with TAHOMA_PIN changed`. `oikade rollback` keeps the host's values as they are, so an old password never comes back, and refuses a version whose code uses one they lack, saying which. `oikade rollback --env-file FILE` replaces them with that file's as it goes back.
+
+The host keeps your values as it keeps secrets: never in a binary, a log, an answer or `--json`, which name them only. It keeps them in its store with the version they came with, so a crash during a deploy leaves a version and the values that go with it. Before each process it starts from your binary, it writes them to a file only its user can read, and names it to the process: in its runtime directory, `/run/oikade`, which is in memory, or in the data directory where there's none, as in Docker. Your code reads them as the home is built, so call `oikade.Var` in a plugin's config or a package-level `var`: that declares the name, so a deploy knows of it, and one called in a rule as it runs is too late for that. In `oikade check`, `oikade dev` and `go test`, a `Var` is empty.
+
 ### Deploying from CI
 
 The workflow `oikade init` writes, `.github/workflows/deploy.yml`, checks and tests every change on GitHub's runners. Once you turn deploys on, it also deploys what reaches `main`, over the [network API](#the-network-api), from a runner that can reach the host. Until then a push to `main` passes, and leaves a notice that deploys are off, so a home you deploy from your laptop never fails its CI (OIK-286).
@@ -74,6 +118,8 @@ User=oikade
 ExecStart=/usr/local/bin/oikade-host --api-addr :8443
 StateDirectory=oikade
 StateDirectoryMode=0700
+RuntimeDirectory=oikade
+RuntimeDirectoryMode=0700
 Restart=always
 RestartSec=2
 KillMode=mixed
@@ -83,7 +129,7 @@ NoNewPrivileges=true
 WantedBy=multi-user.target
 ```
 
-The unit says only where the data lives and what to listen on. What's about the home, such as the Matter bridge's name or where Zigbee2MQTT's broker is, is in its code, so rebuilding the machine is this file and `oikade deploy` (OIK-296). Add any other flags for `oikade-host`, such as `--metrics-addr`, to `ExecStart` in a drop-in, with `sudo systemctl edit oikade`. `install` writes the unit itself only on a first install or when it's given `--api-addr`, and never touches a drop-in. `--api-addr` serves the [network API](#the-network-api), which is how you reach the host from another machine. That machine needs only `oikade-host`. If you put `oikade` there too, its commands use the socket in the data directory, which only the host's user can reach, so run them with `sudo`. Your home and its plugins run as that user too, so give it nothing it doesn't need.
+The unit says only where the data lives, where the host writes [your values](#your-values) for its processes (`/run/oikade`, in memory), and what to listen on. What's about the home, such as the Matter bridge's name or where Zigbee2MQTT's broker is, is in its code, so rebuilding the machine is this file and `oikade deploy` (OIK-296). Add any other flags for `oikade-host`, such as `--metrics-addr`, to `ExecStart` in a drop-in, with `sudo systemctl edit oikade`. `install` writes the unit itself only on a first install or when it's given `--api-addr`, and never touches a drop-in. `--api-addr` serves the [network API](#the-network-api), which is how you reach the host from another machine. That machine needs only `oikade-host`. If you put `oikade` there too, its commands use the socket in the data directory, which only the host's user can reach, so run them with `sudo`. Your home and its plugins run as that user too, so give it nothing it doesn't need.
 
 When the host stops, it goes in order: the API, ending streams such as `oikade tail`, then your automations, then the writes already under way, then each plugin, which is sent `SIGTERM` and says it's offline before its socket closes, then the Matter bridge and the store. The log has a line for each. `--stop-timeout` (10 seconds) bounds all of it: past that the rest is cut off, the log says where, and the host kills what's left and exits with an error. No state that must survive is lost, because the host only ever crashes safe, though `oikade replay` can miss the last few seconds. `KillMode=mixed` is what leaves the order to the host: by default systemd sends `SIGTERM` to your automations and plugins at the same moment as the host.
 
@@ -236,7 +282,7 @@ Taking an `oikade.Plugin` out of your home doesn't remove its devices (OIK-225).
 
 Losing these means re-pairing, and then the Home app forgets every room, scene and automation, or every Zigbee device has to be paired again.
 
-- **The host's data directory** (`/var/lib/oikade` by default) is everything a home has to keep, in one file: the Matter bridge's setup code, unique ID, attestation key and fabrics, the device registry with its endpoint IDs, latches, claims, flows, your deployed versions, your secrets, and the network API's key and token hashes. **Back up one directory.** A file copied while it changes may not open, so either stop the host first, or run `oikade backup` and then copy the directory. `oikade backup` writes a consistent snapshot of the store to `backups/oikade-<time>.db` in the directory while the host runs, and keeps the last five. Secrets are in there in the clear, so keep the copy somewhere as private as the machine.
+- **The host's data directory** (`/var/lib/oikade` by default) is everything a home has to keep, in one file: the Matter bridge's setup code, unique ID, attestation key and fabrics, the device registry with its endpoint IDs, latches, claims, flows, your deployed versions with the values the last deploy sent, your secrets, and the network API's key and token hashes. **Back up one directory.** A file copied while it changes may not open, so either stop the host first, or run `oikade backup` and then copy the directory. `oikade backup` writes a consistent snapshot of the store to `backups/oikade-<time>.db` in the directory while the host runs, and keeps the last five. Secrets and your values are in there in the clear, so keep the copy somewhere as private as the machine. Losing your values costs only a deploy, from the `.env` you have.
   - **Upgrade:** take that snapshot first with `oikade backup`, and a new `oikade-host` opens the same directory, so nothing needs pairing again. A file from a newer format is refused rather than guessed at, so keep the backup until the upgrade has worked.
   - **Delete:** deleting the directory forgets the bridge. Every controller has lost it, so remove it from each one and pair again. The next host gets new codes.
   - **Restore:** with the host stopped, copy the directory back, give it to the host's user, and if it came from a running host, copy the newest `backups/oikade-<time>.db` over `oikade.db`. A host on a restored directory is the same bridge, with no pairing again, because the identity and fabrics come back with it. A controller added since that backup isn't in it, and needs pairing again. If the Matter identity or fabrics are unreadable, the host never makes new ones: it runs the home without a bridge, and the log and `oikade status matter` say why, until you restore them. A restore keeps the network API's pin and every token, including any revoked since that backup, so revoke those again.

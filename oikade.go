@@ -875,6 +875,7 @@ func (h *Home) manifest() wire.Manifest {
 	m.Control = settingsOf(decided)
 	m.Inventory = h.inventory()
 	m.Secrets = secretuse.Names()
+	m.Vars = hostVars.names()
 	m.HiddenFromMatter = h.hiddenFromMatter()
 	return m
 }

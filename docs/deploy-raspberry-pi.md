@@ -24,9 +24,9 @@ On laptop, by 14:32, run:
   oikade login pi.home:8443 --pin sha256:9f2c… --code k7Qx…
 ```
 
-It copies itself to `/usr/local/bin/oikade-host`, makes the system user `oikade`, writes the unit `/etc/systemd/system/oikade.service`, starts it, and waits until the host answers. `--api-addr` is how your Mac reaches it (`:8443` unless you say), and `--client` who the login line is for (`laptop`). Change the unit with `sudo systemctl edit oikade`, whose drop-in `install` never touches. It writes the unit itself only on the first install, or when you give it `--api-addr`.
+It copies itself to `/usr/local/bin/oikade-host`, makes the system user `oikade`, writes the unit `/etc/systemd/system/oikade.service`, starts it, and waits until the host answers. The unit keeps the host's data in `/var/lib/oikade` and gives it `/run/oikade`, in memory and only its user's, where it writes [your values](running-a-home.md#your-values) for the processes it starts. `--api-addr` is how your Mac reaches it (`:8443` unless you say), and `--client` who the login line is for (`laptop`). Change the unit with `sudo systemctl edit oikade`, whose drop-in `install` never touches. It writes the unit itself only on the first install, or when you give it `--api-addr`.
 
-That's all the unit says: the rest, such as where Zigbee2MQTT's broker is, is in your home's code, which `oikade deploy` brings. If the broker needs a password, it's a secret, `oikade.Secret("broker")` in the plugin's config. Set it from your Mac once you've logged in, below. The plugin tries again until it's set, and needs no restart:
+That's all the unit says: the rest, such as where Zigbee2MQTT's broker is, is in your home's code and its `.env`, which `oikade deploy` brings. If the broker needs a password, it's a secret, `oikade.Secret("broker")` in the plugin's config. Set it from your Mac once you've logged in, below. The plugin tries again until it's set, and needs no restart:
 
 ```sh
 oikade set secret/broker     # on your Mac
@@ -79,7 +79,7 @@ Starting oikade, and waiting for it to serve
 Upgraded to v0.3.1. The previous version is /usr/local/bin/oikade-host.previous
 ```
 
-It backs up the store through the running host, keeps the old binary as `oikade-host.previous`, and restarts the host on the new one. If the new version doesn't serve within a minute, it puts the old binary and unit back, restarts that, and fails. If the host isn't serving, say because it crashes on start, `install` stops it and copies the store instead. It keeps your unit as it is, unless you give it `--api-addr`. A host installed by hand upgrades the same way, as long as its unit is `/etc/systemd/system/oikade.service` and runs `/usr/local/bin/oikade-host`.
+It backs up the store through the running host, keeps the old binary as `oikade-host.previous`, and restarts the host on the new one. If the new version doesn't serve within a minute, it puts the old binary and unit back, restarts that, and fails. If the host isn't serving, say because it crashes on start, `install` stops it and copies the store instead. It keeps your unit as it is, unless you give it `--api-addr`, except that a unit from before Oikade kept your values gains `RuntimeDirectory=oikade`, for `/run/oikade`. A host installed by hand upgrades the same way, as long as its unit is `/etc/systemd/system/oikade.service` and runs `/usr/local/bin/oikade-host`.
 
 Matter stops with the host, so the Home app shows no response until it's back, which took 2 s on a Pi 4. Afterwards, `go install` the same version of `cmd/oikade` on your Mac, update `github.com/harrymitchinson/oikade` in your home's `go.mod` and run `oikade deploy`, as your code is built against the old version.
 

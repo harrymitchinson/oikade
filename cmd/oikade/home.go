@@ -45,20 +45,8 @@ func buildHome(ctx context.Context, module string) (path string, done func(), er
 // requireHome fails unless module is in a Go module, as a home is, saying how to name one. It looks
 // for a go.mod there and above, as go build does, and leaves any other trouble to go.
 func requireHome(module string) error {
-	dir, err := filepath.Abs(module)
-	if err != nil {
+	if _, ok := goModDir(module); ok {
 		return nil
-	}
-	for {
-		_, err := os.Stat(filepath.Join(dir, "go.mod"))
-		if !errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
 	}
 	where := "here"
 	if module != "." {
@@ -66,6 +54,23 @@ func requireHome(module string) error {
 	}
 	return cli.Errorf("there's no home %s: a home is a Go module, with a go.mod", where).
 		WithHint("cd into your home's module, or pass --module DIR. oikade init starts one")
+}
+
+// goModDir is the directory with the go.mod that module is in, looking there and above as go build
+// does, or module itself, made absolute, if there's none.
+func goModDir(module string) (string, bool) {
+	dir, err := filepath.Abs(module)
+	if err != nil {
+		return module, false
+	}
+	for d := dir; ; d = filepath.Dir(d) {
+		if _, err := os.Stat(filepath.Join(d, "go.mod")); !errors.Is(err, os.ErrNotExist) {
+			return d, true
+		}
+		if filepath.Dir(d) == d {
+			return dir, false
+		}
+	}
 }
 
 // ranAndFailed is err if it's a program that ran and failed, which has said why on stderr.
@@ -125,14 +130,26 @@ func homeManifest(ctx context.Context, module string) (wire.Manifest, error) {
 	return manifestOf(ctx, path)
 }
 
-// manifestOf asks a built home what it is.
-func manifestOf(ctx context.Context, path string) (wire.Manifest, error) {
+// notHere is a home's check that couldn't run on this machine, or whose answer this oikade can't
+// read, though the host may.
+type notHere struct{ error }
+
+func (e notHere) Unwrap() error { return e.error }
+
+// cantRunHere is a check that failed only because it couldn't run here, or be read.
+func cantRunHere(err error) bool {
+	_, ok := errors.AsType[notHere](err)
+	return ok
+}
+
+// readManifest asks a built home what it is, whichever protocol it speaks.
+func readManifest(ctx context.Context, path string) (wire.Manifest, error) {
 	cmd := exec.CommandContext(ctx, path, wire.RoleCheck)
 	cmd.Stderr = os.Stderr
 	out, err := cmd.Output()
 	if err != nil {
 		if !ranAndFailed(err) {
-			return wire.Manifest{}, fmt.Errorf("couldn't run your home's checks: %w", err)
+			return wire.Manifest{}, notHere{fmt.Errorf("couldn't run your home's checks: %w", err)}
 		}
 		return wire.Manifest{}, cli.Wrap(err, "your home failed its own checks, as it says above")
 	}
@@ -140,8 +157,20 @@ func manifestOf(ctx context.Context, path string) (wire.Manifest, error) {
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	var m wire.Manifest
 	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &m); err != nil {
-		return wire.Manifest{}, cli.Wrap(err, "your home's check said something this oikade can't read").
-			WithHint("build your home against the same version of Oikade as this oikade, %s", cli.Version(version))
+		return wire.Manifest{}, notHere{cli.Wrap(err, "your home's check said something this oikade can't read").
+			WithHint("build your home against the same version of Oikade as this oikade, %s", cli.Version(version))}
+	}
+	return m, nil
+}
+
+// manifestOf asks a built home what it is, and refuses one that speaks another protocol.
+func manifestOf(ctx context.Context, path string) (wire.Manifest, error) {
+	m, err := readManifest(ctx, path)
+	if e, ok := errors.AsType[notHere](err); ok {
+		return wire.Manifest{}, e.error
+	}
+	if err != nil {
+		return wire.Manifest{}, err
 	}
 	if m.Protocol != wire.Version {
 		return wire.Manifest{}, cli.Errorf("your home was built for protocol %d, and this oikade speaks %d",

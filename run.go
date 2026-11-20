@@ -40,6 +40,9 @@ func run(h *Home, log *slog.Logger) error {
 	if err := checkSecrets(); err != nil {
 		return err
 	}
+	if err := hostVars.check(); err != nil {
+		return err
+	}
 	if len(os.Args) > 1 && os.Args[1] == wire.RoleCheck {
 		return json.NewEncoder(os.Stdout).Encode(h.manifest())
 	}

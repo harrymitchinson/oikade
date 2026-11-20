@@ -76,3 +76,34 @@ func TestAnIDLogsAsItsName(t *testing.T) {
 		t.Errorf("got %s", out.String())
 	}
 }
+
+func TestValidVarName(t *testing.T) {
+	for name, want := range map[string]bool{
+		"TOSHIBA_USER": true, "A": true, "A1": true, "A__B": true, "A_": true,
+		"": false, "toshiba_user": false, "_A": false, "1A": false, "A-B": false, "A.B": false, "A B": false,
+		"Ä": false,
+	} {
+		if got := ValidVarName(name); got != want {
+			t.Errorf("ValidVarName(%q) = %v, want %v", name, got, want)
+		}
+	}
+}
+
+func TestCheckVarNameSuggestsAName(t *testing.T) {
+	if err := CheckVarName("TAHOMA_PIN"); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{
+		"toshiba-user":       `"toshiba-user" isn't a variable name: ` + VarRule + `, such as "TOSHIBA_USER"`,
+		"Cozytouch.Password": `"Cozytouch.Password" isn't a variable name: ` + VarRule + `, such as "COZYTOUCH_PASSWORD"`,
+		"_token":             `"_token" isn't a variable name: ` + VarRule + `, such as "TOKEN"`,
+		"2fa code":           `"2fa code" isn't a variable name: ` + VarRule + `, such as "VAR_2FA_CODE"`,
+		"—":                  `"—" isn't a variable name: ` + VarRule,
+		"":                   "a variable needs a name: " + VarRule,
+	} {
+		err := CheckVarName(name)
+		if err == nil || err.Error() != want {
+			t.Errorf("CheckVarName(%q) = %v, want %s", name, err, want)
+		}
+	}
+}

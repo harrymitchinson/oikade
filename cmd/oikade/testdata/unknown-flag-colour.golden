@@ -3,5 +3,5 @@ exit 2
 --- stderr
 [31m✗[0m [31mError:[0m oikade deploy has no flag --bogus
 [1mUsage:[0m
-  oikade deploy [--module DIR | --binary FILE] [--allow-safety]
+  oikade deploy [--module DIR | --binary FILE] [--env-file FILE] [--allow-safety]
 [2mHint: oikade deploy --help says more[0m

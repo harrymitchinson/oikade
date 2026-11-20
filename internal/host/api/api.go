@@ -12,8 +12,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net"
 	"net/http"
+	"net/textproto"
 	"net/url"
 	"os"
 	"slices"
@@ -74,8 +77,15 @@ const StreamContentType = "application/x-ndjson"
 // AllowSafetyParam is a deploy's query parameter for AllowSafety.
 const AllowSafetyParam = "allowSafety"
 
-// BinaryContentType is a deploy's body.
-const BinaryContentType = "application/octet-stream"
+// DeployContentType is a deploy's body: a part called DeployVarsPart, your values as a JSON object
+// of names to values, then one called DeployBinaryPart, the binary.
+const DeployContentType = "multipart/form-data"
+
+// A deploy's parts, in the order they come.
+const (
+	DeployVarsPart   = "vars"
+	DeployBinaryPart = "binary"
+)
 
 // Prefix starts every route, and changes if the API ever breaks.
 const Prefix = "/v1"
@@ -148,6 +158,9 @@ type Request struct {
 	// device one holds, or a rollback that would end one's claims. A deploy sends it as a query
 	// parameter, as its body is the binary.
 	AllowSafety bool `json:"allowSafety,omitempty"`
+	// Vars are a rollback's: values that replace the host's whole, by name. Without them, a rollback
+	// keeps the host's. A deploy sends its own in its body. They're in no answer and no log.
+	Vars map[string]string `json:"vars,omitzero"`
 	// Secret names a secret to set or remove.
 	Secret string `json:"secret,omitempty"`
 	// SecretValue is what to set it to. It's in no answer and no log.
@@ -174,8 +187,15 @@ type Response struct {
 	Findings []string `json:"findings,omitempty"`
 	// Version is the version running now.
 	Version string `json:"version,omitempty"`
-	// Unchanged is a deploy of the version already running.
+	// Unchanged is a deploy of the version already running. With VarsChanged, the values changed,
+	// and the version started again with them. Without, nothing changed.
 	Unchanged bool `json:"unchanged,omitempty"`
+	// VarsChanged are a deploy's or a rollback's: the names of the values it added, changed or
+	// removed, and never a value (OIK-365).
+	VarsChanged []string `json:"varsChanged,omitempty"`
+	// MissingVars are a refused deploy's or rollback's: the values its version uses that its set
+	// lacks.
+	MissingVars []string `json:"missingVars,omitempty"`
 	// Restored is set when a new version failed once it started, and the last one came back.
 	Restored bool `json:"restored,omitempty"`
 	// GOOS and GOARCH are what the host runs on, so that a deploy can build for it.
@@ -717,10 +737,11 @@ func Call(ctx context.Context, t Transport, req Request) (Response, error) {
 	return resp, nil
 }
 
-// Deploy sends the binary at path to the host, which runs it as your home's new version. It waits
-// for as long as that takes, as Call does. progress, if it isn't nil, hears the bytes sent of the
-// total as the upload goes, from the goroutine sending them; sent reaches total once it's done.
-func Deploy(ctx context.Context, t Transport, path string, allowSafety bool,
+// Deploy sends the binary at path to the host, which runs it as your home's new version, with vars as
+// your values, which replace the host's whole. It waits for as long as that takes, as Call does.
+// progress, if it isn't nil, hears the binary's bytes sent of the total as the upload goes, from the
+// goroutine sending them; sent reaches total once it's done.
+func Deploy(ctx context.Context, t Transport, path string, vars map[string]string, allowSafety bool,
 	progress func(sent, total int64)) (Response, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -736,8 +757,14 @@ func Deploy(ctx context.Context, t Transport, path string, allowSafety bool,
 	if allowSafety {
 		target += "?" + url.Values{AllowSafetyParam: {"true"}}.Encode()
 	}
+	head, tail, contentType, err := deployParts(vars)
+	if err != nil {
+		return Response{}, err
+	}
 	sent := &counting{r: f, total: info.Size(), progress: progress}
-	body, err := send(ctx, t, route, target, sent, info.Size(), BinaryContentType)
+	length := int64(len(head)) + info.Size() + int64(len(tail))
+	body, err := send(ctx, t, route, target, io.MultiReader(bytes.NewReader(head), sent, bytes.NewReader(tail)),
+		length, contentType)
 	if err != nil {
 		// net/http may still be reading the body after an answer that came early, so sent is atomic.
 		// Only a host lost before it answered may have been cut off mid-upload.
@@ -753,6 +780,34 @@ func Deploy(ctx context.Context, t Transport, path string, allowSafety bool,
 		return Response{}, fmt.Errorf("reading the host's answer: %w", err)
 	}
 	return resp, nil
+}
+
+// deployParts are what goes around a deploy's binary in its body: the values' part and the binary's
+// part's header before it, and the closing boundary after it. Knowing them first gives the body its
+// length, so the binary needn't be read twice.
+func deployParts(vars map[string]string) (head, tail []byte, contentType string, err error) {
+	if vars == nil {
+		vars = map[string]string{}
+	}
+	var b bytes.Buffer
+	parts := multipart.NewWriter(&b)
+	varsPart, err := parts.CreatePart(textproto.MIMEHeader{
+		"Content-Disposition": {`form-data; name="` + DeployVarsPart + `"`}, "Content-Type": {ContentType},
+	})
+	if err != nil {
+		return nil, nil, "", err
+	}
+	if err := json.NewEncoder(varsPart).Encode(vars); err != nil {
+		return nil, nil, "", err
+	}
+	if _, err := parts.CreatePart(textproto.MIMEHeader{
+		"Content-Disposition": {`form-data; name="` + DeployBinaryPart + `"; filename="home"`},
+		"Content-Type":        {"application/octet-stream"},
+	}); err != nil {
+		return nil, nil, "", err
+	}
+	tail = []byte("\r\n--" + parts.Boundary() + "--\r\n")
+	return b.Bytes(), tail, mime.FormatMediaType(DeployContentType, map[string]string{"boundary": parts.Boundary()}), nil
 }
 
 // counting counts what's read through it, of total, and tells progress.
