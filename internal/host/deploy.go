@@ -97,13 +97,17 @@ func (d *deployer) deployLocked(ctx context.Context, binary string, vars map[str
 		return api.Response{Error: fmt.Sprintf("storing the binary: %s", err)}
 	}
 	in := incoming{vars: vars, whose: "the deploy's"}
+	// What confirming the version took off Matter, which the deploy's answer says too.
+	var off []string
 	if cur, ok := d.versions.current(); ok && cur.ID == id {
 		changed := len(changedVars(d.versions.state.Vars, vars)) > 0
 		switch {
 		case d.confirmable == id:
-			if resp := d.confirm(id); resp.Error != "" || !changed {
+			resp := d.confirm(id)
+			if resp.Error != "" || !changed {
 				return resp
 			}
+			off = resp.TakenOffMatter
 		case d.versions.state.Pending:
 			return api.Response{Error: "this version hasn't settled", Version: id}
 		case !changed:
@@ -112,7 +116,9 @@ func (d *deployer) deployLocked(ctx context.Context, binary string, vars map[str
 		// Only the values changed. The processes take them up as they start again, which they do as
 		// a new version's would, with the same checks.
 	}
-	return d.takeOver(ctx, id, allow, d.versions.begin, in)
+	resp := d.takeOver(ctx, id, allow, d.versions.begin, in)
+	resp.TakenOffMatter = append(off, resp.TakenOffMatter...)
+	return resp
 }
 
 // unchanged answers a deploy of the version already running.

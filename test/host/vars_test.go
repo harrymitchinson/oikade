@@ -192,7 +192,13 @@ func TestARollbackKeepsTheValuesAndRefusesAVersionWhoseNamesTheyLack(t *testing.
 	if r.pid() != pid {
 		t.Errorf("the refused rollback stopped the process. The log:\n%s", r.dump())
 	}
-	// --env-file sends values of its own with it.
+	// --env-file sends values of its own with it, and one that lacks the name is told to add it.
+	lacking := envFile(t, map[string]string{tokenVar: "given"})
+	out, err = r.cli(nil, "rollback", "--env-file", lacking)
+	refused := "Error: the version uses " + extraVar + ", which isn't among the rollback's values"
+	if err == nil || !strings.Contains(out, refused) || !strings.Contains(out, "Hint: add it to "+lacking) {
+		t.Fatalf("got %v: %s", err, out)
+	}
 	out, err = r.cli(nil, "rollback", "--env-file", envFile(t, map[string]string{tokenVar: "given", extraVar: "y"}))
 	if err != nil || !strings.Contains(out, "Rolled back to version ") || !strings.Contains(out, ", with 2 values from ") {
 		t.Fatalf("got %v: %s", err, out)

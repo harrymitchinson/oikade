@@ -69,7 +69,7 @@ Error: TAHOMA_PIN isn't set
 Hint: add it to .env, or set it in the environment
 ```
 
-To learn which names your code uses, `oikade deploy` runs your home's check here: it builds your module for this machine too when the host is another kind, and runs `--binary FILE` itself when it can. A binary built for another kind of machine can't run here, so only the file's values go with it, and the host refuses it if its code uses one they lack.
+To learn which names your code uses, `oikade deploy` runs your home's check here: it builds your module for this machine too when the host is another kind, and runs `--binary FILE` itself when it can. A binary that can't run here, such as one built for another kind of machine, takes only the file's values, and the host refuses it if its code uses one they lack.
 
 Deploying the running version with values that changed starts your automations and plugins again, with them, and says which changed: `Deployed version 3f9c2a1 again, with TAHOMA_PIN changed`. `oikade rollback` keeps the host's values as they are, so an old password never comes back, and refuses a version whose code uses one they lack, saying which. `oikade rollback --env-file FILE` replaces them with that file's as it goes back.
 

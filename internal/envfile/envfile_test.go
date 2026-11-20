@@ -76,7 +76,9 @@ func TestParseSaysWhichLineIsWrong(t *testing.T) {
 		"=value\n":                    "1: a variable needs a name: use upper-case letters, digits and underscores, starting with a letter",
 		"A=\"open\nB=2\n":             "1: A: its value has no closing \"",
 		"A='open\n":                   "1: A: its value has no closing '",
-		"A=\"x\" y\n":                 `1: A has "y" after its closing quote`,
+		"A=\"x\" y\n":                 `1: A has more after its closing quote, where only a comment can go`,
+		"A=1\nhunter2 x\n":            "2: the line has no =: write NAME=VALUE",
+		"A=\"x\\\ny\"\nbad line\n":    "3: the line has no =: write NAME=VALUE",
 		"A=\"two\nlines\"\nb=1\n":     `3: "b" isn't a variable name: use upper-case letters, digits and underscores, starting with a letter, such as "B"`,
 	} {
 		_, err := Parse(file)

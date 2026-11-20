@@ -84,6 +84,19 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 		vals, err = readValues(module, envFile, used, d.lookup)
 		return err
 	}
+	// learn asks your home's check which values its code uses, then reads them.
+	learn := func(path string) error {
+		m, err := d.manifest(ctx, module, path)
+		switch {
+		case cantRunHere(err):
+			// The host checks it, and refuses it if it uses a value it isn't sent, and only the
+			// file's are.
+			return read(nil)
+		case err != nil:
+			return err
+		}
+		return read(m.Vars)
+	}
 	if path == "" {
 		info, err := api.Call(ctx, transport, api.Request{Type: api.TypeInfo})
 		if err != nil {
@@ -97,12 +110,9 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 		native := info.GOOS == runtime.GOOS && info.GOARCH == runtime.GOARCH
 		if !native {
 			stop := heartbeat(d.progress, "checking", 5*time.Second)
-			m, err := d.manifest(ctx, module, "")
+			err := learn("")
 			stop()
 			if err != nil {
-				return err
-			}
-			if err := read(m.Vars); err != nil {
 				return err
 			}
 		}
@@ -120,25 +130,14 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 			return err
 		}
 		if native {
-			m, err := d.manifest(ctx, module, path)
-			if err != nil {
-				return err
-			}
-			if err := read(m.Vars); err != nil {
+			d.progress.phase("Checking your home")
+			if err := learn(path); err != nil {
 				return err
 			}
 		}
 	} else {
-		m, err := d.manifest(ctx, module, path)
-		switch {
-		case cantRunHere(err):
-			// Built for another machine: the host checks it, and refuses it if it uses a value it
-			// isn't sent, and only the file's are.
-			err = read(nil)
-		case err == nil:
-			err = read(m.Vars)
-		}
-		if err != nil {
+		d.progress.phase("Checking your home")
+		if err := learn(path); err != nil {
 			return err
 		}
 	}
@@ -172,22 +171,24 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 		fmt.Sprintf("add %s to %s", them(resp.MissingVars), vals.file))
 }
 
-// homeCheck runs your home's check: the binary at path, or the module built for this machine.
+// homeCheck runs your home's check, for the values its code uses: the binary at path, or the module
+// built for this machine. The host checks the protocol, so a deploy doesn't, and a binary that can't
+// run here, such as one for another machine, is a notHere.
 func homeCheck(ctx context.Context, module, path string) (wire.Manifest, error) {
 	if path == "" {
-		return homeManifest(ctx, module)
+		built, done, err := buildHome(ctx, module)
+		if err != nil {
+			return wire.Manifest{}, err
+		}
+		defer done()
+		path = built
 	}
 	// A bare name, as in --binary home, is a file here, not a command on the PATH.
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return wire.Manifest{}, err
 	}
-	return manifestOf(ctx, abs)
-}
-
-// cantRunHere is a check that failed because the binary isn't for this machine, or can't be run.
-func cantRunHere(err error) bool {
-	return errors.Is(err, syscall.ENOEXEC) || errors.Is(err, os.ErrPermission)
+	return readManifest(ctx, abs)
 }
 
 // them is "it" or "them", for names.
@@ -207,13 +208,13 @@ func runRollback(ctx context.Context, args []string) error {
 	renamed(fs, "allow-safety-removal", "allow-safety", true)
 	_ = fs.Parse(args)
 	req := api.Request{Type: api.TypeRollback, AllowSafety: *allow}
-	with := ""
+	var vals values
 	if *envFile != "" {
-		vals, err := readValues(".", *envFile, nil, os.LookupEnv)
-		if err != nil {
+		var err error
+		if vals, err = readValues(".", *envFile, nil, os.LookupEnv); err != nil {
 			return err
 		}
-		req.Vars, with = vals.set, vals.sent()
+		req.Vars = vals.set
 	}
 	resp, err := api.Call(ctx, target.transport(), req)
 	if err != nil {
@@ -223,8 +224,11 @@ func runRollback(ctx context.Context, args []string) error {
 	printTakenOffMatter(os.Stderr, resp.TakenOffMatter)
 	printDeviceChanges(os.Stderr, resp)
 	defer printUnsetSecrets(os.Stderr, resp.UnsetSecrets)
-	return report(std.out, resp, "Rolled back to version", with,
-		"oikade rollback --env-file FILE rolls back with values of your own")
+	hint := "oikade rollback --env-file FILE rolls back with values of your own"
+	if *envFile != "" {
+		hint = fmt.Sprintf("add %s to %s", them(resp.MissingVars), vals.file)
+	}
+	return report(std.out, resp, "Rolled back to version", vals.sent(), hint)
 }
 
 // printDeviceChanges says what a version's device declarations changed, which declared names wait

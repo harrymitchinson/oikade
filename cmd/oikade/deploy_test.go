@@ -115,7 +115,8 @@ func TestDeploySaysEachPhaseBeforeItStarts(t *testing.T) {
 func TestDeployOfABinarySkipsTheSourcePhases(t *testing.T) {
 	host := startFakeHost(t)
 	_, stderr := deployTo(t, host, binaryOf(t, 840_000), false)
-	if want := "Uploading 840 kB\nWaiting for the host to check and settle\n"; stderr != want {
+	// It checks the binary, for the values its code uses, but not the source.
+	if want := "Checking your home\nUploading 840 kB\nWaiting for the host to check and settle\n"; stderr != want {
 		t.Errorf("stderr:\n%q\nwant:\n%q", stderr, want)
 	}
 }
@@ -131,7 +132,7 @@ func TestDeployToAPipeRedrawsNothing(t *testing.T) {
 func TestDeployOnATerminalShowsTheBytesSent(t *testing.T) {
 	host := startFakeHost(t)
 	_, stderr := deployTo(t, host, binaryOf(t, 5_000_000), true)
-	if !strings.HasPrefix(stderr, "Uploading 5.0 MB\rUploading 5.0 MB: ") {
+	if !strings.HasPrefix(stderr, "Checking your home\nUploading 5.0 MB\rUploading 5.0 MB: ") {
 		t.Errorf("no live counter: %q", stderr)
 	}
 	want := "\rUploading 5.0 MB: 5.0 MB sent\x1b[K\nWaiting for the host to check and settle\n"
@@ -447,5 +448,44 @@ func TestAVersionTheHostRefusesForAMissingValueSaysWhereToAddIt(t *testing.T) {
 	if err == nil || err.Error() != "the version uses A, which isn't among the deploy's values" ||
 		hintOf(err) != "add it to .env" {
 		t.Errorf("got %v, hint %q", err, hintOf(err))
+	}
+}
+
+// A deploy learns which values your code uses from its check here. Only a home that fails its own
+// checks stops it: one that can't run here, or answers in a way this oikade can't read, is left to the
+// host's check, and so is its protocol.
+func TestADeploysCheckHereLeavesTheRestToTheHost(t *testing.T) {
+	dir := t.TempDir()
+	file := func(name, content string, mode os.FileMode) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(content), mode); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	for name, path := range map[string]string{
+		// As a binary linked for another libc fails, with ENOENT.
+		"no interpreter":   file("interpreter", "#!/nowhere/sh\n", 0o755),
+		"not executable":   file("plain", "#!/bin/sh\n", 0o644),
+		"another machine":  file("elsewhere", "\x7fELF\x02\x01\x01garbage", 0o755),
+		"an unread answer": file("unread", "#!/bin/sh\necho not json\n", 0o755),
+	} {
+		if _, err := homeCheck(t.Context(), ".", path); !cantRunHere(err) {
+			t.Errorf("%s: got %v", name, err)
+		}
+	}
+	other := file("other", `#!/bin/sh
+echo '{"protocol":999,"vars":["TAHOMA_PIN"]}'
+`, 0o755)
+	if m, err := homeCheck(t.Context(), ".", other); err != nil || !slices.Equal(m.Vars, []string{"TAHOMA_PIN"}) {
+		t.Errorf("another protocol: got %+v, %v", m, err)
+	}
+	failing := file("failing", "#!/bin/sh\nexit 3\n", 0o755)
+	if _, err := homeCheck(t.Context(), ".", failing); err == nil || cantRunHere(err) {
+		t.Errorf("a home that fails its checks: got %v", err)
+	}
+	// oikade check, which runs the home here too, still refuses another protocol.
+	if _, err := manifestOf(t.Context(), other); err == nil || !strings.Contains(err.Error(), "protocol 999") {
+		t.Errorf("manifestOf: got %v", err)
 	}
 }

@@ -10,6 +10,7 @@
 package envfile
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -63,8 +64,12 @@ func (p *parser) entry() (name, value string, ok bool, err error) {
 	}
 	eq := strings.IndexAny(p.s, "=\n")
 	if eq < 0 || p.s[eq] != '=' {
-		line := strings.TrimSpace(p.rest())
-		return "", "", false, fmt.Errorf("%q has no =: write NAME=VALUE", line)
+		// Only a name is quoted: the line may be part of a value, such as a password that should
+		// have been in quotes.
+		if line := strings.TrimSpace(p.rest()); ident.ValidVarName(line) {
+			return "", "", false, fmt.Errorf("%q has no =: write NAME=VALUE", line)
+		}
+		return "", "", false, errors.New("the line has no =: write NAME=VALUE")
 	}
 	name = strings.TrimRight(p.s[:eq], " \t")
 	if err := ident.CheckVarName(name); err != nil {
@@ -91,7 +96,7 @@ func (p *parser) entry() (name, value string, ok bool, err error) {
 	}
 	// After the closing quote, only a comment.
 	if tail := strings.TrimSpace(p.rest()); tail != "" && !strings.HasPrefix(tail, "#") {
-		return "", "", false, fmt.Errorf("%s has %q after its closing quote", name, tail)
+		return "", "", false, fmt.Errorf("%s has more after its closing quote, where only a comment can go", name)
 	}
 	return name, value, true, nil
 }
@@ -121,6 +126,9 @@ func (p *parser) quoted(quote byte) (string, error) {
 				b.WriteByte(e)
 			default:
 				// An escape that isn't one is the backslash and the character, as a shell keeps them.
+				if e == '\n' {
+					p.line++
+				}
 				b.WriteByte('\\')
 				b.WriteByte(e)
 			}

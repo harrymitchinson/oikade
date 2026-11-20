@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -190,7 +191,11 @@ func (in *Installer) upgrade(ctx context.Context, opts Options, oldUnit []byte) 
 	if err != nil {
 		return res, err
 	}
-	if same && !opts.APIAddrSet {
+	// A unit written before the host kept your values in memory gains the directory for them. Flags
+	// write the unit whole, with it.
+	withRuntime, addRuntime := withRuntimeDir(oldUnit)
+	addRuntime = addRuntime && !opts.APIAddrSet
+	if same && !opts.APIAddrSet && !addRuntime {
 		in.say("oikade-host %s is installed at %s already", in.Version, BinPath)
 		res.Unchanged = true
 		if opts.ClientSet {
@@ -225,12 +230,18 @@ func (in *Installer) upgrade(ctx context.Context, opts Options, oldUnit []byte) 
 		}
 		res.Previous = PreviousPath
 	}
-	if opts.APIAddrSet {
+	switch {
+	case opts.APIAddrSet:
 		if err := in.writeUnit(opts.APIAddr); err != nil {
 			return res, errors.Join(err, in.putBack(undo, !same, oldUnit))
 		}
+	case addRuntime:
+		if err := writeFile(in.path(UnitPath), withRuntime, 0o644); err != nil {
+			return res, errors.Join(err, in.putBack(undo, !same, oldUnit))
+		}
+		in.say("Added %s to %s, for your values", RuntimeDir, UnitPath)
 	}
-	if err := in.start(ctx, opts.APIAddrSet); err != nil {
+	if err := in.start(ctx, opts.APIAddrSet || addRuntime); err != nil {
 		return res, errors.Join(err, in.putBack(undo, !same, oldUnit))
 	}
 	if err := in.waitServing(ctx); err != nil {
@@ -424,9 +435,7 @@ User=` + User + `
 ExecStart=` + exec + `
 StateDirectory=oikade
 StateDirectoryMode=0700
-RuntimeDirectory=oikade
-RuntimeDirectoryMode=0700
-Restart=always
+` + strings.Join(runtimeDirLines, "") + `Restart=always
 RestartSec=2
 KillMode=mixed
 NoNewPrivileges=true
@@ -434,6 +443,43 @@ NoNewPrivileges=true
 [Install]
 WantedBy=multi-user.target
 `
+}
+
+// RuntimeDir is the directory systemd gives the host for your values, in memory (OIK-365).
+const RuntimeDir = "/run/oikade"
+
+// runtimeDirLines are the unit's lines that make RuntimeDir.
+var runtimeDirLines = []string{"RuntimeDirectory=oikade\n", "RuntimeDirectoryMode=0700\n"}
+
+// withRuntimeDir is a unit with the runtime directory added, if it has none: after its
+// StateDirectoryMode, where Unit has it, or else its [Service] line. It's false for a unit that has
+// one already, or no [Service] section to put it in.
+func withRuntimeDir(unit []byte) ([]byte, bool) {
+	lines := strings.SplitAfter(string(unit), "\n")
+	at := -1
+	inService := false
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+		key, _, _ := strings.Cut(line, "=")
+		switch {
+		case strings.TrimSpace(key) == "RuntimeDirectory":
+			return unit, false
+		case strings.HasPrefix(line, "["):
+			inService = line == "[Service]"
+			if inService && at < 0 {
+				at = i + 1
+			}
+		case inService && strings.TrimSpace(key) == "StateDirectoryMode":
+			at = i + 1
+		}
+	}
+	if at < 0 {
+		return unit, false
+	}
+	if !strings.HasSuffix(lines[at-1], "\n") {
+		lines[at-1] += "\n"
+	}
+	return []byte(strings.Join(slices.Concat(lines[:at], runtimeDirLines, lines[at:]), "")), true
 }
 
 // runsHost is whether a unit's ExecStart is the host's binary, so install may take it over.
