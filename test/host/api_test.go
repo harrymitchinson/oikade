@@ -46,7 +46,7 @@ func (r *rig) network() (address, pin string) {
 func (r *rig) addClient(name string) (token, pin string) {
 	r.t.Helper()
 	var added struct{ Token, Pin string }
-	out := r.stdout(nil, "client", "add", name, "--token", "--json")
+	out := r.stdout(nil, "add", "client/"+name, "--token", "--json")
 	if err := json.Unmarshal(out, &added); err != nil {
 		r.t.Fatalf("reading client add: %v: %s", err, out)
 	}
@@ -109,7 +109,7 @@ func TestNetworkAPINeedsAValidToken(t *testing.T) {
 		t.Errorf("client add over TLS: %d %+v", status, answer)
 	}
 	// But a lost laptop can be cut off from anywhere, itself included.
-	status, answer = call(t, c, address, token, "POST", "/v1/clients/revoke", `{"client":"ci"}`)
+	status, answer = call(t, c, address, token, "POST", "/v1/clients/remove", `{"client":"ci"}`)
 	if status != http.StatusOK {
 		t.Fatalf("revoking: %d %+v", status, answer)
 	}
@@ -148,11 +148,11 @@ func TestRevokingEndsATailAndAStrangerCantHoldAConnection(t *testing.T) {
 		streamed, _ := io.ReadAll(resp.Body)
 		ended <- streamed
 	}()
-	r.stdout(nil, "client", "revoke", "laptop")
+	r.stdout(nil, "remove", "client/laptop")
 	select {
 	case streamed := <-ended:
 		// It says why, so the tail isn't taken for a host that stopped.
-		if !strings.Contains(string(streamed), `{"type":"end","message":"the client was revoked"`) {
+		if !strings.Contains(string(streamed), `{"type":"end","message":"the client was removed"`) {
 			t.Errorf("a revoked client's tail ended with %s", streamed)
 		}
 	case <-time.After(waitLimit):
@@ -218,12 +218,12 @@ func TestATakenAPIPortLeavesTheHostRunning(t *testing.T) {
 	if st := r.status(); st.Devices == nil {
 		t.Errorf("status over the socket: %+v", st)
 	}
-	if _, err := r.oikade(nil, "client", "add", "phone"); err == nil {
+	if _, err := r.oikade(nil, "add", "client/phone"); err == nil {
 		t.Error("issued a login code with no listener for it")
 	}
 	// A token must stay revocable while the port is taken, or it would work again once it's free.
 	r.addClient("laptop")
-	if stderr, err := r.oikade(nil, "client", "revoke", "laptop"); err != nil {
+	if stderr, err := r.oikade(nil, "remove", "client/laptop"); err != nil {
 		t.Errorf("revoking with no listener: %v: %s", err, stderr)
 	}
 }

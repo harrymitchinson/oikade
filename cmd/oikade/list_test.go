@@ -75,6 +75,7 @@ func listings(now time.Time) []listing {
 			clients := []api.Client{
 				{Name: "laptop", Ref: "client/laptop", Created: now.AddDate(0, 0, -8), LastUsed: now.Add(-8 * time.Second)},
 				{Name: "ci", Ref: "client/ci", Created: now.Add(-5 * time.Hour)},
+				{Name: "phone", Ref: "client/phone", Created: now.Add(-2 * time.Minute), Expires: now.Add(8 * time.Minute)},
 			}
 			return printClients(out, stderr, clients, asJSON, now)
 		}},

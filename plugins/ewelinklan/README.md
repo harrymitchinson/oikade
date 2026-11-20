@@ -29,7 +29,7 @@ A device of type `th_plug`, such as a THR316D or THR320D, reports `on` and `temp
 
 For a few seconds after it powers up, a THR320D reports 25 °C, before it has read its probe. The eWeLink app shows it too, so the plugin passes it on. A rule that decides on the temperature should read an average, such as `PoolWater.Temperature.AverageOver(time.Hour)`, which a few seconds' spike barely moves.
 
-A device that hasn't reported its relay for 30 seconds is offline, and stays in the list. Any eWeLink LAN device on your network appears, including ones you don't want: `oikade devices remove` hides one. It stays hidden through a restart if it's on the network when the plugin starts, and comes back if it was off then and is heard later.
+A device that hasn't reported its relay for 30 seconds is offline, and stays in the list. Any eWeLink LAN device on your network appears, including ones you don't want: `oikade forget` hides one. It stays hidden through a restart if it's on the network when the plugin starts, and comes back if it was off then and is heard later.
 
 The plugin follows up to 256 devices, and the log says once when it ignores one beyond that, so that a host on the network announcing made-up devices can't fill its memory.
 

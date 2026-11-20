@@ -2,10 +2,12 @@ package host
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
@@ -50,7 +52,7 @@ func TestTokensAreKeptOnlyAsHashes(t *testing.T) {
 	if _, _, ok := again.check(token + "x"); ok {
 		t.Error("a wrong token worked")
 	}
-	if err := again.revoke("laptop"); err != nil {
+	if _, err := again.remove("laptop"); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, ok := again.check(token); ok {
@@ -174,5 +176,60 @@ func TestALoginCodeWorksOnceAndNotForLong(t *testing.T) {
 	}
 	if _, _, err := c.issue("laptop"); err == nil {
 		t.Error("a code for a name a client has")
+	}
+}
+
+// A client waiting for its login is listed, with when its code runs out, until it does, and removing
+// it cancels the code.
+func TestAClientWaitingForItsLoginIsListedAndCanBeCancelled(t *testing.T) {
+	c, err := loadClients(openAPIStore(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC)
+	c.now = func() time.Time { return now }
+	if _, err := c.add("ci"); err != nil {
+		t.Fatal(err)
+	}
+	code, expires, err := c.issue("laptop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A name has a code or a token, never both, so a remove leaves nothing to log in with.
+	if _, err := c.add("laptop"); err == nil || !strings.Contains(err.Error(), "waiting for its login") {
+		t.Errorf("a token for a client waiting for its login: %v", err)
+	}
+	want := []api.Client{
+		{Name: "ci", Ref: "client/ci", Created: now},
+		{Name: "laptop", Ref: "client/laptop", Created: now, Expires: expires},
+	}
+	if got := c.list(); !slices.Equal(got, want) {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+
+	cancelled, err := c.remove("laptop")
+	if err != nil || !cancelled {
+		t.Fatalf("cancelling laptop's login: %v, %v", cancelled, err)
+	}
+	if _, _, err := c.redeem(code); err == nil {
+		t.Error("a cancelled code worked")
+	}
+	if got := c.list(); len(got) != 1 {
+		t.Errorf("after the cancel: %+v", got)
+	}
+	if cancelled, err := c.remove("ci"); err != nil || cancelled {
+		t.Errorf("removing ci: %v, %v", cancelled, err)
+	}
+
+	// A code that ran out is neither listed nor cancelled.
+	if _, _, err := c.issue("phone"); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(codeLifetime)
+	if got := c.list(); len(got) != 0 {
+		t.Errorf("an expired code is listed: %+v", got)
+	}
+	if _, err := c.remove("phone"); err == nil || !strings.Contains(err.Error(), "there's no client/phone") {
+		t.Errorf("removing an expired code: %v", err)
 	}
 }

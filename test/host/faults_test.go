@@ -58,7 +58,7 @@ func TestKilledAsTheRegistrySavesKeepsTheChange(t *testing.T) {
 	r.launchAttached()
 	r.pair("shed-lamp", "shed-lamp")
 	r.plan(fault.RegistrySaved)
-	if _, err := r.oikade(nil, "devices", "remove", "shed-lamp"); err == nil {
+	if _, err := r.oikade(nil, "forget", "shed-lamp"); err == nil {
 		t.Fatalf("the removal was answered. The log:\n%s", r.dump())
 	}
 	r.died()

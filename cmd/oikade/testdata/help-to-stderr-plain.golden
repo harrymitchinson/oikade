@@ -25,14 +25,14 @@ Watch and drive
   resume    Resume a rule you paused.
 
 Devices and pairing
-  devices   Remove a device from the host, or every device of a plugin.
+  forget    Forget devices a plugin reports, or every device of a plugin.
+  remove    Remove secrets and clients from the host, for good.
   setup     Give a plugin what it needs, such as a sign-in, on the host.
   matter    Show the Matter bridge, or open its window to pair a controller.
 
 Host access
   login     Trust a host's network API, and use it from now on.
-  client    Revoke a client of the host's network API.
-  secret    Set or remove the secrets your home and its plugins read.
+  secret    Set a secret your home and its plugins read.
   backup    Back up the host's store, on the host, and print where it went.
   version   Print this oikade's version, and its host's when one answers.
 

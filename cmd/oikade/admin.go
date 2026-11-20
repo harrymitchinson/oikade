@@ -60,10 +60,11 @@ func runSecret(ctx context.Context, args []string) error {
 			return err
 		}
 		req = api.Request{Type: api.TypeSecretSet, Secret: words[1], SecretValue: value}
-	case len(words) == 2 && words[0] == "remove":
-		req = api.Request{Type: api.TypeSecretRemove, Secret: words[1]}
+	case len(words) == 2 && words[0] == verbRemove:
+		return cli.UsageErrorf("oikade secret doesn't remove secrets any more").
+			WithHint("oikade remove %s does", ident.NewRef(ident.Secret, words[1]))
 	default:
-		return cli.UsageErrorf("oikade secret takes set NAME, or remove NAME")
+		return cli.UsageErrorf("oikade secret takes set NAME")
 	}
 	resp, err := api.Call(ctx, t.transport(), req)
 	if err != nil {
@@ -73,12 +74,8 @@ func runSecret(ctx context.Context, args []string) error {
 		return errors.New(resp.Error)
 	}
 	if !*asJSON {
-		did := "Set"
-		if req.Type == api.TypeSecretRemove {
-			did = "Removed"
-		}
-		std.out.Done("%s secret %s. Your process and plugins read it when they next ask, "+
-			"so one that reads it once needs a restart", did, req.Secret)
+		std.out.Done("Set secret %s. Your process and plugins read it when they next ask, "+
+			"so one that reads it once needs a restart", req.Secret)
 		return nil
 	}
 	return cli.PrintJSON(struct{}{})

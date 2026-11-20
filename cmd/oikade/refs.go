@@ -25,19 +25,6 @@ func nameOf(k ident.Kind, arg string) (string, error) {
 	return parts[0], nil
 }
 
-// namesOf is nameOf for each argument.
-func namesOf(k ident.Kind, args []string) ([]string, error) {
-	out := make([]string, 0, len(args))
-	for _, arg := range args {
-		name, err := nameOf(k, arg)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, name)
-	}
-	return out, nil
-}
-
 // named is a thing an argument names: its ref, and the kind and parts the ref has.
 type named struct {
 	ref   string

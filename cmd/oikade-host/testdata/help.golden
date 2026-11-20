@@ -51,11 +51,11 @@ Flags:
                                  TimeoutStopSec. (default 10s)
 
 Commands:
-  client add  Print a code for oikade login, or a token for CI, from the host
-              running here.
-  install     Install this binary as the host under systemd, or upgrade the one
-              there.
-  version     Print this oikade-host's version.
+  add      Add a client of the host's network API: a code for oikade login, or a
+           token for CI.
+  install  Install this binary as the host under systemd, or upgrade the one
+           there.
+  version  Print this oikade-host's version.
 
 oikade-host COMMAND --help says more of one.
 

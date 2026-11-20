@@ -1,68 +1,38 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
-// runClient revokes who may call the host's network API.
-func runClient(ctx context.Context, args []string) error {
-	fs := newFlags("client")
-	t := addTarget(fs)
-	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
-	words := cli.Parse(fs, args)
-	var req api.Request
-	switch {
-	case len(words) == 1 && words[0] == verbList:
-		return cli.UsageErrorf("oikade client doesn't list clients any more").WithHint("oikade list clients does")
-	case len(words) == 2 && words[0] == "revoke":
-		name, err := nameOf(ident.Client, words[1])
-		if err != nil {
-			return err
-		}
-		req = api.Request{Type: api.TypeClientRevoke, Client: name}
-	default:
-		return cli.UsageErrorf("oikade client takes revoke NAME").
-			WithHint("to add a client, run oikade-host client add NAME on the host's machine")
-	}
-	resp, err := api.Call(ctx, t.transport(), req)
-	if err != nil {
-		return err
-	}
-	if resp.Error != "" {
-		return errors.New(resp.Error)
-	}
-	if *asJSON {
-		return cli.PrintJSON(struct{}{})
-	}
-	std.out.Done("Revoked client %s", words[1])
-	return nil
-}
-
 // printClients lists the network API's clients, with when they were created and last used as of
-// now, or says there are none and how to add one.
+// now, and those waiting for their login, or says there are none and how to add one.
 func printClients(stdout, stderr *cli.Printer, clients []api.Client, asJSON bool, now time.Time) error {
 	if asJSON {
 		return json.NewEncoder(stdout).Encode(append([]api.Client{}, clients...))
 	}
 	if len(clients) == 0 {
-		stderr.Println("No clients. oikade-host client add NAME, on the host's machine, adds one.")
+		stderr.Println("No clients. oikade-host add client/NAME, on the host's machine, adds one.")
 		return nil
 	}
 	table := cli.Table{Columns: []cli.Column{{Header: nameHeader}, {Header: "CREATED"}, {Header: "LAST USED"}}}
+	waiting := false
 	for _, c := range clients {
 		used := "never"
-		if !c.LastUsed.IsZero() {
+		switch {
+		case !c.Expires.IsZero():
+			used, waiting = "waiting for its login, until "+c.Expires.Local().Format("15:04"), true
+		case !c.LastUsed.IsZero():
 			used = cli.Ago(c.LastUsed, now)
 		}
 		table.Rows = append(table.Rows, []string{c.Name, cli.Ago(c.Created, now), used})
 	}
 	stdout.Table(table)
+	if waiting {
+		stderr.Hint("A waiting client is added once oikade login uses its code, and oikade remove client/NAME cancels it")
+	}
 	return nil
 }

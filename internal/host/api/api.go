@@ -54,12 +54,14 @@ const (
 	TypeSecretSet    = "secretSet"
 	TypeSecretRemove = "secretRemove"
 
-	TypeDevices      = "devices"
-	TypeDeviceRemove = "deviceRemove"
+	TypeDevices = "devices"
+	// TypeForget drops devices from the record, which come back if their plugin reports them again.
+	TypeForget = "forget"
 
-	TypeClients      = "clients"
-	TypeClientAdd    = "clientAdd"
-	TypeClientRevoke = "clientRevoke"
+	TypeClients   = "clients"
+	TypeClientAdd = "clientAdd"
+	// TypeClientRemove removes a client, or cancels the code of one waiting for its login.
+	TypeClientRemove = "clientRemove"
 	TypeLogin        = "login"
 )
 
@@ -109,11 +111,11 @@ var Routes = []Route{
 	{TypeSecretRemove, http.MethodPost, Prefix + "/secrets/remove", false, false},
 
 	{TypeDevices, http.MethodGet, Prefix + "/devices", false, false},
-	{TypeDeviceRemove, http.MethodPost, Prefix + "/devices/remove", false, false},
+	{TypeForget, http.MethodPost, Prefix + "/devices/forget", false, false},
 
 	{TypeClients, http.MethodGet, Prefix + "/clients", false, false},
 	{TypeClientAdd, http.MethodPost, Prefix + "/clients/add", false, false},
-	{TypeClientRevoke, http.MethodPost, Prefix + "/clients/revoke", false, false},
+	{TypeClientRemove, http.MethodPost, Prefix + "/clients/remove", false, false},
 	{TypeLogin, http.MethodPost, Prefix + "/login", false, true},
 }
 
@@ -137,21 +139,23 @@ type Request struct {
 	Device     string `json:"device,omitempty"`
 	Capability string `json:"capability,omitempty"`
 	Value      any    `json:"value,omitempty"`
-	// Plugin is a remove's in place of Device: every device of that plugin on record.
-	Plugin string `json:"plugin,omitempty"`
+	// Devices are a forget's, by name, and Plugin one in their place: every device of that plugin on
+	// record.
+	Devices []string `json:"devices,omitempty"`
+	Plugin  string   `json:"plugin,omitempty"`
 	// WindowSeconds is how long a Matter window stays open: 180 to 900, and 0 for 900.
 	WindowSeconds int `json:"windowSeconds,omitempty"`
 	// Rule is a pause's or a resume's.
 	Rule string `json:"rule,omitempty"`
-	// AllowSafety pauses a Safety rule, or removes a device a Safety claim holds.
+	// AllowSafety pauses a Safety rule, or forgets a device a Safety claim holds.
 	AllowSafety bool `json:"allowSafety,omitempty"`
 	// Secret names a secret to set or remove.
 	Secret string `json:"secret,omitempty"`
 	// SecretValue is what to set it to. It's in no answer and no log.
 	SecretValue string `json:"secretValue,omitempty"`
-	// Client names a client of the network API to add or revoke.
+	// Client names a client of the network API to add or remove.
 	Client string `json:"client,omitempty"`
-	// Token asks client add for a token rather than a code to log in with.
+	// Token asks a client add for a token rather than a code to log in with.
 	Token bool `json:"token,omitempty"`
 	// Code is what a login trades for a token.
 	Code string `json:"code,omitempty"`
@@ -186,11 +190,13 @@ type Response struct {
 	Status *Status `json:"status,omitempty"`
 	// Registry is a devices request's.
 	Registry *registry.Snapshot `json:"registry,omitempty"`
-	// Warning is something a request that went ahead should tell you, such as a remove or
+	// Warning is something a request that went ahead should tell you, such as a forget or
 	// deploy that left a room a hold reads with no devices.
 	Warning string `json:"warning,omitempty"`
-	// Removed are the devices a remove of a plugin's devices removed.
-	Removed []string `json:"removed,omitempty"`
+	// Forgotten are the devices a forget forgot, even if it then failed.
+	Forgotten []Forgotten `json:"forgotten,omitempty"`
+	// Cancelled is a client remove's of a client waiting for its login: its code was cancelled.
+	Cancelled bool `json:"cancelled,omitempty"`
 	// Outcome is a set's: the capability once the device answered and nothing wrote it back, with its
 	// claims. It's nil if the device hadn't answered in time.
 	Outcome *Capability `json:"outcome,omitempty"`
@@ -243,19 +249,23 @@ type Response struct {
 }
 
 // Unimported is a device on record whose plugin isn't imported, so nothing reports it. It stays on
-// the Matter bridge, offline, until oikade devices remove takes it.
+// the Matter bridge, offline, until oikade forget takes it.
 type Unimported struct {
 	Device string `json:"device"`
 	// Ref is the device's ref.
 	Ref    string `json:"ref"`
 	Plugin string `json:"plugin"`
-	// Safety is a device a Safety claim holds, which removing it would end.
+	// Safety is a device a Safety claim holds, which forgetting it would end.
 	Safety bool `json:"safety,omitempty"`
 }
 
-// PluginOf names the plugin that reports a device on record, if one does.
+// PluginOf names the plugin that reports a device on record, if one does, and is empty if none does.
 func PluginOf(d registry.Device) (string, bool) {
-	return strings.CutPrefix(d.Driver, driver.Plugin+"/")
+	name, ok := strings.CutPrefix(d.Driver, driver.Plugin+"/")
+	if !ok {
+		return "", false
+	}
+	return name, true
 }
 
 // Bridgeable says whether the Matter bridge shows a device on record, unless its plugin is hidden:
@@ -310,6 +320,28 @@ type Client struct {
 	Ref      string    `json:"ref"`
 	Created  time.Time `json:"created"`
 	LastUsed time.Time `json:"lastUsed,omitzero"`
+	// Expires is when the code of a client waiting for its login runs out. Such a client has no token
+	// yet, and Created is when its code was made.
+	Expires time.Time `json:"expires,omitzero"`
+}
+
+// Forgotten is a device a forget dropped from the record.
+type Forgotten struct {
+	Device string `json:"device"`
+	// Ref is its ref, such as device/desk-plug.
+	Ref string `json:"ref"`
+	// Plugin is the plugin that reported it, if one did.
+	Plugin string `json:"plugin,omitempty"`
+	// Ended are the claims it had, each by its source's ref, such as case/desk-plug/on/night.
+	Ended []string `json:"ended,omitempty"`
+	// OffMatter says it was on the Matter bridge, and isn't now.
+	OffMatter bool `json:"offMatter,omitempty"`
+	// ComesBack says it's back on record when its driver next reports it, as a driver that isn't a
+	// plugin, such as the simulator, does. A plugin's device stays forgotten while the plugin lists
+	// it, and comes back only if it leaves the list and returns, as a device re-paired in its app does.
+	ComesBack bool `json:"comesBack,omitempty"`
+	// Unimported says your home doesn't import its plugin, so nothing reports it.
+	Unimported bool `json:"unimported,omitempty"`
 }
 
 // Pin is how a client recognises the host: the SHA-256 of its certificate's public key, from

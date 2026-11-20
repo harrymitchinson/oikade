@@ -1,7 +1,7 @@
 exit 2
 --- stdout
 --- stderr
-Error: oikade-host client only adds one
+Error: oikade-host add takes a client, as client/NAME, not device/porch-light
 Usage:
-  oikade-host client add NAME [--token] [--data-dir DIR] [--json]
-Hint: oikade list clients lists them, and oikade client revoke revokes one, from anywhere
+  oikade-host add client/NAME [--token] [--data-dir DIR] [--json]
+Hint: oikade-host add --help says more

@@ -66,12 +66,17 @@ func TestAPairedDeviceIsUsableAtOnce(t *testing.T) {
 	}
 }
 
-func TestARemovedDeviceComesBackOnItsOwnEndpoint(t *testing.T) {
+// A forgotten device comes back when its driver next reports it, as forget says, on its own endpoint.
+func TestAForgottenDeviceComesBackOnItsOwnEndpoint(t *testing.T) {
 	t.Parallel()
 	r := start(t)
 	r.pair("shed-lamp", "shed-lamp")
 	endpoint := deviceOf(t, r.devices(), "shed-lamp").Endpoint
-	r.stdout(nil, "devices", "remove", "shed-lamp")
+	said := string(r.stdout(nil, "forget", "shed-lamp"))
+	if !strings.HasPrefix(said, "Forgot device/shed-lamp") ||
+		!strings.Contains(said, "It comes back when its driver next reports it") {
+		t.Errorf("forget said:\n%s", said)
+	}
 	if _, err := r.oikade(nil, "set", "shed-lamp", "on", "on"); err == nil {
 		t.Error("set a removed device")
 	}
@@ -123,7 +128,7 @@ func TestTypesAreDeterministicAndARemovedDeviceStopsCompiling(t *testing.T) {
 		t.Fatalf("code naming its devices didn't compile: %v\n%s", err, first)
 	}
 
-	r.stdout(nil, "devices", "remove", "fan")
+	r.stdout(nil, "forget", "fan")
 	r.stdout(nil, "types", "--out", out)
 	if err := goBuild(t, dir, code); err == nil {
 		t.Error("code naming a removed device compiled")
@@ -137,7 +142,7 @@ func TestASafetyDeviceCanBeRemovedOnPurpose(t *testing.T) {
 	r.change("leak-sensor", "open", true)
 	r.waitFor(func(l line) bool { return l.is(wrote, "device", "valve", "value", false) })
 	r.sync()
-	r.stdout(nil, "devices", "remove", "valve", "--allow-safety")
+	r.stdout(nil, "forget", "valve", "--allow-safety")
 	if _, err := r.oikade(nil, "status", "valve"); err == nil {
 		t.Error("the valve stayed")
 	}
@@ -166,7 +171,7 @@ func TestRemovalAfterARestartSeesASavedSafetyClaim(t *testing.T) {
 	r.launchWithout("--home", homeBin, "--simulate", file, settle)
 	r.awaitLoaded()
 	r.sync()
-	stderr, err := r.oikade(nil, "devices", "remove", "valve")
+	stderr, err := r.oikade(nil, "forget", "valve")
 	if !strings.Contains(stderr, "--allow-safety") {
 		t.Errorf("got %q", stderr)
 	}
@@ -247,7 +252,7 @@ func TestRemovingARoomsLastSensorWarnsOfTheHoldsThatReadIt(t *testing.T) {
 	r.wrote("dehumidifier", true)
 
 	// The dry sensor is left in the cellar, so nothing warns, and the remove happens.
-	stderr, err := r.oikade(nil, "devices", "remove", "damp-sensor")
+	stderr, err := r.oikade(nil, "forget", "damp-sensor")
 	if err != nil || strings.Contains(stderr, "Warning") {
 		t.Errorf("got %v: %q, want no warning while the cellar has a sensor", err, stderr)
 	}
@@ -259,18 +264,19 @@ func TestRemovingARoomsLastSensorWarnsOfTheHoldsThatReadIt(t *testing.T) {
 
 	// The last one out warns, in --json as warning (OIK-214).
 	var removed struct {
-		OK      bool     `json:"ok"`
-		Warning string   `json:"warning"`
-		Removed []string `json:"removed"`
+		OK        bool            `json:"ok"`
+		Warning   string          `json:"warning"`
+		Forgotten []api.Forgotten `json:"forgotten"`
 	}
-	if err := json.Unmarshal(r.stdout(nil, "devices", "remove", "dry-sensor", "--json"), &removed); err != nil {
+	if err := json.Unmarshal(r.stdout(nil, "forget", "dry-sensor", "--json"), &removed); err != nil {
 		t.Fatal(err)
 	}
-	if !removed.OK || !strings.Contains(removed.Warning, "cellar-damp") || !strings.Contains(removed.Warning, "cellar") {
+	if !removed.OK || len(removed.Forgotten) != 1 || !strings.Contains(removed.Warning, "cellar-damp") ||
+		!strings.Contains(removed.Warning, "cellar") {
 		t.Errorf("got %+v, want a warning naming cellar-damp and the cellar", removed)
 	}
 	// Out of a room no hold reads, it says nothing.
-	if stderr, err := r.oikade(nil, "devices", "remove", "fan"); err != nil || strings.Contains(stderr, "Warning") {
+	if stderr, err := r.oikade(nil, "forget", "fan"); err != nil || strings.Contains(stderr, "Warning") {
 		t.Errorf("got %v: %q from a room no hold reads", err, stderr)
 	}
 }

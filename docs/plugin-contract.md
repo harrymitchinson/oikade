@@ -20,7 +20,7 @@ The host runs your binary again as `<binary> plugin <name>`, one process per plu
 
 A `Handler` is the same either way: `Serve` reports devices, and `Set` applies a command. It gets the devices on record for it, which are empty the first time, because the host has no `devices.json`. So it reports every device it can see, with `SetDiscovered` and `SetDevices`, and everything it finds is in the [device registry](../README.md) at once. A problem with the plugin itself, such as a login its account refuses, goes in `SetError`, which `oikade status` shows. Configuration, such as a hub's address, is Go in your home.
 
-A device you remove with `oikade devices remove` stays removed while its plugin keeps listing it. If it leaves the list and returns, as a re-paired device does, it's new.
+A device you forget with `oikade forget` stays forgotten while its plugin keeps listing it. If it leaves the list and returns, as a re-paired device does, it's new.
 
 While a plugin is down, its devices are offline and writes to them fail with an error, until its next process has reported them. A claim on one is written again as soon as it does, and a write its last process took with it is written again rather than read as somebody changing the device. Claims on them hold, in the host, and the arbiter puts a device right when it reports again. A home declares a plugin device's arbitration settings in an `oikade.Control` part of the home, as for any device.
 
@@ -92,7 +92,7 @@ A plugin with a [setup](#setup) says so with `"setup":true`, as in `{"state":"on
 - `deviceType` is optional: what a device that's `on` or off is, if the plugin knows. It's one of `OnOffLight`, `DimmableLight`, `OnOffPlugInUnit`, `DimmablePlugInUnit`, `MountedOnOffControl` or `MountedDimmableLoadControl`, Matter's names, which `contract/v1` names as constants. Leave it out when the plugin can't tell, as for a relay. Oikade uses it unless your home declares one with `Is`, and a device's other types follow from its capabilities (OIK-142).
 - `error` is a problem with the device's configuration, such as a missing secret or settings the plugin can't use. `oikade status` shows it. A device can be `found` and still have one, if the plugin can see it and can't use it. Leave it empty otherwise.
 - `needsSetup` is optional: true while the plugin can't serve its devices until someone runs its [setup](#setup), such as one with no credentials yet. Only a plugin whose status has `setup` sends it.
-- `undeclared` counts devices the plugin can see that Oikade doesn't have on record. A device you removed is on record. Oikade reports it as `oikade_undeclared_devices`. A plugin that sends `discovered` can leave it at 0: Oikade then counts them from `discovered` and ignores `undeclared`.
+- `undeclared` counts devices the plugin can see that Oikade doesn't have on record. A device you forgot is on record. Oikade reports it as `oikade_undeclared_devices`. A plugin that sends `discovered` can leave it at 0: Oikade then counts them from `discovered` and ignores `undeclared`.
 
 Republish `devices` whenever any of this changes.
 
@@ -111,7 +111,7 @@ A plugin that can list the devices in its app (a hub, a cloud account) adds them
 ```
 
 - List every device in the app, **declared or not**, online or not. A device leaving the list means it was removed from its app. One that is unplugged stays in the list and is reported `found: false` in `devices` if it's declared.
-- Leave `discovered` out if the plugin can't list its app's devices. An empty list means the app has none. A plugin that only hears devices on the network is one of these, because it can't list one that's unplugged: it reports what it hears in `devices` with `found: true`, which puts them on record, and those on record it hasn't heard with `found: false`. So that a device you removed stays removed, its first report waits until it has listened for long enough to have heard the devices that are there.
+- Leave `discovered` out if the plugin can't list its app's devices. An empty list means the app has none. A plugin that only hears devices on the network is one of these, because it can't list one that's unplugged: it reports what it hears in `devices` with `found: true`, which puts them on record, and those on record it hasn't heard with `found: false`. So that a device you forgot stays forgotten, its first report waits until it has listened for long enough to have heard the devices that are there.
 - `name` and `room` are as the user named them in the app. Leave them out if it has none.
 - `capabilities` are canonical names, and `deviceType` is optional, as in `devices`. For a device in both, `devices` wins. So does each of `manufacturer`, `model`, `serialNumber`, `firmwareVersion` and `hardwareVersion` that `devices` gives.
 - **A discovered device's `id` is stable.** It stays the same across restarts of the plugin, and across restarts and restores of its hub or account, until the device is reset or re-paired. If the platform's own ID doesn't, build one from something that does, such as a MAC address, serial number or IEEE address. A Device that adopts it keeps that ID.
@@ -194,7 +194,7 @@ Oikade never adopts what it can't validate. It drops the message, or the offendi
 | `unknown_capability` | A capability name not in Oikade's registry. |
 | `unknown_device_type` | A `deviceType` that isn't one of the six. The device is kept, and its type follows from its capabilities. |
 | `invalid_value` | A value of the wrong kind or out of range. |
-| `undeclared_device` | `state` or `availability` for an id with no Device. One for a device you removed is dropped without counting, since a plugin that hears devices on the network can't tell it from a new one. |
+| `undeclared_device` | `state` or `availability` for an id with no Device. One for a device you forgot is dropped without counting, since a plugin that hears devices on the network can't tell it from a new one. |
 | `unannounced_capability` | A value for a capability the device didn't announce in `devices`. |
 
 ## Versioning

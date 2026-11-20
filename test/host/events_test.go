@@ -88,7 +88,7 @@ func TestADevicesHistoryIsInTheTailAndTheLog(t *testing.T) {
 	r.online("fan", true)
 	awaitEvent(t, events, availability(api.AvailabilityOnline))
 	r.change("bathroom-sensor", humidityCap, 91)
-	r.stdout(nil, "devices", "remove", "fan")
+	r.stdout(nil, "forget", "fan")
 	awaitEvent(t, events, forgotten)
 
 	log := r.eventLog()

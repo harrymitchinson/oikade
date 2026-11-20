@@ -443,8 +443,8 @@ func TestPorchLightFollowsThePorchSensor(t *testing.T) {
 `
 
 // homeWorkflow tests every change, and deploys what reaches main. It needs three settings: the
-// secret OIKADE_TOKEN, from oikade-host client add ci --token, and the variables OIKADE_ADDRESS, where the
-// host serves its API, and OIKADE_PIN, the pin client add printed, because a key taken from whatever
+// secret OIKADE_TOKEN, from oikade-host add client/ci --token, and the variables OIKADE_ADDRESS, where
+// the host serves its API, and OIKADE_PIN, the pin add printed, because a key taken from whatever
 // answers proves nothing. GitHub's runners reach the host only if it's on the internet, so the README says
 // to run it on a self-hosted runner, or over a VPN.
 const homeWorkflow = `name: Home

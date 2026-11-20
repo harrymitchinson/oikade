@@ -1,0 +1,25 @@
+--- forget: one device, held and on the bridge, of a plugin your home imports
+[32m✓[0m Forgot device/porch-light: ended its claims by case/porch-light/on/dusk and flow/away, and took it off the Matter bridge
+It stays forgotten while ewelink-lan lists it, and comes back if it leaves the list and returns, as a device re-paired in its app does
+--- forget: a device with neither, of a driver that isn't a plugin
+[32m✓[0m Forgot device/shed-lamp
+It comes back when its driver next reports it
+--- forget: a plugin's devices, which your home doesn't import
+[32m✓[0m Forgot device/awning: took it off the Matter bridge
+[32m✓[0m Forgot device/boiler: ended its claims by flow/frost
+Your home doesn't import relays, so they stay gone
+--- forget: a plugin's devices, which your home imports
+[32m✓[0m Forgot device/awning
+[32m✓[0m Forgot device/boiler
+They stay forgotten while relays lists them, and each comes back if it leaves the list and returns, as a device re-paired in its app does
+--- forget: devices of two plugins
+[32m✓[0m Forgot device/porch-light: ended its claims by case/porch-light/on/dusk and flow/away, and took it off the Matter bridge
+[32m✓[0m Forgot device/boiler
+device/porch-light stays forgotten while ewelink-lan lists it, and comes back if it leaves the list and returns, as a device re-paired in its app does
+Your home doesn't import relays, so device/boiler stays gone
+--- remove secret/weather-api-key
+[32m✓[0m Removed secret/weather-api-key. Your process and plugins find it gone when they next ask, so one that read it once has it until it restarts
+--- remove client/old-laptop
+[32m✓[0m Removed client/old-laptop: its token stopped working, and its streams ended. The context on its machine stays, and fails until it logs in again
+--- remove client/phone
+[32m✓[0m Cancelled client/phone's login: its code doesn't work now

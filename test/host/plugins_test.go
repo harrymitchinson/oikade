@@ -170,7 +170,7 @@ func TestADeviceYouRemoveStaysRemovedWhileItsPluginLists(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)
 	r.untilValue("relay", false)
-	r.stdout(nil, "devices", "remove", "relay", "--allow-safety")
+	r.stdout(nil, "forget", "relay", "--allow-safety")
 	// Closed now, so that the valve opening again shows the restarted plugin has published every
 	// relay: it opens it last.
 	r.setting("valve", "off")
@@ -543,7 +543,7 @@ func TestAVersionThatDropsAPluginSaysWhatItLeftBehind(t *testing.T) {
 	// The fixture's module, built as it is, imports no plugins.
 	env := []string{"GOFLAGS=-mod=mod", "GOPROXY=off"}
 	if stderr, err := r.oikade(env, "check", "--module", filepath.Join(buildDir, "module")); err != nil ||
-		!strings.Contains(stderr, "oikade devices remove --plugin relays") {
+		!strings.Contains(stderr, "oikade forget --plugin relays") {
 		t.Fatalf("check: %v: %q", err, stderr)
 	}
 	stderr, err := r.deploy("nofan")
@@ -551,7 +551,7 @@ func TestAVersionThatDropsAPluginSaysWhatItLeftBehind(t *testing.T) {
 		t.Fatalf("%v: %s\nThe log:\n%s", err, stderr, r.dump())
 	}
 	r.awaitDeployed()
-	if !strings.Contains(stderr, "relays: ") || !strings.Contains(stderr, "oikade devices remove --plugin relays") {
+	if !strings.Contains(stderr, "relays: ") || !strings.Contains(stderr, "oikade forget --plugin relays") {
 		t.Fatalf("got %q", stderr)
 	}
 
@@ -574,7 +574,7 @@ func TestAVersionThatDropsAPluginSaysWhatItLeftBehind(t *testing.T) {
 		t.Error("status marks a simulated device")
 	}
 
-	r.stdout(nil, "devices", "remove", "--plugin", "relays", "--allow-safety")
+	r.stdout(nil, "forget", "--plugin", "relays", "--allow-safety")
 	for _, d := range r.devices().Devices {
 		if d.Driver == "plugin/relays" && !d.Removed {
 			t.Errorf("%s stayed", d.Name)

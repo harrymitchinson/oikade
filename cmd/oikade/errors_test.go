@@ -120,7 +120,7 @@ func TestAHostOutOfReachSaysWhy(t *testing.T) {
 			"Error: no host is running on this machine with its data in /srv/oikade\n"},
 		{api.Remote{Address: "pi.home:8443"}, fmt.Errorf("the host's pin is sha256:a, not sha256:b: %w", api.ErrOtherHost),
 			"Error: europa, at pi.home:8443, isn't the host you logged in to: its key has another pin\n" +
-				"Hint: oikade login it again, with the pin oikade-host client add prints on it\n"},
+				"Hint: oikade login it again, with the pin oikade-host add prints on it\n"},
 		{api.Remote{Address: "pi.home:8443"}, &net.DNSError{Err: "no such host", Name: "pi.home", IsNotFound: true},
 			"Error: couldn't reach europa, at pi.home:8443\n" +
 				"Hint: check the host is running there with --api-addr, and that this machine can reach it\n"},

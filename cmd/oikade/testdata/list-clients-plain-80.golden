@@ -1,7 +1,9 @@
 NAME    CREATED           LAST USED
 laptop  2026-11-10 14:30  8 s ago
 ci      today 09:30       never
+phone   2 min ago         waiting for its login, until 14:38
 --- stderr
+Hint: A waiting client is added once oikade login uses its code, and oikade remove client/NAME cancels it
 --- none
 --- stderr
-No clients. oikade-host client add NAME, on the host's machine, adds one.
+No clients. oikade-host add client/NAME, on the host's machine, adds one.

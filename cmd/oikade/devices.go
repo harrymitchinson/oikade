@@ -27,61 +27,8 @@ const (
 	stateHeader = "STATE"
 )
 
-// verbRemove is the one verb --plugin goes with.
+// verbRemove removes what the host owns outright, as forget drops what a plugin reports.
 const verbRemove = "remove"
-
-func runDevices(ctx context.Context, args []string) error {
-	fs := newFlags("devices")
-	target := addTarget(fs)
-	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
-	allow := fs.Bool("allow-safety", false, "Remove a device under a Safety claim.")
-	plugin := fs.String("plugin", "", "Remove every device of this plugin, such as one your home no longer imports.")
-	// Gone with the list, and kept so that one typed from habit says where it went.
-	_ = fs.Bool("all", false, "")
-	_ = fs.Bool("wide", false, "")
-	words := cli.Parse(fs, args)
-	if len(words) == 0 {
-		return cli.UsageErrorf("oikade devices doesn't list devices any more").WithHint("%s", instead["devices"])
-	}
-
-	verb, words := words[0], words[1:]
-	words, err := namesOf(ident.Device, words)
-	if err != nil {
-		return err
-	}
-	if *plugin, err = nameOf(ident.Plugin, *plugin); err != nil {
-		return err
-	}
-	if *plugin != "" && verb != verbRemove {
-		return cli.UsageErrorf("--plugin is only for oikade devices remove")
-	}
-	req := api.Request{AllowSafety: *allow}
-	var message string
-	switch {
-	case verb == verbRemove && len(words) <= 1 && (len(words) == 1) == (*plugin == ""): // A device, or --plugin.
-		req.Type, req.Plugin = api.TypeDeviceRemove, *plugin
-		if *plugin == "" {
-			req.Device = words[0]
-			message = fmt.Sprintf("Removed %s, and ended its claims. "+
-				"If it's still paired, it comes back when it next reports", words[0])
-		}
-	default:
-		return cli.UsageErrorf("oikade devices takes remove DEVICE, or remove --plugin NAME").
-			WithHint("a device's name, room and type are your home's code's: home.Device declares them")
-	}
-	resp, err := api.Call(ctx, target.transport(), req)
-	if err != nil {
-		return err
-	}
-	if resp.NeedsAllowSafety {
-		fmt.Fprintln(os.Stderr, "Pass --allow-safety to go ahead anyway.")
-	}
-	if req.Plugin != "" && resp.Error == "" {
-		message = fmt.Sprintf("Removed %s, every device of %s. If %s is imported again, they come back when they next report",
-			strings.Join(resp.Removed, ", "), req.Plugin, req.Plugin)
-	}
-	return done(resp, *asJSON, message)
-}
 
 func registryOf(ctx context.Context, target target) (registry.Snapshot, error) {
 	resp, err := devicesOf(ctx, target.transport())
@@ -316,7 +263,7 @@ func printTakenOffMatter(out io.Writer, devices []string) {
 }
 
 // printUnimported says which devices are left on record by plugins a version doesn't import, and how
-// to remove them. They stay, so that a plugin briefly missing loses nothing.
+// to forget them. They stay, so that a plugin briefly missing loses nothing.
 func printUnimported(out io.Writer, devices []api.Unimported) {
 	if len(devices) == 0 {
 		return
@@ -334,9 +281,9 @@ func printUnimported(out io.Writer, devices []api.Unimported) {
 		_, _ = fmt.Fprintf(out, "  %s: %s\n", plugin, strings.Join(names, ", "))
 		for _, u := range byPlugin[plugin] {
 			if u.Safety {
-				_, _ = fmt.Fprintf(out, "    A Safety claim holds %s, and removing it ends that claim\n", u.Device)
+				_, _ = fmt.Fprintf(out, "    A Safety claim holds %s, and forgetting it ends that claim\n", u.Device)
 			}
 		}
-		_, _ = fmt.Fprintf(out, "    Remove them with oikade devices remove --plugin %s\n", plugin)
+		_, _ = fmt.Fprintf(out, "    Forget them with oikade forget --plugin %s\n", plugin)
 	}
 }

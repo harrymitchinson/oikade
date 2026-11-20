@@ -306,16 +306,21 @@ func (i *inventory) moveLive(names map[string]string) {
 	i.sync()
 }
 
-// remove refuses a device a Safety claim holds, unless told otherwise. Its claims end with it, so
-// they can't wait for the next device of that name.
-func (i *inventory) remove(ctx context.Context, name string, allowSafety bool) (api.Response, members) {
+// describe says what becomes of a device on record once it's forgotten, beyond its claims.
+type describe func(registry.Device) api.Forgotten
+
+// forget drops devices from the record, refusing them all if a Safety claim holds one, unless told
+// otherwise. Their claims end with them, so they can't wait for the next device of that name. how,
+// which may be nil, says what becomes of each, from its record as it's forgotten.
+func (i *inventory) forget(ctx context.Context, names []string, allowSafety bool, how describe) (api.Response, members) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	return i.removeLocked(ctx, []string{name}, allowSafety)
+	return i.forgetLocked(ctx, names, allowSafety, how)
 }
 
-// removePlugin removes every device of a plugin on record, as remove does one.
-func (i *inventory) removePlugin(ctx context.Context, plugin string, allowSafety bool) (api.Response, members) {
+// forgetPlugin forgets every device of a plugin on record, as forget does.
+func (i *inventory) forgetPlugin(ctx context.Context, plugin string, allowSafety bool,
+	how describe) (api.Response, members) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	var names []string
@@ -327,18 +332,34 @@ func (i *inventory) removePlugin(ctx context.Context, plugin string, allowSafety
 	if len(names) == 0 {
 		return api.Response{Error: fmt.Sprintf("no device of plugin %s is on record", plugin)}, members{}
 	}
-	return i.removeLocked(ctx, names, allowSafety)
+	return i.forgetLocked(ctx, names, allowSafety, how)
 }
 
-// removeLocked removes devices, refusing them all if a Safety claim holds one. A device that was
-// removed has its claims ended, even if a later one couldn't be removed.
-func (i *inventory) removeLocked(ctx context.Context, names []string, allowSafety bool) (api.Response, members) {
+// forgetLocked forgets devices, checking them all before it changes anything. A device that was
+// forgotten has its claims ended, even if a later one couldn't be forgotten.
+func (i *inventory) forgetLocked(ctx context.Context, names []string, allowSafety bool,
+	how describe) (api.Response, members) {
+	names = slices.Compact(slices.Sorted(slices.Values(names))) // A device named twice is forgotten once.
+	forgotten := map[string]bool{}
+	for _, d := range i.registry.List().Devices {
+		forgotten[d.Name] = forgotten[d.Name] || d.Removed
+	}
+	var refused []string
 	for _, name := range names {
-		if d, ok := i.registry.Get(name); ok && d.Declared {
+		d, ok := i.registry.Get(name)
+		switch {
+		case !ok && forgotten[name]:
+			refused = append(refused, fmt.Sprintf("%s is forgotten already", ident.DeviceRef(name)))
+		case !ok:
+			refused = append(refused, noDevice(name).Error())
+		case d.Declared:
 			// The next deploy, or start, would bring it back.
-			return api.Response{Error: fmt.Sprintf("%s is declared in your home's code: delete its declaration and deploy, "+
-				"then remove it under its app's name", name)}, members{}
+			refused = append(refused, fmt.Sprintf("%s is declared in your home's code: delete its declaration and "+
+				"deploy, then forget it under its app's name", ident.DeviceRef(name)))
 		}
+	}
+	if len(refused) > 0 {
+		return api.Response{Error: strings.Join(refused, "; ")}, members{}
 	}
 	if !allowSafety {
 		var held []string
@@ -352,8 +373,15 @@ func (i *inventory) removeLocked(ctx context.Context, names []string, allowSafet
 		}
 	}
 	before := i.store.Members()
-	var removed, problems []string
+	var done []api.Forgotten
+	var problems []string
 	for _, name := range names {
+		var f api.Forgotten
+		if d, ok := i.registry.Get(name); ok && how != nil {
+			f = how(d)
+		}
+		f.Device, f.Ref = name, ident.DeviceRef(name).String()
+		f.Ended, _ = i.claimed(name)
 		if err := i.registry.Remove(name); err != nil {
 			if errors.Is(err, registry.ErrNoDevice) {
 				err = noDevice(name)
@@ -361,17 +389,18 @@ func (i *inventory) removeLocked(ctx context.Context, names []string, allowSafet
 			problems = append(problems, err.Error())
 			break
 		}
-		removed = append(removed, name)
+		done = append(done, f)
 	}
 	i.sync()
-	for _, name := range removed {
-		if err := i.engine.ForgetDevice(ctx, key(name)); err != nil {
-			problems = append(problems, fmt.Sprintf("removed %s, but couldn't end its claims: %v", name, err))
+	for _, f := range done {
+		if err := i.engine.ForgetDevice(ctx, key(f.Device)); err != nil {
+			problems = append(problems, fmt.Sprintf("forgot %s, but couldn't end its claims: %v", f.Ref, err))
 		}
-		i.log.Info("Removed device", "device", name)
-		i.record(api.Event{Type: api.EventForget, Device: name})
+		i.log.Info("Forgot device", "device", f.Device)
+		i.record(api.Event{Type: api.EventForget, Device: f.Device})
 	}
-	return api.Response{Error: strings.Join(problems, "; "), Removed: removed}, members{before: before, after: i.store.Members()}
+	return api.Response{Error: strings.Join(problems, "; "), Forgotten: done},
+		members{before: before, after: i.store.Members()}
 }
 
 // device answers the commands that read and change the registry.
@@ -387,8 +416,8 @@ func (s *apiServer) device(req api.Request) api.Response {
 		}
 		resp.HiddenFromMatter = api.HiddenDevices(list, s.srv.options.hiddenFromMatter())
 		return resp
-	case api.TypeDeviceRemove:
-		return s.remove(req)
+	case api.TypeForget:
+		return s.forget(req)
 	default:
 		err = errors.New("unknown device request")
 	}
@@ -398,20 +427,40 @@ func (s *apiServer) device(req api.Request) api.Response {
 	return api.Response{}
 }
 
-// remove removes a device, or every device of a plugin, and warns when that empties a room a hold
-// reads.
-func (s *apiServer) remove(req api.Request) api.Response {
-	if req.Plugin != "" && req.Device != "" {
-		return api.Response{Error: "a remove takes a device or a plugin, not both"}
+// forget forgets devices, or every device of a plugin, says what became of each, and warns when that
+// empties a room a hold reads.
+func (s *apiServer) forget(req api.Request) api.Response {
+	if (req.Plugin != "") == (len(req.Devices) > 0) {
+		return api.Response{Error: "a forget takes devices or a plugin, one or the other"}
+	}
+	// What the host serves now, which only a deploy changes: what's hidden from Matter, and what's
+	// imported.
+	var hidden []wire.HiddenPlugin
+	if s.srv.options != nil {
+		hidden = s.srv.options.hiddenFromMatter()
+	}
+	var imported, outside []string
+	known := false
+	if p := s.srv.plugins; p != nil {
+		imported, known = p.imports()
+		outside = p.host.Outside
+	}
+	how := func(d registry.Device) api.Forgotten {
+		plugin, ok := api.PluginOf(d)
+		return api.Forgotten{
+			Plugin: plugin, ComesBack: !ok,
+			Unimported: ok && known && !slices.Contains(imported, plugin) && !slices.Contains(outside, plugin),
+			OffMatter:  s.bridge != nil && api.Bridgeable(d) && !api.HiddenFromMatter(hidden, d),
+		}
 	}
 	var resp api.Response
 	var change members
 	if req.Plugin != "" {
-		resp, change = s.devices.removePlugin(s.ctx, req.Plugin, req.AllowSafety)
+		resp, change = s.devices.forgetPlugin(s.ctx, req.Plugin, req.AllowSafety, how)
 	} else {
-		resp, change = s.devices.remove(s.ctx, req.Device, req.AllowSafety)
+		resp, change = s.devices.forget(s.ctx, req.Devices, req.AllowSafety, how)
 	}
-	if len(resp.Removed) > 0 {
+	if len(resp.Forgotten) > 0 {
 		resp.Warning = emptiedWarning(s.srv.emptyReads(change.before, change.after, nil))
 	}
 	return resp
