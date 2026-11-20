@@ -10,6 +10,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host/api"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/qr"
 )
 
@@ -24,11 +25,14 @@ func runMatter(ctx context.Context, args []string) error {
 	words := cli.Parse(fs, args)
 	forSet := false
 	fs.Visit(func(f *flag.Flag) { forSet = forSet || f.Name == "for" })
-	req := api.Request{Type: api.TypeMatter}
+	var req api.Request
 	switch {
 	case len(words) == 0 && forSet:
 		return errors.New("--for is how long oikade matter open keeps the window open, and needs open")
 	case len(words) == 0:
+		// What the bridge is doing is a status like any other's.
+		return status(ctx, target.transport(), []named{{ref: string(ident.Matter), kind: ident.Matter}},
+			statusOptions{json: *asJSON})
 	case len(words) == 1 && words[0] == "open":
 		// Under a second would round to 0, which the host takes as the longest.
 		if *window < time.Second {
@@ -46,24 +50,13 @@ func runMatter(ctx context.Context, args []string) error {
 	if resp.Error != "" {
 		return errors.New(resp.Error)
 	}
-	drawQR := std.out.Terminal
-	if req.Type == api.TypeMatterOpen {
-		if resp.MatterWindow == nil {
-			return errors.New("the host opened no window")
-		}
-		if *asJSON {
-			return cli.PrintJSON(resp.MatterWindow)
-		}
-		printWindow(std.out, resp.MatterWindow, drawQR)
-		return nil
-	}
-	if resp.Matter == nil {
-		return errors.New("the host sent nothing about Matter")
+	if resp.MatterWindow == nil {
+		return errors.New("the host opened no window")
 	}
 	if *asJSON {
-		return cli.PrintJSON(resp.Matter)
+		return cli.PrintJSON(resp.MatterWindow)
 	}
-	printMatter(std.out, resp.Matter, drawQR)
+	printWindow(std.out, resp.MatterWindow, std.out.Terminal)
 	return nil
 }
 

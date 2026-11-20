@@ -4,11 +4,12 @@ Home f113018 · automations connected 8 min ago
 hall-lamp    on false
 office-ac    mode cool, on true, setp…  [2mnot in your code[0m
 porch-light                             no LAN key: oikade secret set 1000ddeeff
-study-blind  position 40%, target-pos…  offline
+study-blind  position 40%, target-pos…  went offline today 12:25
 
 case/office-ac/on/too-warm  case  active since 13:52
 flow/morning  flow
 --- stderr
+Plugin overkiz: login refused: check secret/overkiz
 Devices with a problem: porch-light. oikade devices says what's wrong.
 [2mHint: --wide shows ROOM[0m
 [2moffice-ac isn't in your code: oikade devices shows how to declare it[0m

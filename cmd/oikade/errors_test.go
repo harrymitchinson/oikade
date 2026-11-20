@@ -57,8 +57,8 @@ func TestErrorsReadAsSentences(t *testing.T) {
 			2,
 		},
 		{
-			[]string{"status", "room/hall"},
-			"Error: room/hall isn't a device's ref: give one as device/NAME, or its name alone\n",
+			[]string{"status", "secret/overkiz"},
+			"Error: oikade status doesn't take secret/overkiz\n",
 			2,
 		},
 		{

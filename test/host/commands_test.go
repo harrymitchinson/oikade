@@ -20,6 +20,38 @@ import (
 
 const pauseChanged = "Changed rule pause"
 
+// troubled are the plugins in st that say something's wrong with them, or that need their setup.
+func troubled(st api.Status) []api.Plugin {
+	var out []api.Plugin
+	for _, p := range st.Plugins {
+		if p.Problem != "" || p.NeedsSetup {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// withProblems are the plugins in st that say something's wrong with them.
+func withProblems(st api.Status) []api.Plugin {
+	var out []api.Plugin
+	for _, p := range st.Plugins {
+		if p.Problem != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// pluginIn is the plugin called name in st, or one with only that name if st has none.
+func pluginIn(st api.Status, name string) api.Plugin {
+	for _, p := range st.Plugins {
+		if p.Name == name {
+			return p
+		}
+	}
+	return api.Plugin{Name: name}
+}
+
 func (r *rig) status(args ...string) api.Status {
 	r.t.Helper()
 	var st api.Status
@@ -77,7 +109,7 @@ func TestStatusSaysWhyAndSetGoesThroughArbitration(t *testing.T) {
 	r.sync()
 
 	st := r.status()
-	if !st.Process {
+	if !st.Home.Process {
 		t.Errorf("status says no process: %+v", st)
 	}
 	if c := onOf(t, st, "fan"); c.Value != false || c.Level != "Default" {
@@ -562,7 +594,7 @@ func TestStatusHasWhatsLeftToSetUp(t *testing.T) {
 		r.launchWithout(settle, flag, "--simulate", devicesFile(t))
 		r.waitSocket()
 	})
-	if st := r.status(); st.Version != "" || st.Process || st.Deploying {
+	if st := r.status(); st.Home.Version != "" || st.Home.Process || st.Home.Deploying {
 		t.Errorf("a host with no home: %+v", st)
 	}
 	if m := r.matter(); len(m.Fabrics) != 0 {
@@ -578,7 +610,7 @@ func TestStatusHasWhatsLeftToSetUp(t *testing.T) {
 		locked := func(d api.Device) bool { return d.Name == "locked" && d.Problem != "" }
 		return slices.ContainsFunc(p.status().Devices, locked)
 	})
-	if st := p.status(); st.Version == "" && !st.Process {
+	if st := p.status(); st.Home.Version == "" && !st.Home.Process {
 		t.Errorf("with a home deployed: %+v", st)
 	}
 }
@@ -588,8 +620,8 @@ func TestAHomeFullySetUpHasNothingLeftToSetUp(t *testing.T) {
 	c := commissioned(t)
 	c.r.sync()
 	st := c.r.status()
-	deployed := st.Version != "" || st.Process
-	if !deployed || len(st.PluginProblems) != 0 || len(st.NeedsSetup) != 0 || len(st.UnsetSecrets) != 0 {
+	deployed := st.Home.Version != "" || st.Home.Process
+	if !deployed || len(troubled(st)) != 0 || len(st.Home.UnsetSecrets) != 0 {
 		t.Errorf("status: %+v", st)
 	}
 	for _, d := range st.Devices {

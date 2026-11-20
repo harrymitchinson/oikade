@@ -113,13 +113,18 @@ func TestDevicesMarkThoseHiddenFromMatter(t *testing.T) {
 
 func TestStatusSaysWhatsWrongWithADevice(t *testing.T) {
 	var out bytes.Buffer
-	printStatus(cli.Plain(&out, 0), cli.Plain(io.Discard, 0), &api.Status{Devices: []api.Device{
+	st := &api.Status{Devices: []api.Device{
 		{
 			Name: "porch-light", Problem: "no LAN key: oikade secret set 1000aabbcc",
 			Capabilities: []api.Capability{{Name: "on"}},
 		},
 		{Name: "shed-relay", Problem: "not seen on the LAN"},
-	}}, nil, false, false, time.Now())
+	}}
+	refs, err := statusRefs([]string{"porch-light", "shed-relay"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	printNamed(cli.Plain(&out, 0), cli.Plain(io.Discard, 0), st, refs, noEvents, false, time.Now())
 	for _, want := range []string{
 		"porch-light: no LAN key: oikade secret set 1000aabbcc\n",
 		"shed-relay: not seen on the LAN\n",
@@ -255,7 +260,7 @@ func TestStatusMarksADeviceNotInYourCode(t *testing.T) {
 			Capabilities: []api.Capability{{Name: "on", Value: true}, {Name: "power"}},
 		},
 		{Name: "new-plug", Declare: `home.Device("new-plug").Hardware("zigbee", "0x2")`},
-	}}, nil, true, false, time.Now())
+	}}, false, time.Now())
 	if strings.Count(out.String(), notInYourCode) != 2 ||
 		!strings.Contains(out.String(), "attic-fan        on true  "+notInYourCode) {
 		t.Errorf("want each device marked once:\n%s", out.String())

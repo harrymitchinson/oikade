@@ -95,9 +95,16 @@ var groups = []group{
 	{"Watch and drive", []cli.Command{
 		{
 			Name:    "oikade status",
-			Summary: "Show each device's values, and the rules that set them.",
-			Usage:   []string{"oikade status [DEVICE...] [--wide] [--json]"},
-			Example: []string{"oikade status desk-plug"},
+			Summary: "Show what your home is doing now, and what's wrong.",
+			Usage:   []string{"oikade status [REF...] [--check] [--wide] [--json]"},
+			About: "With no REF, it shows your home's version, what's left to set up, each device's values and the " +
+				"rules. REF shows one thing in full: a device (device/office-ac, or its name alone), with why each value " +
+				"is what it is and its last 10 events, a capability (device/office-ac/on), a room's devices (room/hall), " +
+				"a case or a flow (flow/morning), a plugin and its devices (plugin/overkiz), or matter, the Matter bridge. " +
+				"--check exits 1 if something a command fixes is wrong: no home deployed, the Matter bridge down, a plugin " +
+				"with a problem or that needs setup, a secret not set, a device with a problem or whose plugin isn't " +
+				"imported, or automations down. A device that's only offline counts if you name it or its room.",
+			Example: []string{"oikade status office-ac", "oikade status --check room/hall"},
 		},
 		{
 			Name:    "oikade history",
@@ -169,6 +176,7 @@ var groups = []group{
 			Name:    "oikade matter",
 			Summary: "Show the Matter bridge, or open its window to pair a controller.",
 			Usage:   []string{"oikade matter [--json]", "oikade matter open [--for DURATION] [--json]"},
+			About:   "With no word, it's oikade status matter.",
 			Example: []string{"oikade matter open --for 10m"},
 		},
 	}},

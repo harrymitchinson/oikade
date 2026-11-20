@@ -16,7 +16,7 @@ Ship it
   rollback  Go back to the version the host ran before this one.
 
 Watch and drive
-  status    Show each device's values, and the rules that set them.
+  status    Show what your home is doing now, and what's wrong.
   history   Show what your home did: each change, write and run, and why.
   tail      Follow your home's events as they happen.
   set       Set a capability, as a person would, through arbitration.

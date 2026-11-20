@@ -69,7 +69,7 @@ func TestNoDevicesSaysWhatReportsThem(t *testing.T) {
 
 func TestStatusWithNothingDeployedNamesDeploy(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	printStatus(cli.Plain(&stdout, 0), cli.Plain(&stderr, 0), &api.Status{}, nil, true, false, time.Now())
+	printStatus(cli.Plain(&stdout, 0), cli.Plain(&stderr, 0), &api.Status{}, false, time.Now())
 	if !strings.Contains(stderr.String(), "No home deployed. Run oikade deploy from your home's module.") {
 		t.Errorf("stderr %q", stderr.String())
 	}
@@ -78,7 +78,8 @@ func TestStatusWithNothingDeployedNamesDeploy(t *testing.T) {
 	}
 	stdout.Reset()
 	stderr.Reset()
-	printStatus(cli.Plain(&stdout, 0), cli.Plain(&stderr, 0), &api.Status{Deploying: true}, nil, true, false, time.Now())
+	deploying := &api.Status{Home: api.Home{Deploying: true}}
+	printStatus(cli.Plain(&stdout, 0), cli.Plain(&stderr, 0), deploying, false, time.Now())
 	if !strings.Contains(stdout.String(), "while a deploy is under way") || stderr.Len() != 0 {
 		t.Errorf("during a deploy: stdout %q, stderr %q", stdout.String(), stderr.String())
 	}
@@ -88,8 +89,8 @@ func TestStatusSaysWhenAutomationsWentDown(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	now := time.Date(2026, 11, 18, 14, 0, 0, 0, time.Local)
 	at := now.Add(-3 * time.Minute)
-	st := &api.Status{Version: "v3", Since: &at}
-	printStatus(cli.Plain(&stdout, 0), cli.Plain(&stderr, 0), st, nil, true, false, now)
+	st := &api.Status{Home: api.Home{Version: "v3", Since: &at}}
+	printStatus(cli.Plain(&stdout, 0), cli.Plain(&stderr, 0), st, false, now)
 	if want := "Home v3 · automations went down 3 min ago\n"; !strings.HasPrefix(stdout.String(), want) {
 		t.Errorf("stdout %q, want %q", stdout.String(), want)
 	}
@@ -104,8 +105,8 @@ func TestStatusStartsWithWhatsLeftToSetUp(t *testing.T) {
 		{Name: "attic-fan", Problem: "no key", Capabilities: []api.Capability{{Name: "on"}}},
 		{Name: "desk-lamp", Capabilities: []api.Capability{{Name: "on"}}},
 		{Name: "shed-relay", PluginNotImported: true, Capabilities: []api.Capability{{Name: "on"}}},
-	}}
-	printStatus(cli.Plain(&stdout, 0), cli.Plain(&stderr, 0), st, &api.Matter{Serving: true}, true, false, time.Now())
+	}, Matter: &api.Matter{Serving: true}}
+	printStatus(cli.Plain(&stdout, 0), cli.Plain(&stderr, 0), st, false, time.Now())
 	want := []string{
 		"No home deployed. Run oikade deploy from your home's module.",
 		"The Matter bridge has no controller. oikade matter says how to pair one.",
@@ -120,33 +121,37 @@ func TestStatusStartsWithWhatsLeftToSetUp(t *testing.T) {
 		t.Errorf("stdout %q", stdout.String())
 	}
 
-	// Asked about devices, it says only what it was asked.
+	// Asked about a device, it says only what it was asked.
 	stderr.Reset()
-	printStatus(cli.Plain(io.Discard, 0), cli.Plain(&stderr, 0), st, &api.Matter{}, false, false, time.Now())
+	refs, err := statusRefs([]string{"desk-lamp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	printNamed(cli.Plain(io.Discard, 0), cli.Plain(&stderr, 0), st, refs, noEvents, false, time.Now())
 	if stderr.Len() != 0 {
-		t.Errorf("for some devices: %q", stderr.String())
+		t.Errorf("for a device: %q", stderr.String())
 	}
 }
 
 func TestAHomeFullySetUpHasNothingLeftToSetUp(t *testing.T) {
-	st := &api.Status{Version: "v3", Process: true, Devices: []api.Device{
+	st := &api.Status{Home: api.Home{Version: "v3", Process: true}, Devices: []api.Device{
 		{Name: "desk-lamp", Capabilities: []api.Capability{{Name: "on"}}},
-	}}
-	paired := &api.Matter{Serving: true, Fabrics: []api.Fabric{{Index: 1}}}
-	if gaps := setupGaps(st, paired); len(gaps) != 0 {
+	}, Plugins: []api.Plugin{{Name: "kasa", Devices: []string{"desk-lamp"}}}}
+	st.Matter = &api.Matter{Serving: true, Fabrics: []api.Fabric{{Index: 1}}}
+	if gaps := setupGaps(st); len(gaps) != 0 {
 		t.Errorf("got %q", gaps)
 	}
 	// With Matter turned off there's no bridge to pair, and during a deploy, no home to ask for.
-	if gaps := setupGaps(&api.Status{Deploying: true}, nil); len(gaps) != 0 {
+	if gaps := setupGaps(&api.Status{Home: api.Home{Deploying: true}}); len(gaps) != 0 {
 		t.Errorf("Matter off, during a deploy: %q", gaps)
 	}
 }
 
 // A secret that isn't set comes before the plugins' problems, which it often explains.
 func TestASecretNotSetSaysHowToSetIt(t *testing.T) {
-	st := &api.Status{Version: "v3", Process: true, UnsetSecrets: []string{"cozytouch"},
-		PluginProblems: map[string]string{"cozytouch": "waiting for the secret cozytouch"}}
-	got := setupGaps(st, nil)
+	st := &api.Status{Home: api.Home{Version: "v3", Process: true, UnsetSecrets: []string{"cozytouch"}},
+		Plugins: []api.Plugin{{Name: "cozytouch", Problem: "waiting for the secret cozytouch"}}}
+	got := setupGaps(st)
 	want := []string{
 		"Secret cozytouch isn't set: oikade secret set cozytouch", "Plugin cozytouch: waiting for the secret cozytouch",
 	}
@@ -157,13 +162,15 @@ func TestASecretNotSetSaysHowToSetIt(t *testing.T) {
 
 // A bridge that's down can't say whether it's paired, so it says it's down instead.
 func TestABridgeThatsDownSaysSoRatherThanUnpaired(t *testing.T) {
-	st := &api.Status{Version: "v3", Process: true}
-	got := setupGaps(st, &api.Matter{Problem: "port 5540 is taken", Fabrics: []api.Fabric{}})
+	st := &api.Status{Home: api.Home{Version: "v3", Process: true},
+		Matter: &api.Matter{Problem: "port 5540 is taken", Fabrics: []api.Fabric{}}}
+	got := setupGaps(st)
 	want := []string{"The Matter bridge is down: port 5540 is taken. oikade matter says more."}
 	if !slices.Equal(got, want) {
 		t.Errorf("got %q", got)
 	}
-	got = setupGaps(st, &api.Matter{})
+	st.Matter = &api.Matter{}
+	got = setupGaps(st)
 	if !slices.Equal(got, []string{"The Matter bridge is down. oikade matter says more."}) {
 		t.Errorf("with no problem: %q", got)
 	}
@@ -178,10 +185,11 @@ func TestManyDevicesAreCut(t *testing.T) {
 
 // A plugin that says what's wrong with it, such as a refused login, says so before its devices do.
 func TestAPluginsProblemIsLeftToSetUp(t *testing.T) {
-	st := &api.Status{Version: "v3", Process: true, PluginProblems: map[string]string{
-		"thermostats": `login refused, check the secret "thermostats"`, "blinds": "hub unreachable",
+	st := &api.Status{Home: api.Home{Version: "v3", Process: true}, Plugins: []api.Plugin{
+		{Name: "blinds", Problem: "hub unreachable"},
+		{Name: "thermostats", Problem: `login refused, check the secret "thermostats"`},
 	}, Devices: []api.Device{{Name: "study-heater", Problem: "not found"}}}
-	got := setupGaps(st, nil)
+	got := setupGaps(st)
 	want := []string{
 		"Plugin blinds: hub unreachable",
 		`Plugin thermostats: login refused, check the secret "thermostats"`,
@@ -193,8 +201,9 @@ func TestAPluginsProblemIsLeftToSetUp(t *testing.T) {
 }
 
 func TestAPluginThatNeedsItsSetupSaysHowToRunIt(t *testing.T) {
-	st := &api.Status{Version: "v3", Process: true, NeedsSetup: []string{"ewelink-lan"}}
-	got := setupGaps(st, nil)
+	st := &api.Status{Home: api.Home{Version: "v3", Process: true},
+		Plugins: []api.Plugin{{Name: "ewelink-lan", NeedsSetup: true}}}
+	got := setupGaps(st)
 	want := []string{"Plugin ewelink-lan needs setup: run oikade setup ewelink-lan"}
 	if !slices.Equal(got, want) {
 		t.Errorf("got %q", got)
@@ -207,13 +216,13 @@ func TestStatusSaysWhatsMissingAndOnlyThat(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	now := time.Now()
 	out, errs := cli.Plain(&stdout, 0), cli.Plain(&stderr, 0)
-	printStatus(out, errs, &api.Status{Version: "v3", Process: true}, nil, true, false, now)
+	printStatus(out, errs, &api.Status{Home: api.Home{Version: "v3", Process: true}}, false, now)
 	if !strings.Contains(stderr.String(), "No devices.") {
 		t.Errorf("no devices: stderr %q", stderr.String())
 	}
 	stdout.Reset()
 	stderr.Reset()
-	printStatus(out, errs, &api.Status{Version: "v3", Deploying: true}, nil, true, false, now)
+	printStatus(out, errs, &api.Status{Home: api.Home{Version: "v3", Deploying: true}}, false, now)
 	if !strings.HasPrefix(stdout.String(), "Home v3 · automations down · a deploy is under way\n") || stderr.Len() != 0 {
 		t.Errorf("during a deploy: stdout %q, stderr %q", stdout.String(), stderr.String())
 	}

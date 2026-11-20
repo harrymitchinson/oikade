@@ -49,8 +49,12 @@ type Snapshot struct {
 	Values     map[string]any
 	Changes    map[string]uint64
 	// Online is nil until the driver reports availability.
-	Online   *bool
-	LastSeen time.Time
+	Online *bool
+	// OfflineSince is when it went offline, while it's offline, if the host heard it go: it was online,
+	// or had reported something. One offline when the host first heard of it has none, as the host
+	// can't say since when.
+	OfflineSince time.Time
+	LastSeen     time.Time
 }
 
 type entry struct {
@@ -353,7 +357,15 @@ func (s *Store) Changed(changes ...driver.Update) {
 // log says when it went (OIK-340); one first reported online isn't, since that's every device at start.
 func (s *Store) Availability(dev ident.ID, online bool) {
 	var was *bool
-	if !s.update(dev, func(e *entry) { was, e.Online = e.Online, &online }) {
+	if !s.update(dev, func(e *entry) {
+		was, e.Online = e.Online, &online
+		switch {
+		case online:
+			e.OfflineSince = time.Time{}
+		case was != nil && *was, was == nil && (len(e.Values) > 0 || !e.LastSeen.IsZero()):
+			e.OfflineSince = time.Now()
+		}
+	}) {
 		return
 	}
 	switch {

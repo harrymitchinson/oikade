@@ -227,7 +227,7 @@ func unrecorded(ctx context.Context, t api.Transport, refs []named) []string {
 		return slices.ContainsFunc(d.Capabilities, func(c api.Capability) bool { return c.Name == name })
 	}
 	// With no process and no rules, the host can't say what the rules are.
-	rulesKnown := st.Process || len(st.Rules) > 0
+	rulesKnown := st.Home.Process || len(st.Rules) > 0
 	var out []string
 	for _, n := range refs {
 		switch n.kind {

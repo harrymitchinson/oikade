@@ -44,25 +44,25 @@ func (s *apiServer) unknownRules() string {
 }
 
 func (s *apiServer) status() api.Response {
-	st := &api.Status{Devices: []api.Device{}, Rules: []api.Rule{}}
+	st := &api.Status{Devices: []api.Device{}, Rules: []api.Rule{}, Plugins: []api.Plugin{}}
 	v, ok, busy := s.deploys.state()
 	if ok {
-		st.Version = v.ID
-		st.UnsetSecrets = s.secrets.unset(v.Manifest.Secrets)
+		st.Home.Version = v.ID
+		st.Home.UnsetSecrets = s.secrets.unset(v.Manifest.Secrets)
 	}
-	st.Deploying = busy
+	st.Home.Deploying = busy
 	s.srv.mu.Lock()
-	st.Process = s.srv.session != nil
+	st.Home.Process = s.srv.session != nil
 	if !s.srv.since.IsZero() {
 		since := s.srv.since
-		st.Since = &since
+		st.Home.Since = &since
 	}
 	s.srv.mu.Unlock()
 	var unimported []api.Unimported
+	plugins := map[string]*api.Plugin{}
 	if s.srv.plugins != nil {
 		unimported = s.srv.plugins.unimportedNow(false)
-		st.PluginProblems = s.srv.plugins.problems()
-		st.NeedsSetup = s.srv.plugins.needingSetup()
+		plugins = s.srv.plugins.listing()
 	}
 	notImported := map[string]bool{}
 	for _, u := range unimported {
@@ -73,9 +73,20 @@ func (s *apiServer) status() api.Response {
 			Name: dev.Name, Ref: ident.DeviceRef(dev.Name).String(), Room: snap.Room, Online: snap.Online, Capabilities: []api.Capability{},
 			DeviceTypes: slices.Clone(snap.DeviceTypes), PluginNotImported: notImported[dev.Name], Problem: snap.Info.Error,
 		}
+		if !snap.OfflineSince.IsZero() && snap.Online != nil && !*snap.Online {
+			since := snap.OfflineSince
+			d.OfflineSince = &since
+		}
 		if s.devices != nil {
 			if r, ok := s.devices.registry.Get(dev.Name); ok {
 				d.Declare, _ = registry.Undeclared(r)
+				if name, ok := api.PluginOf(r); ok {
+					d.Plugin = name
+					if plugins[name] == nil {
+						plugins[name] = &api.Plugin{Name: name}
+					}
+					plugins[name].Devices = append(plugins[name].Devices, dev.Name)
+				}
 			}
 		}
 		held := s.srv.engine.ControlOf(dev)
@@ -100,6 +111,22 @@ func (s *apiServer) status() api.Response {
 		st.Devices = append(st.Devices, d)
 	}
 	slices.SortFunc(st.Devices, func(a, b api.Device) int { return strings.Compare(a.Name, b.Name) })
+	for _, name := range slices.Sorted(maps.Keys(plugins)) {
+		pl := plugins[name]
+		pl.Ref = ident.NewRef(ident.Plugin, name).String()
+		if pl.Devices == nil {
+			pl.Devices = []string{}
+		}
+		slices.Sort(pl.Devices)
+		st.Plugins = append(st.Plugins, *pl)
+	}
+	switch resp := s.matter(); {
+	case resp.Matter != nil:
+		st.Matter = resp.Matter
+	case s.bridge != nil:
+		// A bridge that can't say its codes is down for status, rather than turned off.
+		st.Matter = &api.Matter{Problem: resp.Error, Fabrics: []api.Fabric{}}
+	}
 
 	paused, err := s.srv.paused.Names()
 	if err != nil {

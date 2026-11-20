@@ -129,9 +129,10 @@ func TestClientsAndSecretsInTheLook(t *testing.T) {
 func aStatus(now time.Time) *api.Status {
 	since := now.Add(-8 * time.Minute)
 	until := now.Add(4 * time.Minute)
+	gone := now.Add(-95 * time.Minute)
 	on, off := true, false
 	return &api.Status{
-		Version: "f113018fb81c06e4d5fa3500102bfbc4", Process: true, Since: &since,
+		Home: api.Home{Version: "f113018fb81c06e4d5fa3500102bfbc4", Process: true, Since: &since},
 		Devices: []api.Device{
 			{Name: "hall-lamp", Room: "hall", Online: &on, Capabilities: []api.Capability{{Name: "on", Value: false}}},
 			{
@@ -150,30 +151,63 @@ func aStatus(now time.Time) *api.Status {
 				},
 			},
 			{
-				Name: "porch-light", Problem: "no LAN key: oikade secret set 1000ddeeff",
+				Name: "porch-light", Problem: "no LAN key: oikade secret set 1000ddeeff", Plugin: "ewelink-lan",
 				Capabilities: []api.Capability{{Name: "on"}},
 			},
 			{
-				Name: "study-blind", Room: "study", Online: &off,
+				Name: "study-blind", Room: "study", Online: &off, OfflineSince: &gone, Plugin: "overkiz",
 				Capabilities: []api.Capability{
 					{Name: "position", Value: 40.0}, {Name: "target-position", Value: 40.0}, {Name: "moving", Value: false},
 				},
 			},
 		},
 		Rules: []api.Rule{
-			{Name: "office-ac on too-warm", Ref: "case/office-ac/on/too-warm", Kind: "case", Active: &on, Since: since},
+			{
+				Name: "office-ac on too-warm", Ref: "case/office-ac/on/too-warm", Kind: "case", Device: "office-ac",
+				Capability: "on", Case: "too-warm", Active: &on, Since: since,
+			},
 			{Name: "morning", Ref: "flow/morning", Kind: "flow"},
+		},
+		Plugins: []api.Plugin{
+			{Name: "ewelink-lan", Ref: "plugin/ewelink-lan", Devices: []string{"porch-light"}},
+			{
+				Name: "overkiz", Ref: "plugin/overkiz", Problem: "login refused: check secret/overkiz",
+				Devices: []string{"study-blind"},
+			},
+		},
+		Matter: &api.Matter{Serving: true, Port: 5540, Fabrics: []api.Fabric{{Index: 1, Label: "Home"}}},
+	}
+}
+
+// officeACEvents are office-ac's last events, as the host's log has them.
+func officeACEvents(now time.Time) []api.Event {
+	at := func(ago time.Duration) time.Time { return now.Add(-ago) }
+	return []api.Event{
+		{Type: api.EventAvailability, Ref: "device/office-ac", Time: at(26 * time.Hour), Message: api.AvailabilityOnline},
+		{
+			Type: api.EventWrite, Ref: "device/office-ac/on", Time: at(8 * time.Minute), Capability: "on", Value: true,
+			By: "case/office-ac/on/too-warm",
+		},
+		{
+			Type: api.EventChange, Ref: "device/office-ac/on", Time: at(8*time.Minute - time.Second), Capability: "on",
+			Value: true, Previous: false,
+		},
+		{
+			Type: api.EventChange, Ref: "device/office-ac/temperature", Time: at(time.Minute), Capability: "temperature",
+			Value: 24.25,
 		},
 	}
 }
 
+// noEvents reads no events of anything.
+func noEvents(string) ([]api.Event, error) { return nil, nil }
+
 func TestStatusFitsTheTerminal(t *testing.T) {
 	now := time.Date(2026, 11, 18, 14, 0, 0, 0, time.Local)
-	paired := &api.Matter{Serving: true, Fabrics: []api.Fabric{{Index: 1}}}
 	for _, width := range []int{80, 120} {
 		for name, printer := range printers {
 			var out, stderr bytes.Buffer
-			printStatus(printer(&out, width), printer(&stderr, width), aStatus(now), paired, true, false, now)
+			printStatus(printer(&out, width), printer(&stderr, width), aStatus(now), false, now)
 			out.WriteString("--- stderr\n")
 			out.Write(stderr.Bytes())
 			testkit.Golden(t, fmt.Sprintf("status-%s-%d", name, width), out.Bytes())
@@ -184,15 +218,35 @@ func TestStatusFitsTheTerminal(t *testing.T) {
 			}
 		}
 	}
-	// One device is shown in full, a capability a line with why it has its value.
-	for name, printer := range printers {
-		st := aStatus(now)
-		st.Devices = st.Devices[1:2]
-		var out, stderr bytes.Buffer
-		printStatus(printer(&out, 80), printer(&stderr, 80), st, nil, false, false, now)
-		out.WriteString("--- stderr\n")
-		out.Write(stderr.Bytes())
-		testkit.Golden(t, "status-device-"+name, out.Bytes())
+}
+
+// Each kind of ref status takes has its own view, in the order they're given: a device in full, with
+// its last events, a capability the same, a room's devices, a case and the capability it decides, a
+// flow, a plugin and its devices, and the Matter bridge. A device's view is in full, so its WHY and
+// the bridge's sentences may run past the terminal's width, but the tables fit it.
+func TestStatusOfEachKindFitsTheTerminal(t *testing.T) {
+	now := time.Date(2026, 11, 18, 14, 0, 0, 0, time.Local)
+	refs, err := statusRefs([]string{
+		"office-ac", "device/study-blind/position", "room/hall", "case/office-ac/on/too-warm", "flow/morning",
+		"plugin/overkiz", "matter",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := func(ref string) ([]api.Event, error) {
+		if ref == "device/office-ac" {
+			return officeACEvents(now), nil
+		}
+		return nil, nil
+	}
+	for _, width := range []int{80, 120} {
+		for name, printer := range printers {
+			var out, stderr bytes.Buffer
+			printNamed(printer(&out, width), printer(&stderr, width), aStatus(now), refs, events, false, now)
+			out.WriteString("--- stderr\n")
+			out.Write(stderr.Bytes())
+			testkit.Golden(t, fmt.Sprintf("status-refs-%s-%d", name, width), out.Bytes())
+		}
 	}
 }
 

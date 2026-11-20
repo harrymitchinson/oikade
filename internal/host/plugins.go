@@ -345,20 +345,24 @@ func (p *plugins) unimportedNow(safety bool) []api.Unimported {
 	return p.unimported(imported)
 }
 
-// problems are what each running plugin says is wrong with it as a whole, by name, or nil if none
-// says anything.
-func (p *plugins) problems() map[string]string {
+// listing is the plugins the binary in use imports and those running, each with what it says is
+// wrong with it and whether it needs its setup, by name. Their devices are the caller's to add.
+func (p *plugins) listing() map[string]*api.Plugin {
 	p.mu.Lock()
 	running := slices.Collect(maps.Values(p.running))
+	var imported []string
+	if p.importsKnown {
+		imported = slices.Clone(p.imported)
+	}
 	p.mu.Unlock()
-	var out map[string]string
+	out := map[string]*api.Plugin{}
+	for _, name := range imported {
+		out[name] = &api.Plugin{Name: name}
+	}
 	for _, h := range running {
-		if e := h.driver.Problem(); e != "" {
-			if out == nil {
-				out = map[string]string{}
-			}
-			out[h.name] = e
-		}
+		pl := &api.Plugin{Name: h.name, Problem: h.driver.Problem()}
+		_, pl.NeedsSetup = h.driver.Setup()
+		out[h.name] = pl
 	}
 	return out
 }

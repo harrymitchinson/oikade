@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"slices"
 	"sync"
 	"time"
 
@@ -86,24 +85,6 @@ func (p *plugins) setupOf(name string) (*pluginDriver.Instance, bool) {
 		return nil, false
 	}
 	return h.driver, true
-}
-
-// needingSetup names the plugins that say they need their setup run.
-func (p *plugins) needingSetup() []string {
-	p.mu.Lock()
-	running := make([]*hosted, 0, len(p.running))
-	for _, h := range p.running {
-		running = append(running, h)
-	}
-	p.mu.Unlock()
-	var out []string
-	for _, h := range running {
-		if _, needs := h.driver.Setup(); needs {
-			out = append(out, h.name)
-		}
-	}
-	slices.Sort(out)
-	return out
 }
 
 // setup runs a plugin's setup for the caller, streaming its steps, and keeps the secrets it asks the
