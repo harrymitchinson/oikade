@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -85,6 +86,7 @@ func runCheck(ctx context.Context, args []string) error {
 	fs := newFlags("check")
 	target := addTarget(fs)
 	module := fs.String("module", ".", "Your home's module.")
+	envFile := fs.String("env-file", "", "Your values, from this file rather than the .env beside your go.mod.")
 	if extra := cli.ParseFlags(fs, args); len(extra) > 0 {
 		return cli.UsageErrorf("oikade check takes no %q", extra[0])
 	}
@@ -96,13 +98,19 @@ func runCheck(ctx context.Context, args []string) error {
 	if err := checkSource(*module); err != nil {
 		return err
 	}
-	m, err := manifestOf(ctx, path)
+	// With your values, as a deploy's check has them. A pull request has none, so one missing is only
+	// a warning.
+	m, vals, missing, err := homeValues(ctx, *module, path, *envFile, os.LookupEnv)
 	if err != nil {
+		return here(err)
+	}
+	if err := sameProtocol(m); err != nil {
 		return err
 	}
 	for _, w := range m.Warnings {
 		fmt.Fprintln(os.Stderr, "Warning:", w)
 	}
+	vals.warnMissing(std.err, missing, "a deploy from here would stop")
 	devices, reached := hostDevices(ctx, target.transport())
 	if reached {
 		if err := checkShown(*devices.Registry, m.HiddenFromMatter); err != nil {
@@ -142,10 +150,14 @@ func cantRunHere(err error) bool {
 	return ok
 }
 
-// readManifest asks a built home what it is, whichever protocol it speaks.
-func readManifest(ctx context.Context, path string) (wire.Manifest, error) {
+// readManifest asks a built home what it is, whichever protocol it speaks, with env added to its
+// environment.
+func readManifest(ctx context.Context, path string, env []string) (wire.Manifest, error) {
 	cmd := exec.CommandContext(ctx, path, wire.RoleCheck)
 	cmd.Stderr = os.Stderr
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	out, err := cmd.Output()
 	if err != nil {
 		if !ranAndFailed(err) {
@@ -165,19 +177,29 @@ func readManifest(ctx context.Context, path string) (wire.Manifest, error) {
 
 // manifestOf asks a built home what it is, and refuses one that speaks another protocol.
 func manifestOf(ctx context.Context, path string) (wire.Manifest, error) {
-	m, err := readManifest(ctx, path)
-	if e, ok := errors.AsType[notHere](err); ok {
-		return wire.Manifest{}, e.error
-	}
+	m, err := readManifest(ctx, path, nil)
 	if err != nil {
-		return wire.Manifest{}, err
+		return wire.Manifest{}, here(err)
 	}
+	return m, sameProtocol(m)
+}
+
+// here is err as said here, where a notHere is only what went wrong.
+func here(err error) error {
+	if e, ok := errors.AsType[notHere](err); ok {
+		return e.error
+	}
+	return err
+}
+
+// sameProtocol refuses a home built for another protocol than this oikade's.
+func sameProtocol(m wire.Manifest) error {
 	if m.Protocol != wire.Version {
-		return wire.Manifest{}, cli.Errorf("your home was built for protocol %d, and this oikade speaks %d",
+		return cli.Errorf("your home was built for protocol %d, and this oikade speaks %d",
 			m.Protocol, wire.Version).
 			WithHint("build your home against the same version of Oikade as this oikade, %s", cli.Version(version))
 	}
-	return m, nil
+	return nil
 }
 
 // printUnseen warns of the hardware your home declares that the host has never seen, whose name
@@ -275,6 +297,7 @@ func runDev(ctx context.Context, args []string) error {
 	fs := newFlags("dev")
 	module := fs.String("module", ".", "Your home's module.")
 	types := fs.String("types", "devices.go", "The file oikade types wrote, in your module.")
+	envFile := fs.String("env-file", "", "Your values, from this file rather than the .env beside your go.mod.")
 	if extra := cli.ParseFlags(fs, args); len(extra) > 0 {
 		return cli.UsageErrorf("oikade dev takes no %q", extra[0])
 	}
@@ -287,8 +310,21 @@ func runDev(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	// Your code gets your values, as it does on the host, so what it builds from them, such as a
+	// plugin's config, is as it will be there.
+	_, vals, missing, err := homeValues(ctx, *module, path, *envFile, os.LookupEnv)
+	if err != nil {
+		return here(err)
+	}
+	vals.warnMissing(std.err, missing, `oikade.Var gives "" for `+them(missing)+" here")
+	env, remove, err := valuesFile(vals.set)
+	if err != nil {
+		return err
+	}
+	defer remove()
 	cmd := exec.CommandContext(ctx, path, wire.RoleDev, file)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	cmd.Env = append(os.Environ(), env...)
 	return cmd.Run()
 }
 
@@ -342,6 +378,14 @@ func runInit(ctx context.Context, args []string) error {
 		_ = os.Remove(filepath.Join(dir, ".github"))
 		return err
 	}
+	// Your values stay out of Git, in a .gitignore that's there already or a new one.
+	ignored, err := ignoreValues(dir)
+	if err != nil {
+		return err
+	}
+	if ignored {
+		written = append(written, ".gitignore")
+	}
 	slices.Sort(written)
 	if dir == "." {
 		fmt.Printf("Started a home here: %s\n", strings.Join(written, ", "))
@@ -351,6 +395,26 @@ func runInit(ctx context.Context, args []string) error {
 		fmt.Printf("Next: cd %s, then oikade test and oikade dev\n", dir)
 	}
 	return nil
+}
+
+// ignoreValues makes the .gitignore in dir list .env, where your values go, writing one if there's
+// none, and says whether it changed it.
+func ignoreValues(dir string) (bool, error) {
+	path := filepath.Join(dir, ".gitignore")
+	raw, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return false, err
+	}
+	for line := range strings.SplitSeq(string(raw), "\n") {
+		if line = strings.TrimSpace(line); line == dotEnv || line == "/"+dotEnv {
+			return false, nil
+		}
+	}
+	if len(raw) > 0 && !bytes.HasSuffix(raw, []byte("\n")) {
+		raw = append(raw, '\n')
+	}
+	raw = append(raw, "# Your values, which oikade deploy sends the host: never in Git.\n/"+dotEnv+"\n"...)
+	return true, os.WriteFile(path, raw, 0o644)
 }
 
 // moduleFromRelease writes a go.mod on the Oikade this binary is, or main if it's no release. Go's own
@@ -496,7 +560,13 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go install github.com/harrymitchinson/oikade/cmd/oikade@OIKADE_VERSION
-      - run: oikade check
+      # Your values, from the secret OIKADE_ENV, which a pull request from a fork doesn't get: then
+      # oikade check only warns. RUNNER_TEMP is emptied after the job.
+      - name: Write your values
+        env:
+          OIKADE_ENV: ${{ secrets.OIKADE_ENV }}
+        run: (umask 077 && printf '%s\n' "$OIKADE_ENV" > "$RUNNER_TEMP/.env")
+      - run: oikade check --env-file "$RUNNER_TEMP/.env"
       - run: oikade test
       - name: Deploy is off
         if: github.event_name == 'push' && vars.OIKADE_ADDRESS == ''
@@ -521,6 +591,11 @@ jobs:
           echo "XDG_CONFIG_HOME=$RUNNER_TEMP/config" >> "$GITHUB_ENV"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - run: go install github.com/harrymitchinson/oikade/cmd/oikade@OIKADE_VERSION
+      # Not in the checkout, which a self-hosted runner keeps: RUNNER_TEMP is emptied after the job.
+      - name: Write your values
+        env:
+          OIKADE_ENV: ${{ secrets.OIKADE_ENV }}
+        run: (umask 077 && printf '%s\n' "$OIKADE_ENV" > "$RUNNER_TEMP/.env")
       - name: Deploy
         env:
           OIKADE_TOKEN: ${{ secrets.OIKADE_TOKEN }}
@@ -528,7 +603,7 @@ jobs:
           OIKADE_PIN: ${{ vars.OIKADE_PIN }}
         run: |
           oikade login "$OIKADE_ADDRESS" --pin "$OIKADE_PIN"
-          oikade deploy
+          oikade deploy --env-file "$RUNNER_TEMP/.env"
 `
 
 // deployIsOff is the notice on a push to main before deploys are on, naming what turns them on.

@@ -54,7 +54,9 @@ func hintOf(err error) string {
 	return ""
 }
 
-func usesNothing(context.Context, string, string) (wire.Manifest, error) { return wire.Manifest{}, nil }
+func usesNothing(context.Context, string, string, map[string]string) (wire.Manifest, error) {
+	return wire.Manifest{}, nil
+}
 
 func noEnvironment(string) (string, bool) { return "", false }
 
@@ -321,7 +323,7 @@ func deployValues(t *testing.T, host *recordingHost, module, envFile string, use
 		build: func(_ context.Context, _, out string, _ api.Response) error {
 			return os.WriteFile(out, []byte("a binary"), 0o600)
 		},
-		manifest: func(context.Context, string, string) (wire.Manifest, error) {
+		manifest: func(context.Context, string, string, map[string]string) (wire.Manifest, error) {
 			return wire.Manifest{Vars: used}, nil
 		},
 		lookup: func(name string) (string, bool) { v, ok := environment[name]; return v, ok },
@@ -470,18 +472,18 @@ func TestADeploysCheckHereLeavesTheRestToTheHost(t *testing.T) {
 		"another machine":  file("elsewhere", "\x7fELF\x02\x01\x01garbage", 0o755),
 		"an unread answer": file("unread", "#!/bin/sh\necho not json\n", 0o755),
 	} {
-		if _, err := homeCheck(t.Context(), ".", path); !cantRunHere(err) {
+		if _, err := homeCheck(t.Context(), ".", path, nil); !cantRunHere(err) {
 			t.Errorf("%s: got %v", name, err)
 		}
 	}
 	other := file("other", `#!/bin/sh
 echo '{"protocol":999,"vars":["TAHOMA_PIN"]}'
 `, 0o755)
-	if m, err := homeCheck(t.Context(), ".", other); err != nil || !slices.Equal(m.Vars, []string{"TAHOMA_PIN"}) {
+	if m, err := homeCheck(t.Context(), ".", other, nil); err != nil || !slices.Equal(m.Vars, []string{"TAHOMA_PIN"}) {
 		t.Errorf("another protocol: got %+v, %v", m, err)
 	}
 	failing := file("failing", "#!/bin/sh\nexit 3\n", 0o755)
-	if _, err := homeCheck(t.Context(), ".", failing); err == nil || cantRunHere(err) {
+	if _, err := homeCheck(t.Context(), ".", failing, nil); err == nil || cantRunHere(err) {
 		t.Errorf("a home that fails its checks: got %v", err)
 	}
 	// oikade check, which runs the home here too, still refuses another protocol.

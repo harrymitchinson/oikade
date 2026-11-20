@@ -1,0 +1,2 @@
+# Your values, which oikade deploy sends the host: never in Git.
+/.env

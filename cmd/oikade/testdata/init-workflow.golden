@@ -14,7 +14,13 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go install github.com/harrymitchinson/oikade/cmd/oikade@VERSION
-      - run: oikade check
+      # Your values, from the secret OIKADE_ENV, which a pull request from a fork doesn't get: then
+      # oikade check only warns. RUNNER_TEMP is emptied after the job.
+      - name: Write your values
+        env:
+          OIKADE_ENV: ${{ secrets.OIKADE_ENV }}
+        run: (umask 077 && printf '%s\n' "$OIKADE_ENV" > "$RUNNER_TEMP/.env")
+      - run: oikade check --env-file "$RUNNER_TEMP/.env"
       - run: oikade test
       - name: Deploy is off
         if: github.event_name == 'push' && vars.OIKADE_ADDRESS == ''
@@ -39,6 +45,11 @@ jobs:
           echo "XDG_CONFIG_HOME=$RUNNER_TEMP/config" >> "$GITHUB_ENV"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - run: go install github.com/harrymitchinson/oikade/cmd/oikade@VERSION
+      # Not in the checkout, which a self-hosted runner keeps: RUNNER_TEMP is emptied after the job.
+      - name: Write your values
+        env:
+          OIKADE_ENV: ${{ secrets.OIKADE_ENV }}
+        run: (umask 077 && printf '%s\n' "$OIKADE_ENV" > "$RUNNER_TEMP/.env")
       - name: Deploy
         env:
           OIKADE_TOKEN: ${{ secrets.OIKADE_TOKEN }}
@@ -46,4 +57,4 @@ jobs:
           OIKADE_PIN: ${{ vars.OIKADE_PIN }}
         run: |
           oikade login "$OIKADE_ADDRESS" --pin "$OIKADE_PIN"
-          oikade deploy
+          oikade deploy --env-file "$RUNNER_TEMP/.env"

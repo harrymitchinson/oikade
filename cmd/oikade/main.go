@@ -67,9 +67,9 @@ type deployer struct {
 	progress *progress
 	check    func(module string) error
 	build    func(ctx context.Context, module, out string, info api.Response) error
-	// manifest asks your home what it is: the binary at path, or the module built for this machine
-	// if path is empty.
-	manifest func(ctx context.Context, module, path string) (wire.Manifest, error)
+	// manifest asks your home what it is, given vars: the binary at path, or the module built for
+	// this machine if path is empty.
+	manifest func(ctx context.Context, module, path string, vars map[string]string) (wire.Manifest, error)
 	lookup   func(name string) (string, bool)
 }
 
@@ -84,9 +84,14 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 		vals, err = readValues(module, envFile, used, d.lookup)
 		return err
 	}
-	// learn asks your home's check which values its code uses, then reads them.
+	// learn asks your home's check which values its code uses, then reads them. The check has the
+	// file's, as the host's has the deploy's.
 	learn := func(path string) error {
-		m, err := d.manifest(ctx, module, path)
+		given, _, err := collectValues(module, envFile, nil, d.lookup)
+		if err != nil {
+			return err
+		}
+		m, err := d.manifest(ctx, module, path, given.set)
 		switch {
 		case cantRunHere(err):
 			// The host checks it, and refuses it if it uses a value it isn't sent, and only the
@@ -171,10 +176,10 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 		fmt.Sprintf("add %s to %s", them(resp.MissingVars), vals.file))
 }
 
-// homeCheck runs your home's check, for the values its code uses: the binary at path, or the module
-// built for this machine. The host checks the protocol, so a deploy doesn't, and a binary that can't
-// run here, such as one for another machine, is a notHere.
-func homeCheck(ctx context.Context, module, path string) (wire.Manifest, error) {
+// homeCheck runs your home's check with vars, for the values its code uses: the binary at path, or
+// the module built for this machine. The host checks the protocol, so a deploy doesn't, and a binary
+// that can't run here, such as one for another machine, is a notHere.
+func homeCheck(ctx context.Context, module, path string, vars map[string]string) (wire.Manifest, error) {
 	if path == "" {
 		built, done, err := buildHome(ctx, module)
 		if err != nil {
@@ -188,7 +193,7 @@ func homeCheck(ctx context.Context, module, path string) (wire.Manifest, error) 
 	if err != nil {
 		return wire.Manifest{}, err
 	}
-	return readManifest(ctx, abs)
+	return checkWith(ctx, abs, vars)
 }
 
 // them is "it" or "them", for names.

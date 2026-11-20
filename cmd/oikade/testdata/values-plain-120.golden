@@ -1,0 +1,39 @@
+oikade check: Find what's wrong with your home, as a deploy would.
+
+It runs the compiler, then the source checks, then the checks your home's binary makes of itself, which are the ones a
+deploy makes, with your values from the .env beside your go.mod and the environment, which wins. A value your code uses
+that neither has is only a warning, so a pull request passes without them.
+
+Usage:
+  oikade check [--module DIR] [--env-file FILE]
+
+Flags:
+  --module DIR     Your home's module. (default .)
+  --env-file FILE  Your values, from this file rather than the .env beside your go.mod.
+  --context NAME   The host to reach over its network API, from oikade login.
+  --data-dir DIR   The host's data directory, on this machine. (default /var/lib/oikade)
+
+Example:
+  oikade check
+---
+oikade dev: Run your home against simulated devices.
+
+Your code gets your values, from the .env beside your go.mod and the environment, which wins, as it gets them on the
+host.
+
+Usage:
+  oikade dev [--module DIR] [--types FILE] [--env-file FILE]
+
+Flags:
+  --module DIR     Your home's module. (default .)
+  --types FILE     The file oikade types wrote, in your module. (default devices.go)
+  --env-file FILE  Your values, from this file rather than the .env beside your go.mod.
+
+Example:
+  oikade dev
+  oikade dev --env-file test-host.env
+---
+Warning: TAHOMA_PIN isn't set, so a deploy from here would stop
+Hint: add it to .env, or set it in the environment
+Warning: TAHOMA_PIN and TOSHIBA_USER aren't set, so oikade.Var gives "" for them here
+Hint: add them to .env, or set them in the environment
