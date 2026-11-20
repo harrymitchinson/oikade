@@ -3,6 +3,7 @@ package mdns
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/netip"
 	"slices"
@@ -176,10 +177,15 @@ func TestLookupHostAsksAgain(t *testing.T) {
 	}
 }
 
-func TestLookupHostGivesUp(t *testing.T) {
+func shortLookups(t *testing.T, d time.Duration) {
+	t.Helper()
 	old := lookupTimeout
-	lookupTimeout = 50 * time.Millisecond
+	lookupTimeout = d
 	t.Cleanup(func() { lookupTimeout = old })
+}
+
+func TestLookupHostGivesUp(t *testing.T) {
+	shortLookups(t, 50*time.Millisecond)
 	f := newFakeAsker(t, func(int, dnsmessage.Message) [][]byte { return nil })
 	defer func() { _ = f.Close() }()
 	_, err := lookupHost(t.Context(), f, "gone.local")
@@ -323,7 +329,8 @@ func TestDialerKeepsWhatItFound(t *testing.T) {
 }
 
 // misses is an mDNS lookup that finds 127.0.0.1 until it's told to miss, as a host's responder
-// misses the odd query, and counts how often it's asked.
+// misses the odd query, and counts how often it's asked. A lookup that misses waits, as
+// LookupHost does, for lookupTimeout or ctx to end.
 type misses struct {
 	mu     sync.Mutex
 	asked  int
@@ -332,12 +339,16 @@ type misses struct {
 
 func (m *misses) lookup(ctx context.Context, host string) ([]netip.Addr, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.asked++
-	if m.missed {
-		return nil, errors.New("nothing answered over mDNS")
+	missed := m.missed
+	m.mu.Unlock()
+	if !missed {
+		return answers("127.0.0.1")(ctx, host)
 	}
-	return answers("127.0.0.1")(ctx, host)
+	ctx, cancel := context.WithTimeout(ctx, lookupTimeout)
+	defer cancel()
+	<-ctx.Done()
+	return nil, fmt.Errorf("nothing answered over mDNS: %w", ctx.Err())
 }
 
 func (m *misses) miss() {
@@ -373,6 +384,7 @@ func dialOnce(ctx context.Context, d *dialer, address string) error {
 }
 
 func TestDialerDialsWhatItFoundBeforeWhenALookupMisses(t *testing.T) {
+	shortLookups(t, 20*time.Millisecond)
 	address := net.JoinHostPort("hub.local", listenLoopback(t, "127.0.0.1:0"))
 	m := &misses{}
 	d, now := missingDialer(m)
@@ -399,6 +411,7 @@ func TestDialerDialsWhatItFoundBeforeWhenALookupMisses(t *testing.T) {
 
 // A host that's really gone, or moved, is looked up afresh once what was found before doesn't answer.
 func TestDialerLooksAgainOnceWhatItFoundBeforeIsGone(t *testing.T) {
+	shortLookups(t, 20*time.Millisecond)
 	// Nothing accepts, but the kernel completes a connection to a listener anyway.
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -434,6 +447,7 @@ func TestDialerLooksAgainOnceWhatItFoundBeforeIsGone(t *testing.T) {
 // A dial given up on while it looks the host up says nothing about what was found before, so that's
 // kept for the next.
 func TestDialerKeepsWhatItFoundBeforeWhenADialIsGivenUp(t *testing.T) {
+	shortLookups(t, 20*time.Millisecond)
 	address := net.JoinHostPort("hub.local", listenLoopback(t, "127.0.0.1:0"))
 	m := &misses{}
 	d, now := missingDialer(m)
@@ -451,6 +465,106 @@ func TestDialerKeepsWhatItFoundBeforeWhenADialIsGivenUp(t *testing.T) {
 		t.Fatalf("forgot what it found before: %v", err)
 	}
 	m.expect(t, 3)
+}
+
+// A lookup that misses uses up a dial's time, as lookupTimeout is longer than many a caller's, so it
+// gets only half of it when there are addresses from before to dial.
+func TestDialerLeavesTimeToDialWhatItFoundBefore(t *testing.T) {
+	address := net.JoinHostPort("hub.local", listenLoopback(t, "127.0.0.1:0"))
+	m := &misses{}
+	d, now := missingDialer(m)
+	if err := dialOnce(t.Context(), d, address); err != nil {
+		t.Fatal(err)
+	}
+	m.miss()
+	*now = now.Add(keepFor)
+	ctx, cancel := context.WithTimeout(t.Context(), 400*time.Millisecond)
+	defer cancel()
+	if err := dialOnce(ctx, d, address); err != nil {
+		t.Fatalf("a lookup that missed, within %v: %v", 400*time.Millisecond, err)
+	}
+}
+
+// Two dials look a host up at once. One finds that it has moved, and the other, whose lookup
+// missed, dials where it is now rather than putting back where it was.
+func TestDialerTakesWhatAnotherDialFoundMeanwhile(t *testing.T) {
+	var mu sync.Mutex
+	asked := 0
+	missing, release := make(chan struct{}), make(chan struct{})
+	d := newDialer(func(ctx context.Context, host string) ([]netip.Addr, error) {
+		mu.Lock()
+		asked++
+		n := asked
+		mu.Unlock()
+		switch n {
+		case 1:
+			return answers("192.0.2.1")(ctx, host)
+		case 2:
+			close(missing)
+			<-release
+			return nil, errors.New("nothing answered over mDNS")
+		}
+		return answers("192.0.2.2")(ctx, host)
+	}, failed("no such host"))
+	now := time.Now()
+	d.now = func() time.Time { return now }
+	if _, _, err := d.lookup(t.Context(), "hub.local"); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(keepFor)
+	type result struct {
+		f   *found
+		err error
+	}
+	missed := make(chan result, 1)
+	go func() {
+		f, _, err := d.lookup(t.Context(), "hub.local")
+		missed <- result{f, err}
+	}()
+	<-missing
+	moved, _, err := d.lookup(t.Context(), "hub.local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	r := <-missed
+	if r.err != nil {
+		t.Fatal(r.err)
+	}
+	want := []netip.Addr{netip.MustParseAddr("192.0.2.2")}
+	if !slices.Equal(r.f.addrs, want) {
+		t.Errorf("the dial that missed got %v, want %v", r.f.addrs, want)
+	}
+	if kept := d.found["hub.local"]; kept != moved {
+		t.Errorf("kept %v, want %v", kept.addrs, moved.addrs)
+	}
+}
+
+// A dial whose addresses don't answer forgets them, but not ones another dial has found since.
+func TestDialerForgetsOnlyWhatItDialed(t *testing.T) {
+	addr := "192.0.2.1"
+	d := newDialer(func(ctx context.Context, host string) ([]netip.Addr, error) {
+		return answers(addr)(ctx, host)
+	}, failed("no such host"))
+	now := time.Now()
+	d.now = func() time.Time { return now }
+	old, _, err := d.lookup(t.Context(), "hub.local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now, addr = now.Add(keepFor), "192.0.2.2"
+	moved, _, err := d.lookup(t.Context(), "hub.local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.forget("hub.local", old)
+	if kept := d.found["hub.local"]; kept != moved {
+		t.Errorf("forgot the addresses found since: kept %v", kept)
+	}
+	d.forget("HUB.local.", moved)
+	if kept, ok := d.found["hub.local"]; ok {
+		t.Errorf("kept %v after they didn't answer", kept.addrs)
+	}
 }
 
 // An address that never answers gets only its share of the time, so the next is still tried.
