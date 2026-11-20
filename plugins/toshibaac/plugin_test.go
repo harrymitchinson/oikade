@@ -477,7 +477,9 @@ func TestAWriteIsACommandTheHubTakes(t *testing.T) {
 	cloud := newFakeCloud(t)
 	cloud.set(home)
 	b := start(t, cloud, password, fast)
+	// The plugin reports a unit online before its state, so wait for both.
 	b.waitAvailability(study, "online")
+	b.waitState(study, `{"mode":"cool","on":false,"setpoint":24,"temperature":23}`)
 
 	client := cloud.config().clientID()
 	topic := "devices/" + client + "/messages/events/$.ct=application%2Fjson&$.ce=utf-8&type=mob"
