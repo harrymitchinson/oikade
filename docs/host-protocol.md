@@ -106,7 +106,7 @@ The host runs a binary as `<binary> check` before it stops anything. That loads 
 {"protocol":4,"rules":[{"name":"leak-shutoff","kind":"hold","safety":true,"latch":true}]}
 ```
 
-It also has `plugins`, the plugins the home imports, `control`, its device settings, and `secrets`, the names of the secrets its code made with `oikade.Secret` as it was built (OIK-297). The host checks those against its secrets directory, so a deploy, a rollback and `oikade status` name the ones that aren't set. A missing secret doesn't stop a deploy. `vars` names the values its code read with `oikade.Var` as it was built (OIK-365), and a deploy or a rollback whose values lack one is refused. Check mode is given no values, so a `Var` is empty there.
+It also has `plugins`, the plugins the home imports, `control`, its device settings, and `secrets`, the names of the secrets its code made with `oikade.Secret` as it was built (OIK-297). The host checks those against its secrets directory, so a deploy, a rollback and `oikade status` name the ones that aren't set. A missing secret doesn't stop a deploy. `vars` names the values its code read with `oikade.Var` as it was built (OIK-365), and a deploy or a rollback whose values lack one is refused. Check mode is given the values the version would run with, the deploy's for a deploy, in a file of its own named in `OIKADE_VARS_FILE`, which is removed once it's done.
 
 A failure, such as a secret whose name `oikade set secret/NAME` would refuse, a value's name that isn't an environment variable's, or a `protocol` other than the host's, rejects the version.
 

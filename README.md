@@ -50,7 +50,7 @@ oikade test
 
 Or take `oikade` from a [release](https://github.com/harrymitchinson/oikade/releases): `oikade-<os>-<arch>.tar.gz`, for darwin or linux on arm64 or amd64, holds it with this README and the licence, and `checksums.txt` has each archive's SHA-256.
 
-`init` writes a module with one automation, its test, a `devices.go` with two example devices, and a GitHub Actions workflow that runs `oikade check` and `oikade test` on every change. Once you [turn deploys on](docs/running-a-home.md#deploying-from-ci), it also deploys what reaches `main`. `oikade types` replaces `devices.go` once you have real devices.
+`init` writes a module with one automation, its test, a `devices.go` with two example devices, a `.gitignore` that keeps your [values](docs/running-a-home.md#your-values) in `.env` out of Git, and a GitHub Actions workflow that runs `oikade check` and `oikade test` on every change, with your values from the secret `OIKADE_ENV`. Once you [turn deploys on](docs/running-a-home.md#deploying-from-ci), it also deploys what reaches `main`. `oikade types` replaces `devices.go` once you have real devices.
 
 ```go
 func home() *oikade.Home {
