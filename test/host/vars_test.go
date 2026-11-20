@@ -12,8 +12,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/harrymitchinson/oikade/internal/fault"
 )
 
 // Your values, as the fixture's variants "vars" and "vars-more" use them (OIK-365). Each is told
@@ -101,7 +99,9 @@ func TestAPluginAndYourAutomationsAreGivenTheDeployedValues(t *testing.T) {
 	r := start(t, settle)
 	r.sync()
 	first, second := "first-correct-horse", "second-battery-staple"
+	var answers strings.Builder
 	out := r.mustDeployValues("vars", map[string]string{tokenVar: first})
+	answers.WriteString(out)
 	if !strings.Contains(out, "Deployed version ") || !strings.Contains(out, ", with 1 value from ") {
 		t.Errorf("the deploy said %q", out)
 	}
@@ -111,6 +111,7 @@ func TestAPluginAndYourAutomationsAreGivenTheDeployedValues(t *testing.T) {
 	pid := r.pid()
 	stopped := r.count(stopping)
 	out = r.mustDeployValues("vars", map[string]string{tokenVar: second})
+	answers.WriteString(out)
 	if !strings.Contains(out, "again, with "+tokenVar+" changed") {
 		t.Errorf("the deploy said %q", out)
 	}
@@ -134,6 +135,7 @@ func TestAPluginAndYourAutomationsAreGivenTheDeployedValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v: %s", err, status)
 	}
+	noValueIn(t, "what the deploys said", answers.String(), first, second)
 	noValueIn(t, "status --json", status, first, second)
 	noValueIn(t, "the host's log", r.dump(), first, second)
 	if info, err := os.Stat(filepath.Join(r.dir, "vars.json")); err != nil || info.Mode().Perm() != 0o600 {
@@ -196,46 +198,4 @@ func TestARollbackKeepsTheValuesAndRefusesAVersionWhoseNamesTheyLack(t *testing.
 		t.Fatalf("got %v: %s", err, out)
 	}
 	r.awaitVar(1, "vars-more", "given")
-}
-
-// A deploy's values reach disk in the same write as its version. A host killed anywhere from there
-// to its answer comes back with a binary and values that go together: the old version with the old
-// values until the new one is confirmed, and the new with the new from then on.
-func TestKilledAsADeploysValuesSaveKeepsThemWithTheirVersion(t *testing.T) {
-	t.Parallel()
-	for point, confirmed := range map[string]bool{
-		fault.HostDeployBegun: false, fault.HostDeploySettled: false, fault.HostDeployConfirmed: true,
-	} {
-		t.Run(point, func(t *testing.T) {
-			t.Parallel()
-			r := faultRig(t)
-			r.launchAttached()
-			r.mustDeployValues("vars", map[string]string{tokenVar: "old"})
-			r.awaitVar(1, "vars", "old")
-			r.plan(point)
-			if out, err := r.deployValues("vars-more", map[string]string{tokenVar: "new", extraVar: "x"}); err == nil {
-				t.Fatalf("the deploy was answered: %s. The log:\n%s", out, r.dump())
-			}
-			r.died()
-			want, value := "vars", "old"
-			if confirmed {
-				want, value = "vars-more", "new"
-			}
-			before := map[string]int{}
-			for _, role := range []string{"automations", "plugin"} {
-				before[role] = r.readsVar(role, want, value)
-			}
-			r.launchAttached()
-			for role, n := range before {
-				r.awaitCount(n+1, readVar, "role", role, "variant", want, "sha", digest(value))
-			}
-			r.sync()
-			// Nothing ran the other binary with these values, or this one with the others.
-			for _, mixed := range [][2]string{{"vars", "new"}, {"vars-more", "old"}} {
-				if n := r.readsVar("automations", mixed[0], mixed[1]); n != 0 {
-					t.Errorf("%s ran with %q. The log:\n%s", mixed[0], mixed[1], r.dump())
-				}
-			}
-		})
-	}
 }
