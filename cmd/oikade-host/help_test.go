@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -102,6 +103,10 @@ func TestAHostWithoutItsBrokerPasswordSaysWhereToPutIt(t *testing.T) {
 		"Hint: put the password in that file, readable only by the host's user, and start the host again\n"
 	if code != cli.ExitFailed || stderr != want {
 		t.Errorf("exit %d:\n%s", code, stderr)
+	}
+	// The directory is there for the file, as only the host's user can read it.
+	if info, err := os.Stat(filepath.Join(dir, "secrets")); err != nil || info.Mode().Perm() != 0o700 {
+		t.Errorf("the secrets directory: %v, %v", info, err)
 	}
 }
 

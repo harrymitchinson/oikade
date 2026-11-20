@@ -160,7 +160,7 @@ docker exec oikade oikade-host add client/laptop
 
 ### Secrets
 
-What a plugin's setup learns on the host, such as eWeLink's device keys, it keeps there as secrets: a file each in `secrets` in the data directory, readable only by the host's user, so a backup has them. They're the plugin's own: no command lists them, a deploy keeps them, and running the setup again changes them. They're never in a log or `--json`. A plugin reads its own with `plugin.ReadSecret`. What you'd type in yourself, a password included, is one of [your values](#your-values) instead.
+What a plugin's setup learns on the host, such as eWeLink's device keys, it keeps there as secrets: a file each in `secrets` in the data directory, readable only by the host's user, so a backup has them. No command lists them, a deploy keeps them, and running the setup again changes them. They're never in a log or `--json`. A plugin reads them with `plugin.ReadSecret`. What you'd type in yourself, a password included, is one of [your values](#your-values) instead.
 
 Outside plugins share the host's `--broker`, whose password is a file you put in that directory yourself, readable only by the host's user: `--broker-password-secret broker` reads `secrets/broker`, and the host doesn't start without it. A broker that a plugin your home imports uses, such as Zigbee2MQTT's, takes its password as one of your values: `zigbee2mqtt.Config{Broker: "mqtt://oikade@broker:1883", Password: oikade.Var("BROKER_PASSWORD")}`. Neither password is ever logged.
 
@@ -279,5 +279,5 @@ Losing these means re-pairing, and then the Home app forgets every room, scene a
 - The API is a Unix socket only the host's user can reach. With `--api-addr` it's on the network too, over TLS 1.3, and every call needs a token, which is as good as a login on the host. Keep it off the open internet.
 - The metrics listener is read-only, but open to whoever can reach the port, and it shows device names and values. Move it with `--metrics-addr`.
 - Importing a plugin means trusting its code, because it runs as the host's user.
-- An outside plugin and Zigbee2MQTT are as safe as your broker: anything that can publish to it can control those devices. Give it a password, one of [your values](#your-values).
+- An outside plugin and Zigbee2MQTT are as safe as your broker: anything that can publish to it can control those devices. Give it a password: Zigbee2MQTT's is one of [your values](#your-values), and outside plugins' is a file in the host's [secrets directory](#secrets).
 - Each plugin's README says what else it needs, such as the [eWeLink LAN plugin](../plugins/ewelinklan/README.md#security).

@@ -350,7 +350,7 @@ func TestARefusedPasswordWaitsAnHourBeforeTryingAgain(t *testing.T) {
 	cloud.set(home)
 	const wrong = "not the password"
 	b := start(t, cloud, wrong, fast, bedroom)
-	b.waitProblem("check toshibaac.Config's Password, which is tried again in 1h0m0s")
+	b.waitProblem("Toshiba's cloud refused the login: check toshibaac.Config's Password, which is tried again in 1h0m0s (")
 	if d := b.devices(); len(d.Devices) != 1 || d.Devices[0].Found {
 		t.Errorf("devices before a login: %+v", d)
 	}
@@ -606,6 +606,7 @@ func TestNewChecksTheConfig(t *testing.T) {
 		{Config{Password: password}, "toshibaac.Config has no Username"},
 		// As oikade.Var gives for a value the host doesn't have.
 		{Config{Username: username}, "toshibaac.Config has no Password"},
+		{Config{Username: username, Password: " \n"}, "toshibaac.Config has no Password"},
 		{Config{Username: username, Password: password, OutdoorUnits: [][]string{{bedroom, study}, {study}}}, "a list of 1 units"},
 		{Config{Username: username, Password: password, OutdoorUnits: [][]string{{bedroom, bedroom}}}, "twice"},
 		{Config{Username: username, Password: password, OutdoorUnits: [][]string{{bedroom}}}, "a list of 1 units"},

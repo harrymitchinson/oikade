@@ -190,6 +190,19 @@ func said(steps []contractv1.SetupStep) string {
 	return strings.Join(out, "\n")
 }
 
+func TestOnceSetupHasKeptAKeyANeighboursDeviceIsOnlyItsOwnProblem(t *testing.T) {
+	b := start(t, Config{}, fast)
+	// Setup kept the probe's key before the plugin last started, and the probe hasn't been heard.
+	b.secret(probeID, fixtureKey)
+	b.device(neighbourID, "th_plug", relayOf("off")).report()
+	b.eventually("the neighbour's problem", func() bool {
+		return b.reports()[neighbourID].Error == "no LAN key: oikade setup ewelink"
+	})
+	if b.needsSetup() {
+		t.Error("A neighbour's device shouldn't need setup run again once it has kept a key")
+	}
+}
+
 func TestSetupFetchesEachDevicesLANKeyAndTheDeviceComesUp(t *testing.T) {
 	cloud := newFakeEWeLink(t, things)
 	b := startWith(t, withApp(), fast, cloud.cloud())

@@ -79,7 +79,8 @@ type bench struct {
 // start starts the plugin on the fake hub, with the hub's token in its config.
 func start(t *testing.T, hub *fakeHub, declared ...string) *bench {
 	t.Helper()
-	return startWith(t, hub, Local{Address: hub.address(), Token: token, PIN: hubPIN, roots: hub.ca}, fast, declared...)
+	// With the newline the environment can leave after it, which is no part of it.
+	return startWith(t, hub, Local{Address: hub.address(), Token: token + "\n", PIN: hubPIN, roots: hub.ca}, fast, declared...)
 }
 
 // cloudFast is fast, with the cloud's limit waits.
@@ -315,8 +316,8 @@ func TestARefusedTokenIsTriedAgainHourly(t *testing.T) {
 	}
 	b.eventually("the refusal", func() bool {
 		e := b.status().Error
-		return strings.HasPrefix(e, "the TaHoma hub at "+hub.address()+" refused the login (") &&
-			strings.HasSuffix(e, "): check overkiz.Local's Token")
+		return strings.HasPrefix(e, "the TaHoma hub at "+hub.address()+" refused the login: check overkiz.Local's Token (") &&
+			strings.HasSuffix(e, ")")
 	})
 	if d := b.devices(); len(d.Devices) != 1 || d.Devices[0].Found {
 		t.Errorf("devices before a login: %+v", d)
@@ -555,8 +556,8 @@ func TestARefusedPasswordIsTheAccountsProblemForAnHour(t *testing.T) {
 	}
 	b.eventually("the refusal", func() bool {
 		e := b.status().Error
-		return strings.HasPrefix(e, "Thermor's Cozytouch cloud refused the login (") && strings.Contains(e, "Bad credentials") &&
-			strings.HasSuffix(e, "): check overkiz.Cozytouch's Password")
+		return strings.HasPrefix(e, "Thermor's Cozytouch cloud refused the login: check overkiz.Cozytouch's Password (") &&
+			strings.Contains(e, "Bad credentials")
 	})
 	if d := b.devices(); len(d.Devices) != 1 || d.Devices[0].Found {
 		t.Errorf("devices with a refused password: %+v", d)
@@ -652,6 +653,8 @@ func TestAnAccountNeedsItsCredentialAndWhereItIs(t *testing.T) {
 		{Cozytouch{Brand: Thermor, Username: "someone@example.com"}, "overkiz.Cozytouch has no Password"},
 		{Local{Token: token}, "overkiz.Local has no Address"},
 		{Local{Address: "192.168.1.40:8443", PIN: hubPIN}, "overkiz.Local has no Token"},
+		{Local{Address: "192.168.1.40:8443", PIN: hubPIN, Token: " \n"}, "overkiz.Local has no Token"},
+		{Cozytouch{Brand: Thermor, Username: "someone@example.com", Password: "\t"}, "overkiz.Cozytouch has no Password"},
 	} {
 		if _, err := New(tc.account)(plugin.Environment{}, nil); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%+v: got %v, want %q", tc.account, err, tc.want)

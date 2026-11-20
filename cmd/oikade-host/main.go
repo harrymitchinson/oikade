@@ -86,6 +86,10 @@ func runHost(ctx context.Context, args []string) error {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	if *brokerPassword != "" {
 		dir := filepath.Join(*dataDir, host.SecretsDir)
+		// The host makes the directory as it starts anyway, so that only the file is left to you.
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return cli.Wrap(err, "could not make the secrets directory %s", dir)
+		}
 		withPassword, err := host.WithBrokerPassword(*broker, dir, *brokerPassword)
 		file, unread := errors.AsType[*os.PathError](err)
 		switch {
@@ -161,7 +165,8 @@ func dataDirError(err error, dataDir string) error {
 // each. A unit file that still passes one fails loudly rather than being quietly ignored.
 var removed = map[string]string{
 	"matter-name": "the bridge's name is MatterName in your home's oikade.Options now: set it there and deploy",
-	"secrets-dir": "your values, passwords included, go in .env beside your home's go.mod, which oikade deploy sends",
+	"secrets-dir": "the secrets directory, where --broker-password-secret's file goes, is always secrets in --data-dir, " +
+		"and your values go in .env beside your home's go.mod",
 }
 
 // runAdd trusts a new client of the network API. It goes only over the socket, so a stolen token

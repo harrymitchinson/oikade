@@ -252,7 +252,8 @@ func TestThePluginLogsInWithItsBrokersPassword(t *testing.T) {
 	zigbee := passwordBroker(t, password)
 	oikade := mqtttest.StartBroker(t)
 	h := hear(t, oikade)
-	runWith(t, oikade, Config{Broker: zigbee, Password: password, BaseTopic: base})
+	// With the newline the environment can leave after it, which is no part of it.
+	runWith(t, oikade, Config{Broker: zigbee, Password: password + "\n", BaseTopic: base})
 	h.wait(t, "its devices", func(topics map[string]string) bool {
 		return len(reported(t, topics[root.Devices()]).Discovered) > 0
 	})

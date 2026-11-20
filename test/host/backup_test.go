@@ -64,6 +64,11 @@ func TestARestoredDataDirectoryBringsTheHomeBackWithNoPairing(t *testing.T) {
 	if version == "" {
 		t.Fatal("no version running")
 	}
+	// As a plugin's setup keeps a secret, which the copy of the directory takes with it.
+	const kept = "a-device-key-from-setup"
+	if err := os.WriteFile(filepath.Join(r.dir, "secrets", "kept"), []byte(kept), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	backup := strings.TrimSpace(string(r.stdout(nil, "backup")))
 	if filepath.Dir(backup) != filepath.Join(r.dir, "backups") {
 		t.Fatalf("the backup is at %s", backup)
@@ -110,5 +115,8 @@ func TestARestoredDataDirectoryBringsTheHomeBackWithNoPairing(t *testing.T) {
 	c.reaches("fan")
 	if got := r.status().Home.Version; got != version {
 		t.Errorf("version %s became %s", version, got)
+	}
+	if got := r.keptSecret("kept"); got != kept {
+		t.Errorf("the kept secret became %q", got)
 	}
 }

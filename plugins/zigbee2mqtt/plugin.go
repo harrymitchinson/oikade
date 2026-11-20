@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -73,6 +74,8 @@ func New(c Config) plugin.Factory {
 
 // factory is New, logging to log.
 func factory(c Config, log *slog.Logger) plugin.Factory {
+	// Space around it, as the environment can leave, is no part of a password.
+	c.Password = strings.TrimSpace(c.Password)
 	if c.BaseTopic == "" {
 		c.BaseTopic = DefaultBaseTopic
 	}

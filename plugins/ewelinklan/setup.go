@@ -13,6 +13,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -292,16 +294,31 @@ func (c cloud) call(req *http.Request, doing string, into any) error {
 	return nil
 }
 
-// needsSetupLocked is whether a device heard has no LAN key and none has one, as before setup first
-// runs. Once one has, a device setup couldn't key, such as a neighbour's or one in another account,
-// says so as its own problem, rather than keep the whole plugin needing setup. Call with mu held.
+// needsSetupLocked is whether a device heard has no LAN key and setup has never kept one. Once it
+// has, a device it couldn't key, such as a neighbour's or one in another account, says so as its own
+// problem, rather than keep the whole plugin needing setup. Call with mu held.
 func (b *bridge) needsSetupLocked() bool {
-	missing, keyed := false, false
+	missing := false
 	for _, d := range b.devices {
-		missing = missing || d.key == nil
-		keyed = keyed || d.key != nil
+		if d.key != nil {
+			return false
+		}
+		missing = true
 	}
-	return missing && !keyed
+	return missing && !b.keptAKey()
+}
+
+// deviceID is the shape of a device's ID, which names its LAN key.
+var deviceID = regexp.MustCompile(`^[0-9a-f]{10}$`)
+
+// keptAKey is whether the host keeps any device's LAN key, as only setup keeps one, whether or not
+// that device has been heard since the plugin started.
+func (b *bridge) keptAKey() bool {
+	entries, err := os.ReadDir(b.env.SecretsDir)
+	if err != nil {
+		return false
+	}
+	return slices.ContainsFunc(entries, func(e os.DirEntry) bool { return deviceID.MatchString(e.Name()) })
 }
 
 // name is the plugin's name, as oikade setup names it.

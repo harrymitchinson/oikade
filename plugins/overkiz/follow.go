@@ -104,7 +104,8 @@ func (f *follower) follow(ctx context.Context, l link) {
 			// Too many failed logins could lock the account. A new credential comes with a deploy,
 			// which starts the plugin again.
 			f.log.Warn(f.name+" refused the credential", "err", err, "account", f.account.describe(), "retry", f.timing.refused.String())
-			f.setProblem(ctx, fmt.Sprintf("%s refused the login (%v): check %s", f.account.describe(), err, f.account.credentialField()))
+			// The fix comes first, as a status shortens a long problem.
+			f.setProblem(ctx, fmt.Sprintf("%s refused the login: check %s (%v)", f.account.describe(), f.account.credentialField(), err))
 			f.backoff(ctx, f.timing.refused)
 		case classify(err) == limited:
 			f.log.Warn(f.name+" limited the plugin's requests", "err", err, "account", f.account.describe(), "retry", f.timing.limited.String())

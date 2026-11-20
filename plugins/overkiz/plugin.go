@@ -77,7 +77,7 @@ func (l Local) check() error {
 	switch {
 	case l.Address == "":
 		return errors.New("overkiz.Local has no Address")
-	case l.Token == "":
+	case strings.TrimSpace(l.Token) == "":
 		return errors.New("overkiz.Local has no Token")
 	case l.PIN != "" && !pinPattern.MatchString(l.PIN):
 		return fmt.Errorf("overkiz.Local has PIN %q: it's the hub's PIN, such as 1234-5678-9012", l.PIN)
@@ -111,7 +111,7 @@ func (l Local) connect(context.Context) (*client, error) {
 		http: &http.Client{Transport: transport, Timeout: localTiming.request},
 		base: "https://" + l.Address + "/enduser-mobile-web/1/enduserAPI",
 		authorize: func(r *http.Request) {
-			r.Header.Set("Authorization", "Bearer "+l.Token)
+			r.Header.Set("Authorization", "Bearer "+strings.TrimSpace(l.Token))
 		},
 	}, nil
 }

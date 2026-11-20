@@ -106,6 +106,8 @@ var capabilities = []string{contractv1.Mode, contractv1.On, contractv1.Setpoint,
 
 // New returns the plugin's Factory, for home.Plugin.
 func New(c Config) plugin.Factory {
+	// Space around it, as the environment can leave, is no part of a password.
+	c.Password = strings.TrimSpace(c.Password)
 	return func(_ plugin.Environment, declared []contractv1.DeclaredDevice) (plugin.Handler, error) {
 		switch {
 		case c.Username == "":
@@ -233,7 +235,9 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 		case errors.Is(err, errRefused):
 			// The password is the same until a deploy restarts the plugin, which tries a new one at once.
 			b.log.Warn("Toshiba's cloud refused the login", "err", err, "retry", b.timing.refused.String())
-			b.setProblem(ctx, fmt.Sprintf("Toshiba's cloud refused the login (%v): check toshibaac.Config's Password, which is tried again in %s", err, b.timing.refused))
+			// The fix comes first, as a status shortens a long problem.
+			b.setProblem(ctx, fmt.Sprintf("Toshiba's cloud refused the login: check toshibaac.Config's Password, which is tried again in %s (%v)",
+				b.timing.refused, err))
 			b.backoff(ctx, b.timing.refused)
 		case errors.Is(err, errLimited):
 			limit = b.limitWait(err, limit)

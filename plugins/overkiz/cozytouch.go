@@ -78,7 +78,7 @@ func (c Cozytouch) check() error {
 		return fmt.Errorf("overkiz.Cozytouch has Brand %q: it's overkiz.Atlantic, overkiz.Thermor or overkiz.Sauter", c.Brand)
 	case c.Username == "":
 		return errors.New("overkiz.Cozytouch has no Username")
-	case c.Password == "":
+	case strings.TrimSpace(c.Password) == "":
 		return errors.New("overkiz.Cozytouch has no Password")
 	}
 	return nil
@@ -152,7 +152,7 @@ func (c Cozytouch) forget(token string) {
 func (c Cozytouch) grant(ctx context.Context) (string, time.Duration, error) {
 	httpc := &http.Client{Timeout: cloudTiming.request, Transport: c.transport}
 	status, body, err := send(ctx, httpc, http.MethodPost, cmp.Or(c.atlanticAPI, atlanticAPI)+"/token", url.Values{
-		"grant_type": {"password"}, "username": {"GA-PRIVATEPERSON/" + c.Username}, "password": {c.Password},
+		"grant_type": {"password"}, "username": {"GA-PRIVATEPERSON/" + c.Username}, "password": {strings.TrimSpace(c.Password)},
 	}, "Basic "+cozytouchClientID)
 	if err != nil {
 		return "", 0, err
