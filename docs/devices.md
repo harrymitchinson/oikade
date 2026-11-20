@@ -22,7 +22,7 @@ If the host's data is lost, your next deploy gives its devices their names, room
 
 ## Names
 
-Every name Oikade owns follows one rule: lowercase letters, digits and single dashes, starting with a letter, and at most 63 of them, such as `porch-light` (OIK-313). That's devices, rooms, groups, a decision's cases, flows, plugins, the secrets your home names with `oikade.Secret` and the API's clients, so a name needs no quoting anywhere you paste it. `oikade check` refuses one in your code that doesn't, and `oikade-host add` and `--outside-plugins` refuse one on the command line, each with a name that would do: `"Living Room" isn't a room name: use lowercase letters, digits and single dashes, starting with a letter, such as "living-room"`. A plugin may name a secret after its own IDs, as eWeLink LAN does a device's key, so `oikade set secret/NAME` takes those too. Nothing rewrites a name you wrote. A name copied from an app is made into one instead, and `oikade list devices --json` keeps the app's own as `appName` and `appRoom`.
+Every name Oikade owns follows one rule: lowercase letters, digits and single dashes, starting with a letter, and at most 63 of them, such as `porch-light` (OIK-313). That's devices, rooms, groups, a decision's cases, flows, plugins and the API's clients, so a name needs no quoting anywhere you paste it. Your values have names of their own, as environment variables do, such as `TOSHIBA_PASSWORD` ([Your values](running-a-home.md#your-values)). `oikade check` refuses one in your code that doesn't, and `oikade-host add` and `--outside-plugins` refuse one on the command line, each with a name that would do: `"Living Room" isn't a room name: use lowercase letters, digits and single dashes, starting with a letter, such as "living-room"`. Nothing rewrites a name you wrote. A name copied from an app is made into one instead, and `oikade list devices --json` keeps the app's own as `appName` and `appRoom`.
 
 ### Refs
 
@@ -35,7 +35,7 @@ A ref names one thing, by its kind and then its name, and any parts, each a URI 
 | A decision's case | `case/desk-plug/on/night` |
 | A flow | `flow/morning` |
 | A room, a group | `room/living-room`, `group/downstairs` |
-| A plugin, a secret, a client | `plugin/zigbee2mqtt`, `secret/broker`, `client/laptop` |
+| A plugin, a client | `plugin/zigbee2mqtt`, `client/laptop` |
 | A device's hardware, by its plugin and the plugin's ID for it | `hardware/zigbee2mqtt/0x00158d0001a2b3c4` |
 | An outside change's claim: a Matter controller's, the device's own, `oikade set`'s | `matter`, `device`, `command` |
 

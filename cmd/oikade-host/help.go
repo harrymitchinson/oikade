@@ -70,7 +70,7 @@ var hostHelp = cli.Command{
 		"--debug, or OIKADE_DEBUG=1, to show an error in full.",
 	Values: map[string]string{
 		"data-dir": "DIR", "home": "BINARY", "simulate": "FILE", "metrics-addr": "ADDRESS", "api-addr": "ADDRESS",
-		"broker": "URL", "broker-password-secret": "NAME", "outside-plugins": "LIST", "secrets-dir": "DIR",
+		"broker": "URL", "broker-password-secret": "NAME", "outside-plugins": "LIST",
 		"matter-port": "PORT", "matter-interfaces": "LIST", "event-log-mib": "MIB",
 	},
 	Hide:     slices.Collect(maps.Keys(removed)),

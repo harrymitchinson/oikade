@@ -88,7 +88,7 @@ Every `oikade` and `oikade-host` command is not verbose, but never leaves you wo
 
 - **Anything that can take over a second says what it's doing as it starts, on stderr:** `Fetching Oikade v0.2.0`, then the result, rather than five silent seconds.
 - **Say what happened, not what was asked:** `device/towel-rail/on is false, not true: no line applies, so its Default wins`, not `Set device/towel-rail/on to true`.
-- **An empty answer says it's empty, and what would fill it:** `No secrets. oikade set secret/NAME adds one.`, not a bare header.
+- **An empty answer says it's empty, and what would fill it:** `No clients. oikade-host add client/NAME, on the host's machine, adds one.`, not a bare header.
 - **A long-running command says it has started:** `Following home's events`, so a quiet house doesn't look hung.
 - **Never pass on another tool's output that asks for a step already done:** `oikade init` hides Go's `go mod tidy` hint, which it has run, and shows Go's output only when Go fails.
 - **`--json` and stdout stay clean for scripts:** progress and hints go to stderr, and `--json` keeps its shape when empty (`[]`). A verb that changes something prints `{"ok": true, "ref": …}` with what it did, or `"ok": false` and its `error` (`changedJSON`), and `forget` and `remove`, which take several, `refs`.

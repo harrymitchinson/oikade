@@ -123,7 +123,7 @@ func TestEachKindOfRefHasItsEventsAndTheHomes(t *testing.T) {
 func TestARefWithNoEventsIsRefused(t *testing.T) {
 	unread := aHome(nil, errors.New("the disk is gone"))
 	for ref, want := range map[string]string{
-		"secret/token":         "secret/token has no events",
+		"secret/token":         "isn't a ref",
 		"client/laptop":        "client/laptop has no events",
 		"hardware/overkiz/123": "hardware/overkiz/123 has no events",
 		"group/lamps":          "group/lamps has no events",

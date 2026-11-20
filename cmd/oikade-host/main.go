@@ -61,9 +61,8 @@ func runHost(ctx context.Context, args []string) error {
 		"Comma-separated plugins that run as processes of their own and speak the MQTT contract on --broker, "+
 			"under oikade/v1/<name>.")
 	brokerPassword := fs.String("broker-password-secret", "",
-		"The secret with the password for --broker, whose URL names the user. A password in a flag lands in ps.")
-	secretsDir := fs.String("secrets-dir", "",
-		"Directory of secrets, one file each. Defaults to secrets in --data-dir. A read-only one is fine.")
+		"The file in --data-dir's secrets directory with the password for --broker, whose URL names the user. "+
+			"A password in a flag lands in ps.")
 	pluginSetTimeout := fs.Duration("plugin-set-timeout", host.DefaultPluginSetTimeout,
 		"How long a plugin's Set may run before the plugin counts as hung.")
 	stopTimeout := fs.Duration("stop-timeout", host.DefaultStopTimeout,
@@ -86,28 +85,24 @@ func runHost(ctx context.Context, args []string) error {
 	}
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	if *brokerPassword != "" {
-		dir := *secretsDir
-		if dir == "" {
-			dir = filepath.Join(*dataDir, host.DefaultSecretsDir)
-		}
+		dir := filepath.Join(*dataDir, host.SecretsDir)
 		withPassword, err := host.WithBrokerPassword(*broker, dir, *brokerPassword)
+		file, unread := errors.AsType[*os.PathError](err)
 		switch {
-		case err == nil:
-			*broker = withPassword
-		case errors.Is(err, os.ErrNotExist):
-			// oikade set secret/NAME needs a running host, so a first start comes before the secret does.
-			log.Error("Could not read the broker's password; restart the host once it's set", "err", err,
-				"secret", *brokerPassword)
-		default:
+		case unread:
+			return cli.Wrap(err, "could not read the broker's password from %s", file.Path).
+				WithHint("put the password in that file, readable only by the host's user, and start the host again")
+		case err != nil:
 			return err
 		}
+		*broker = withPassword
 	}
 
 	h := &host.Host{
 		DataDir: *dataDir, Home: *home, HeartbeatTimeout: *heartbeat, Settle: *settle, Log: log,
 		Version:     cli.Version(version),
 		MetricsAddr: *metricsAddr, APIAddr: *apiAddr,
-		Broker: *broker, PluginSetTimeout: *pluginSetTimeout, StopTimeout: *stopTimeout, SecretsDir: *secretsDir,
+		Broker: *broker, PluginSetTimeout: *pluginSetTimeout, StopTimeout: *stopTimeout,
 		EventLog:   store.Bound{MaxAge: *logAge, MaxBytes: *logMiB << 20},
 		RuntimeDir: runtimeDir(os.Getenv("RUNTIME_DIRECTORY")),
 	}
@@ -166,6 +161,7 @@ func dataDirError(err error, dataDir string) error {
 // each. A unit file that still passes one fails loudly rather than being quietly ignored.
 var removed = map[string]string{
 	"matter-name": "the bridge's name is MatterName in your home's oikade.Options now: set it there and deploy",
+	"secrets-dir": "your values, passwords included, go in .env beside your home's go.mod, which oikade deploy sends",
 }
 
 // runAdd trusts a new client of the network API. It goes only over the socket, so a stolen token

@@ -74,8 +74,9 @@ func (s *Session) Open(ctx context.Context, page, redirect string) (url.Values, 
 	return q, nil
 }
 
-// KeepSecret keeps value as the host's secret name, as oikade set secret/NAME would, and returns once
-// it's on disk, so ReadSecret has it straight after. A backup has it too.
+// KeepSecret keeps value as the host's secret name, such as a device's key, and returns once it's on
+// disk, so ReadSecret has it straight after, in this process and the plugin's next. A backup has it
+// too. It's the plugin's own: nothing shows it to the person setting up, and a deploy keeps it.
 func (s *Session) KeepSecret(ctx context.Context, name, value string) error {
 	if !contractv1.ValidSecretName(name) {
 		return fmt.Errorf("%q isn't a secret's name", name)

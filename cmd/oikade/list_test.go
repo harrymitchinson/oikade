@@ -58,16 +58,6 @@ func listings(now time.Time) []listing {
 		{kindPlugins, func(out, stderr *cli.Printer, empty, asJSON bool) error {
 			return printPlugins(out, stderr, st(empty), listOptions{json: asJSON})
 		}},
-		{kindSecrets, func(out, stderr *cli.Printer, empty, asJSON bool) error {
-			if empty {
-				return printSecrets(out, stderr, nil, nil, asJSON, now)
-			}
-			secrets := []api.Secret{
-				{Name: "toshiba-password", Ref: "secret/toshiba-password", Changed: now.AddDate(0, 0, -3)},
-				{Name: "ewelink-1000aabbcc", Ref: "secret/ewelink-1000aabbcc", Changed: now.Add(-40 * time.Minute)},
-			}
-			return printSecrets(out, stderr, secrets, []string{"overkiz", "toshiba-password"}, asJSON, now)
-		}},
 		{kindClients, func(out, stderr *cli.Printer, empty, asJSON bool) error {
 			if empty {
 				return printClients(out, stderr, nil, asJSON, now)

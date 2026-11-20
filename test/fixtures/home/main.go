@@ -105,8 +105,12 @@ func faultyRelays(_ plugin.Environment, devices []contractv1.DeclaredDevice) (pl
 
 // quietRelays is a second plugin, whose devices do nothing wrong but one it can't use yet. It
 // says its simulated account refuses its login until the test fixes it, and that it needs its setup
-// run until it is.
-func quietRelays(_ plugin.Environment, _ []contractv1.DeclaredDevice) (plugin.Handler, error) {
+// run until it is. It says what its setup kept as it starts, by a digest, as the plugin reads it.
+func quietRelays(env plugin.Environment, _ []contractv1.DeclaredDevice) (plugin.Handler, error) {
+	if kept, ok, err := plugin.ReadSecret(env, relays.PairingSecret); err == nil && ok {
+		sum := sha256.Sum256([]byte(kept))
+		fmt.Printf("{\"msg\":\"Read kept secret\",\"variant\":%q,\"sha\":%q}\n", variant, hex.EncodeToString(sum[:8]))
+	}
 	locked := relay("locked")
 	locked.ID += ".needs-key"
 	quiet := relay("quiet")
@@ -268,19 +272,6 @@ func start() {
 	}
 }
 
-// fixtureSecret is the secret the tests set, declared as the home is built.
-var fixtureSecret = oikade.Secret("fixture-secret")
-
-// reportSecret tells the tests a secret arrived, and only how long it is: the value mustn't be logged.
-func reportSecret() {
-	if !automations() {
-		return
-	}
-	if value, err := fixtureSecret.Read(); err == nil {
-		fmt.Printf("{\"msg\":\"Read secret\",\"length\":%d}\n", len(value))
-	}
-}
-
 // The values the tests deploy, which the variants "vars" and "vars-more" use (OIK-365).
 const (
 	fixtureToken = "FIXTURE_TOKEN"
@@ -306,7 +297,6 @@ func keyedRelays(token string) plugin.Factory {
 
 func main() {
 	start()
-	reportSecret()
 	home().Run()
 }
 
@@ -318,9 +308,6 @@ func home() *oikade.Home {
 		leakShutoff = "valve-shutoff"
 	case "removed", "crash-removed", "crash-told":
 		claimMoment = "claim-moment-2"
-	case "badsecret":
-		// A name oikade set secret/NAME refuses fails the check.
-		_ = oikade.Secret("not/a-name")
 	}
 	plugins := strings.Contains(variant, "plugins")
 	var options oikade.Options

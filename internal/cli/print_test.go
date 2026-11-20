@@ -27,7 +27,7 @@ func sample(p *Printer) {
 			{"hall-lamp", "hall", "paired", "hardware/ewelink-lan/1000aabbcc", "2", "on"},
 			{"study-blind", "study", "paired, not in your code", "hardware/overkiz/io:%2F%2F0812-4471-2093%2F5", "3",
 				"position, target-position, moving"},
-			{"office-ac", "", "no LAN key: oikade set secret/1000ddeeff", "hardware/toshiba/5f1c0c2e-77b3-4f8e-9d4a-1b2c3d4e5f60",
+			{"office-ac", "", "no LAN key: oikade setup ewelink-lan", "hardware/toshiba/5f1c0c2e-77b3-4f8e-9d4a-1b2c3d4e5f60",
 				"4", "mode, on, setpoint, temperature, fan-speed, swing"},
 		},
 	})

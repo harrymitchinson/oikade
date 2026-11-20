@@ -66,11 +66,6 @@ var kinds = []kind{
 		{Name: "oikade setup plugin/NAME", Summary: "Give it what it needs, such as a sign-in."},
 		{Name: "oikade forget --plugin NAME", Summary: "Forget every device it reported."},
 	}},
-	{"secret", "A secret is secret/NAME, a credential the host keeps for your home and its plugins.", []cli.Command{
-		{Name: "oikade list secrets", Summary: "Each with when it changed, and those your home uses that aren't set."},
-		{Name: "oikade set secret/NAME", Summary: "Set it, from stdin or a prompt."},
-		{Name: "oikade remove secret/NAME", Summary: "Remove it, for good."},
-	}},
 	{"client", "A client is client/NAME, a machine that uses the host's network API.", []cli.Command{
 		{Name: "oikade list clients", Summary: "Each with when it was added, and those waiting for their login."},
 		{Name: "oikade remove client/NAME", Summary: "Remove it, so its token stops working."},

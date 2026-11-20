@@ -20,9 +20,6 @@ func TestEmptyListsSayWhatWouldFillThem(t *testing.T) {
 		print func(stdout, stderr *bytes.Buffer, asJSON bool) error
 		hint  string
 	}{
-		{"secrets", func(stdout, stderr *bytes.Buffer, asJSON bool) error {
-			return printSecrets(cli.Plain(stdout, 0), cli.Plain(stderr, 0), nil, nil, asJSON, time.Now())
-		}, "No secrets. oikade set secret/NAME adds one."},
 		{"clients", func(stdout, stderr *bytes.Buffer, asJSON bool) error {
 			return printClients(cli.Plain(stdout, 0), cli.Plain(stderr, 0), nil, asJSON, time.Now())
 		}, "No clients. oikade-host add client/NAME, on the host's machine, adds one."},
@@ -147,19 +144,6 @@ func TestAHomeFullySetUpHasNothingLeftToSetUp(t *testing.T) {
 	}
 }
 
-// A secret that isn't set comes before the plugins' problems, which it often explains.
-func TestASecretNotSetSaysHowToSetIt(t *testing.T) {
-	st := &api.Status{Home: api.Home{Version: "v3", Process: true, UnsetSecrets: []string{"cozytouch"}},
-		Plugins: []api.Plugin{{Name: "cozytouch", Problem: "waiting for the secret cozytouch"}}}
-	got := setupGaps(st)
-	want := []string{
-		"Secret cozytouch isn't set: oikade set secret/cozytouch", "Plugin cozytouch: waiting for the secret cozytouch",
-	}
-	if !slices.Equal(got, want) {
-		t.Errorf("got %q", got)
-	}
-}
-
 // A bridge that's down can't say whether it's paired, so it says it's down instead.
 func TestABridgeThatsDownSaysSoRatherThanUnpaired(t *testing.T) {
 	st := &api.Status{Home: api.Home{Version: "v3", Process: true},
@@ -187,12 +171,12 @@ func TestManyDevicesAreCut(t *testing.T) {
 func TestAPluginsProblemIsLeftToSetUp(t *testing.T) {
 	st := &api.Status{Home: api.Home{Version: "v3", Process: true}, Plugins: []api.Plugin{
 		{Name: "blinds", Problem: "hub unreachable"},
-		{Name: "thermostats", Problem: `login refused, check the secret "thermostats"`},
+		{Name: "thermostats", Problem: `login refused: check its Password`},
 	}, Devices: []api.Device{{Name: "study-heater", Problem: "not found"}}}
 	got := setupGaps(st)
 	want := []string{
 		"Plugin blinds: hub unreachable",
-		`Plugin thermostats: login refused, check the secret "thermostats"`,
+		`Plugin thermostats: login refused: check its Password`,
 		"Devices with a problem: study-heater. Their STATE says what's wrong.",
 	}
 	if !slices.Equal(got, want) {

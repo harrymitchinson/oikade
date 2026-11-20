@@ -46,6 +46,9 @@ func refsOf(args []string) ([]named, error) {
 			}
 			ref = ident.DeviceRef(arg).String()
 		}
+		if strings.HasPrefix(ref, "secret/") {
+			return nil, cli.UsageErrorf("%s isn't a ref: a secret is one of your values now", arg).WithHint("%s", valuesHint)
+		}
 		kind, parts, err := ident.ParseRef(ref)
 		if err != nil {
 			return nil, cli.UsageErrorf("%s", err)

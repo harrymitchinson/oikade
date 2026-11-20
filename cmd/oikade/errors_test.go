@@ -57,8 +57,8 @@ func TestErrorsReadAsSentences(t *testing.T) {
 			2,
 		},
 		{
-			[]string{"status", "secret/overkiz"},
-			"Error: oikade status doesn't take secret/overkiz\n",
+			[]string{"status", "client/laptop"},
+			"Error: oikade status doesn't take client/laptop\n",
 			2,
 		},
 		{

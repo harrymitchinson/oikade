@@ -58,7 +58,7 @@ func TestCheckNameSuggestsAName(t *testing.T) {
 	}{
 		{Room, "Living Room", `"Living Room" isn't a room name: ` + Rule + `, such as "living-room"`},
 		{Flow, "good_night", `"good_night" isn't a flow name: ` + Rule + `, such as "good-night"`},
-		{Secret, "!!", `"!!" isn't a secret name: ` + Rule},
+		{Client, "!!", `"!!" isn't a client name: ` + Rule},
 		{Group, "", "a group needs a name"},
 	} {
 		err := CheckName(c.kind, c.name)

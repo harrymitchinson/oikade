@@ -51,7 +51,7 @@ func notFlagged(s oikade.Set, g oikade.Bool, r *oikade.FlowRun, st oikade.Snapsh
 	r.Do("call")
 	st.Get(g)
 	home.Run()
-	oikade.Secret("token")
+	oikade.Var("TOKEN")
 	other{}.Chain()
 	// A method value isn't followed: a gap, not a wrong report.
 	f := g.To

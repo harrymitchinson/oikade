@@ -1,8 +1,8 @@
-NAME         ROOM   STATE                                     CAPABILITIES
-hall-lamp    hall   paired                                    on
-study-blind  study  paired, not in your code                  position, target-position, moving
-office-ac           no LAN key: oikade set secret/1000ddeeff  mode, on, setpoint, temperature, fan-speed, swing
-Hint: --wide shows HARDWARE and ENDPOINT
+NAME         ROOM   STATE                                 ENDPOINT  CAPABILITIES
+hall-lamp    hall   paired                                2         on
+study-blind  study  paired, not in your code              3         position, target-position, moving
+office-ac           no LAN key: oikade setup ewelink-lan  4         mode, on, setpoint, temperature, fan-speed, swing
+Hint: --wide shows HARDWARE
 Deployed version f113018
 Warning: the broker's password isn't set
 Error: device/salon/on takes true or false, not maybe

@@ -61,9 +61,6 @@ type Host struct {
 	Version string
 	// Broker is an MQTT broker of yours, for Outside. A plugin your home imports takes its own.
 	Broker string
-	// SecretsDir holds one file per secret, which your process and plugins read. It defaults to
-	// DefaultSecretsDir in DataDir. A mounted, read-only one works, and oikade set secret/NAME says so.
-	SecretsDir string
 	// RuntimeDir is where the host writes your values for each process it starts from your binary:
 	// systemd's RuntimeDirectory, which is in memory. Empty writes them in DataDir.
 	RuntimeDir string
@@ -82,6 +79,8 @@ type Host struct {
 	plugins *plugins
 	// vars is the file of your values each process from your binary reads.
 	vars *varsFile
+	// secretsDir holds what plugins' setups keep, SecretsDir in DataDir, which they read.
+	secretsDir string
 
 	processesMu sync.Mutex
 	processes   map[*exec.Cmd]struct{}
@@ -124,11 +123,9 @@ func (h *Host) Run(ctx context.Context) error {
 			_ = data.Close()
 		}
 	}()
-	if h.SecretsDir == "" {
-		h.SecretsDir = filepath.Join(h.DataDir, DefaultSecretsDir)
-		if err := os.MkdirAll(h.SecretsDir, 0o700); err != nil {
-			return fmt.Errorf("creating the secrets directory: %w", err)
-		}
+	h.secretsDir = filepath.Join(h.DataDir, SecretsDir)
+	if err := os.MkdirAll(h.secretsDir, 0o700); err != nil {
+		return fmt.Errorf("creating the secrets directory: %w", err)
 	}
 	kept, err := h.versionsOnRecord(data)
 	if err != nil {
@@ -218,8 +215,7 @@ func (h *Host) Run(ctx context.Context) error {
 	}
 	deploys := &deployer{
 		log: h.Log.With("logger", "deploy"), versions: kept, srv: srv, settle: h.Settle, home: h.Home,
-		secrets: secrets{dir: h.SecretsDir}, vars: h.vars,
-		swaps: make(chan *swap), connected: make(chan struct{}, 1),
+		vars: h.vars, swaps: make(chan *swap), connected: make(chan struct{}, 1),
 	}
 	srv.connected = func() {
 		select {
@@ -233,7 +229,7 @@ func (h *Host) Run(ctx context.Context) error {
 		newStage(ctx), newStage(ctx), newStage(ctx), newStage(ctx), newStage(ctx)
 	calls := &apiServer{
 		log: h.Log.With("logger", "api"), ctx: apiCalls.ctx, deploys: deploys, srv: srv, devices: known, bridge: bridge,
-		data: data, dataDir: h.DataDir, secrets: secrets{dir: h.SecretsDir}, authFailures: newAuthFailures(exported),
+		data: data, dataDir: h.DataDir, secrets: secrets{dir: h.secretsDir}, authFailures: newAuthFailures(exported),
 		version: h.Version,
 	}
 	network := h.listenAPI(data, calls)

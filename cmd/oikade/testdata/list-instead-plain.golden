@@ -20,7 +20,7 @@ exit 2
 
 $ oikade secret list
 Error: oikade has no secret command
-Hint: oikade set secret/NAME sets one, oikade list secrets lists them and oikade remove secret/NAME removes one
+Hint: your values, passwords included, go in .env beside go.mod: your code reads each with oikade.Var, and oikade deploy sends them
 exit 2
 
 $ oikade client list
@@ -40,7 +40,7 @@ exit 2
 
 $ oikade ls
 Error: oikade has no ls command
-Hint: oikade list KIND lists devices, rules, plugins, secrets, clients or contexts
+Hint: oikade list KIND lists devices, rules, plugins, clients or contexts
 exit 2
 
 $ oikade get

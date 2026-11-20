@@ -40,8 +40,6 @@ type deployer struct {
 	settle   time.Duration
 	// home is the binary from the host's flags, which runs until something is deployed.
 	home string
-	// secrets is the host's, which a deploy checks its version's against.
-	secrets secrets
 	// running is the path of the binary the supervisor runs, or empty for none.
 	running string
 	// vars writes your values for a binary's check, and is nil in tests that need none.
@@ -179,8 +177,7 @@ func (d *deployer) rollback(ctx context.Context, vars map[string]string, allow b
 
 // withUnimported tells a deploy that went ahead of the devices left behind by plugins its version
 // doesn't import. They stay on record, so that a plugin briefly missing loses nothing, until you
-// remove them. It also names the secrets the version uses that aren't set, so you hear of them now
-// rather than from a plugin that can't log in.
+// remove them.
 func (d *deployer) withUnimported(resp api.Response) api.Response {
 	if resp.Error != "" {
 		return resp
@@ -189,7 +186,6 @@ func (d *deployer) withUnimported(resp api.Response) api.Response {
 	if !ok {
 		return resp
 	}
-	resp.UnsetSecrets = d.secrets.unset(cur.Manifest.Secrets)
 	if d.srv != nil && d.srv.plugins != nil && cur.Manifest.Protocol != 0 {
 		resp.Unimported = d.srv.plugins.unimported(cur.Manifest.Plugins)
 	}

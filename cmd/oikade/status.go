@@ -298,9 +298,6 @@ func trouble(st *api.Status, refs []named) []string {
 		for _, p := range st.Plugins {
 			plugin(p)
 		}
-		for _, name := range st.Home.UnsetSecrets {
-			add("secret/%s isn't set", name)
-		}
 		for _, d := range st.Devices {
 			devices(d, false)
 		}
@@ -725,10 +722,6 @@ func setupGaps(st *api.Status) []string {
 		if p.NeedsSetup {
 			gaps = append(gaps, fmt.Sprintf("Plugin %s needs setup: run oikade setup %s", p.Name, p.Name))
 		}
-	}
-	// A missing secret is often why a plugin can't log in, so it comes before the plugins' problems.
-	for _, name := range st.Home.UnsetSecrets {
-		gaps = append(gaps, unsetSecret(name))
 	}
 	// A plugin's own problem, such as a refused login, often explains its devices' problems.
 	for _, p := range st.Plugins {

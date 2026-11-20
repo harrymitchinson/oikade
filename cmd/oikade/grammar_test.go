@@ -23,7 +23,7 @@ func TestEveryVerbExitsAsTheGrammarSays(t *testing.T) {
 	refs := map[string]string{
 		"device": "device/nothing", "capability": "device/nothing/on", "room": "room/nothing",
 		"case": "case/nothing/on/never", "flow": "flow/nothing", "plugin": "plugin/nothing",
-		"secret": "secret/nothing", "client": "client/nothing", "matter": "matter",
+		"client": "client/nothing", "matter": "matter",
 	}
 	// A bare word is a verb's main kind: a device for status, history, tail and forget, and a plugin
 	// for setup. Every other verb needs a ref.
@@ -59,7 +59,7 @@ func TestEveryVerbExitsAsTheGrammarSays(t *testing.T) {
 				continue
 			}
 			args := []string{verb, ref}
-			if verb == "set" && k.word != "secret" {
+			if verb == "set" {
 				args = append(args, "true")
 			}
 			want := cli.ExitUsage
@@ -121,7 +121,7 @@ func stdinOf(t *testing.T, s string) {
 	})
 }
 
-// aHostWithNothing is a host with nothing on record: an empty status, no secrets or clients, an empty
+// aHostWithNothing is a host with nothing on record: an empty status, no clients, an empty
 // log, and an error for anything asked of something.
 func aHostWithNothing(t *testing.T) (dir string) {
 	t.Helper()
@@ -143,7 +143,6 @@ func aHostWithNothing(t *testing.T) (dir string) {
 	mux := http.NewServeMux()
 	// A process is running, so the host can say what its rules are: none.
 	mux.HandleFunc("GET "+api.Prefix+"/status", answer(api.Response{Status: &api.Status{Home: api.Home{Process: true}}}))
-	mux.HandleFunc("GET "+api.Prefix+"/secrets", answer(api.Response{}))
 	mux.HandleFunc("GET "+api.Prefix+"/clients", answer(api.Response{}))
 	stream := func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", api.StreamContentType)

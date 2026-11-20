@@ -1,8 +1,8 @@
-[1mNAME[0m         [1mROOM[0m   [1mSTATE[0m                                     [1mCAPABILITIES[0m
-hall-lamp    hall   paired                                    on
-study-blind  study  paired, not in your code                  position, target-position, moving
-office-ac           no LAN key: oikade set secret/1000ddeeff  mode, on, setpoint, temperature, fan-speed, swing
-[2mHint: --wide shows HARDWARE and ENDPOINT[0m
+[1mNAME[0m         [1mROOM[0m   [1mSTATE[0m                                 [1mENDPOINT[0m  [1mCAPABILITIES[0m
+hall-lamp    hall   paired                                2         on
+study-blind  study  paired, not in your code              3         position, target-position, moving
+office-ac           no LAN key: oikade setup ewelink-lan  4         mode, on, setpoint, temperature, fan-speed, swing
+[2mHint: --wide shows HARDWARE[0m
 [32m✓[0m Deployed version f113018
 [33m![0m [33mWarning:[0m the broker's password isn't set
 [31m✗[0m [31mError:[0m device/salon/on takes true or false, not maybe

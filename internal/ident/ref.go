@@ -33,7 +33,6 @@ var refShape = map[Kind][][]string{
 	Case:     {{partDevice, partCapability, "CASE"}},
 	Flow:     {{"FLOW"}},
 	Plugin:   {{"PLUGIN"}},
-	Secret:   {{"SECRET"}},
 	Client:   {{"CLIENT"}},
 	Matter:   {{}},
 	Command:  {{}},
@@ -47,7 +46,7 @@ const (
 )
 
 // kinds lists the kinds in the order an error gives them.
-var kinds = []Kind{Device, Hardware, Room, Group, Case, Flow, Plugin, Secret, Client, Matter, Command}
+var kinds = []Kind{Device, Hardware, Room, Group, Case, Flow, Plugin, Client, Matter, Command}
 
 // NewRef is the ref of kind k with these parts. A part that isn't a name, as a driver's ID may not
 // be, is percent-encoded.
@@ -110,11 +109,10 @@ func ParseRef(s string) (Kind, []string, error) {
 	return k, parts, nil
 }
 
-// checkPart refuses a part that should be a name and isn't. A driver's ID is the driver's, and a
-// secret may be named by a plugin, under the contract's rule.
+// checkPart refuses a part that should be a name and isn't. A driver's ID is the driver's.
 func checkPart(part, p string) error {
 	switch part {
-	case "ID", "SECRET":
+	case "ID":
 		return nil
 	case partCapability:
 		if !ValidName(p) {

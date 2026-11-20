@@ -159,7 +159,6 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 	printUnimported(os.Stderr, resp.Unimported)
 	printTakenOffMatter(os.Stderr, resp.TakenOffMatter)
 	printDeviceChanges(os.Stderr, resp)
-	defer printUnsetSecrets(os.Stderr, resp.UnsetSecrets)
 	stdout := printerOf(d.stdout)
 	switch {
 	case resp.Error != "":
@@ -228,7 +227,6 @@ func runRollback(ctx context.Context, args []string) error {
 	printUnimported(os.Stderr, resp.Unimported)
 	printTakenOffMatter(os.Stderr, resp.TakenOffMatter)
 	printDeviceChanges(os.Stderr, resp)
-	defer printUnsetSecrets(os.Stderr, resp.UnsetSecrets)
 	hint := "oikade rollback --env-file FILE rolls back with values of your own"
 	if *envFile != "" {
 		hint = fmt.Sprintf("add %s to %s", them(resp.MissingVars), vals.file)

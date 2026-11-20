@@ -11,7 +11,6 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/registry"
 )
 
@@ -23,13 +22,12 @@ const (
 	kindDevices  = "devices"
 	kindRules    = "rules"
 	kindPlugins  = "plugins"
-	kindSecrets  = "secrets"
 	kindClients  = "clients"
 	kindContexts = "contexts"
 )
 
 // listKinds are the kinds oikade list takes, in the order help gives them.
-var listKinds = []string{kindDevices, kindRules, kindPlugins, kindSecrets, kindClients, kindContexts}
+var listKinds = []string{kindDevices, kindRules, kindPlugins, kindClients, kindContexts}
 
 // listKind is the kind a word names, singular or plural.
 func listKind(word string) (string, bool) {
@@ -56,6 +54,10 @@ func runList(ctx context.Context, args []string) error {
 		return cli.UsageErrorf("oikade list takes one kind").WithHint("%s", kinds)
 	}
 	kind, ok := listKind(words[0])
+	if words[0] == "secrets" || words[0] == "secret" {
+		return cli.UsageErrorf("oikade list doesn't take %s: a secret is one of your values now", words[0]).
+			WithHint("%s", valuesHint)
+	}
 	if !ok {
 		return cli.UsageErrorf("oikade list doesn't take %s", words[0]).WithHint("%s", kinds)
 	}
@@ -94,16 +96,6 @@ func runList(ctx context.Context, args []string) error {
 			return err
 		}
 		return printClients(std.out, std.err, resp.Clients, o.json, now)
-	case kindSecrets:
-		resp, err := call(ctx, t, api.Request{Type: api.TypeSecrets})
-		if err != nil {
-			return err
-		}
-		st, err := statusOf(ctx, t)
-		if err != nil {
-			return err
-		}
-		return printSecrets(std.out, std.err, resp.Secrets, st.Home.UnsetSecrets, o.json, now)
 	}
 	st, err := statusOf(ctx, t)
 	if err != nil {
@@ -280,38 +272,6 @@ func printPlugins(out, stderr *cli.Printer, st *api.Status, o listOptions) error
 		stderr.Hint("--wide shows %s", andList(dropped))
 	}
 	stderr.Hint("oikade status plugin/NAME says what's wrong with one")
-	return nil
-}
-
-// printSecrets lists the secrets, with when each last changed, and those your home uses that aren't
-// set, or says there are none and how to add one.
-func printSecrets(out, stderr *cli.Printer, secrets []api.Secret, unset []string, asJSON bool, now time.Time) error {
-	all := append([]api.Secret{}, secrets...)
-	for _, name := range unset {
-		if !slices.ContainsFunc(all, func(s api.Secret) bool { return s.Name == name }) {
-			all = append(all, api.Secret{Name: name, Ref: ident.NewRef(ident.Secret, name).String(), Unset: true})
-		}
-	}
-	slices.SortFunc(all, func(a, b api.Secret) int { return strings.Compare(a.Name, b.Name) })
-	if asJSON {
-		return printJSON(out, all)
-	}
-	if len(all) == 0 {
-		stderr.Println("No secrets. oikade set secret/NAME adds one.")
-		return nil
-	}
-	table := cli.Table{Columns: []cli.Column{{Header: nameHeader}, {Header: "CHANGED"}}}
-	for _, s := range all {
-		changed := "not set"
-		if !s.Unset {
-			changed = cli.Ago(s.Changed, now)
-		}
-		table.Rows = append(table.Rows, []string{s.Name, changed})
-	}
-	out.Table(table)
-	if len(all) > len(secrets) {
-		stderr.Hint("your home uses a secret that isn't set: oikade set secret/NAME sets it")
-	}
 	return nil
 }
 

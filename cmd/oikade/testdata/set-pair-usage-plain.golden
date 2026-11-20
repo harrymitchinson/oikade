@@ -1,32 +1,21 @@
-$ oikade set secret/api-key hunter2
-Error: oikade set doesn't take a secret's value as an argument, so it sent nothing: the value is in your shell's history now
+$ oikade set secret/api-key
+Error: oikade set takes a capability's ref and its value, and a secret is one of your values now
 Usage:
   oikade set device/DEVICE/CAPABILITY VALUE [--json]
-  oikade set secret/NAME [--json]
-Hint: run oikade set secret/api-key alone, which asks for the value or reads it from stdin, and change the secret where it came from if it matters
+Hint: your values, passwords included, go in .env beside go.mod: your code reads each with oikade.Var, and oikade deploy sends them
 exit 2
 
 $ oikade set desk-plug on true
 Error: oikade set takes a capability's ref and its value
 Usage:
   oikade set device/DEVICE/CAPABILITY VALUE [--json]
-  oikade set secret/NAME [--json]
 Hint: oikade set device/desk-plug/on true
 exit 2
 
 $ oikade set device/desk-plug/on
-Error: oikade set takes a capability's ref and its value, or a secret's ref
+Error: oikade set takes a capability's ref and its value
 Usage:
   oikade set device/DEVICE/CAPABILITY VALUE [--json]
-  oikade set secret/NAME [--json]
-Hint: oikade set --help says more
-exit 2
-
-$ oikade set secret/a/b
-Error: "secret/a/b" isn't a ref: a secret's is secret/SECRET
-Usage:
-  oikade set device/DEVICE/CAPABILITY VALUE [--json]
-  oikade set secret/NAME [--json]
 Hint: oikade set --help says more
 exit 2
 
@@ -53,7 +42,7 @@ exit 2
 
 $ oikade secret set api-key
 Error: oikade has no secret command
-Hint: oikade set secret/NAME sets one, oikade list secrets lists them and oikade remove secret/NAME removes one
+Hint: your values, passwords included, go in .env beside go.mod: your code reads each with oikade.Var, and oikade deploy sends them
 exit 2
 
 $ oikade matter
@@ -90,14 +79,6 @@ Error: --module is --module-path now
 Usage:
   oikade init [DIR] [--module-path PATH] [--source DIR]
 Hint: oikade init --help says more
-exit 2
-
-$ oikade set secret/My_Key hunter2
-Error: oikade set doesn't take a secret's value as an argument, so it sent nothing: the value is in your shell's history now
-Usage:
-  oikade set device/DEVICE/CAPABILITY VALUE [--json]
-  oikade set secret/NAME [--json]
-Hint: run oikade set secret/My_Key alone, which asks for the value or reads it from stdin, and change the secret where it came from if it matters
 exit 2
 
 $ oikade pair matter --for 1m

@@ -43,7 +43,7 @@ func TestForgetAndRemoveSayWhatTheyDid(t *testing.T) {
 	removes := []struct {
 		ref       string
 		cancelled bool
-	}{{"secret/weather-api-key", false}, {"client/old-laptop", false}, {"client/phone", true}}
+	}{{"client/old-laptop", false}, {"client/phone", true}}
 	for name, printer := range printers {
 		var b bytes.Buffer
 		for _, f := range forgets {
@@ -62,15 +62,17 @@ func TestForgetAndRemoveSayWhatTheyDid(t *testing.T) {
 	}
 }
 
-// forget takes devices and remove secrets and clients, and each, given the other's, names it. Each
-// is a command typed wrong, which exits 2 before anything reaches a host.
+// forget takes devices and remove clients, and each, given the other's, names it. A secret is one of
+// your values, in .env, which each names. Each is a command typed wrong, which exits 2 before
+// anything reaches a host.
 func TestForgetAndRemoveNameEachOther(t *testing.T) {
 	var b bytes.Buffer
 	for _, args := range []string{
 		"forget", "forget secret/api-key", "forget client/old-laptop", "forget plugin/relays", "forget room/hall",
 		"forget matter", "forget porch-light --plugin relays", "forget Porch",
 		"remove", "remove porch-light", "remove device/porch-light", "remove plugin/relays", "remove client/Bad",
-		"secret remove api-key", "client revoke old-laptop", "devices remove porch-light", "revoke", "rm", "add",
+		"remove secret/api-key", "secret remove api-key", "client revoke old-laptop", "devices remove porch-light",
+		"revoke", "rm", "add",
 	} {
 		_, errs, code := runOikade(t, cli.Plain, strings.Fields(args)...)
 		_, _ = fmt.Fprintf(&b, "$ oikade %s\n%sexit %d\n\n", args, errs, code)
@@ -83,8 +85,8 @@ func TestForgetAndRemoveNameEachOther(t *testing.T) {
 
 // The same thing twice is removed, or forgotten, once.
 func TestRemoveAndForgetTakeEachOnce(t *testing.T) {
-	refs, err := removable([]string{"secret/api-key", "client/ci", "secret/api-key"})
-	if err != nil || len(refs) != 2 || refs[0].ref != "secret/api-key" || refs[1].ref != "client/ci" {
+	refs, err := removable([]string{"client/old-laptop", "client/ci", "client/old-laptop"})
+	if err != nil || len(refs) != 2 || refs[0].ref != "client/old-laptop" || refs[1].ref != "client/ci" {
 		t.Errorf("got %+v, %v", refs, err)
 	}
 	if names, err := forgettable([]string{"porch-light", "device/porch-light"}); err != nil || len(names) != 1 {
@@ -96,22 +98,22 @@ func TestRemoveAndForgetTakeEachOnce(t *testing.T) {
 // reach.
 func TestRemoveJSONSaysItFailed(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	out, _, code := runOikade(t, cli.Plain, "remove", "secret/api-key", "--json", "--data-dir", t.TempDir())
+	out, _, code := runOikade(t, cli.Plain, "remove", "client/old-laptop", "--json", "--data-dir", t.TempDir())
 	if code != 1 || !strings.HasPrefix(out, `{"ok":false,"error":`) || !strings.HasSuffix(out, `"refs":[]}`+"\n") {
 		t.Errorf("exit %d: %s", code, out)
 	}
 }
 
-// set takes a capability's ref or a secret's, pair takes matter, and the forms they replaced name
-// them. Each is a command typed wrong, which exits 2 before anything reaches a host: a secret's value
-// given as an argument most of all, as it's in the shell's history.
+// set takes a capability's ref, pair takes matter, and the forms they replaced name them, as set
+// given a secret names .env. Each is a command typed wrong, which exits 2 before anything reaches a
+// host.
 func TestSetAndPairNameWhatTheyTake(t *testing.T) {
 	var b bytes.Buffer
 	for _, args := range []string{
-		"set secret/api-key hunter2", "set desk-plug on true", "set device/desk-plug/on", "set secret/a/b",
+		"set secret/api-key", "set desk-plug on true", "set device/desk-plug/on",
 		"pair", "pair device/desk-plug", "pair matter --for 0s", "secret set api-key", "matter", "matter open",
 		"open", "deploy --allow-safety-removal", "rollback --allow-safety-removal=true", "init --module example.com/home",
-		"set secret/My_Key hunter2", "pair matter --for 1m", "pair matter --for 20m",
+		"pair matter --for 1m", "pair matter --for 20m",
 	} {
 		_, errs, code := runOikade(t, cli.Plain, strings.Fields(args)...)
 		_, _ = fmt.Fprintf(&b, "$ oikade %s\n%sexit %d\n\n", args, errs, code)

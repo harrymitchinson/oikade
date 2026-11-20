@@ -38,7 +38,6 @@ import (
 	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/matterbridge"
 	"github.com/harrymitchinson/oikade/internal/schedule"
-	"github.com/harrymitchinson/oikade/internal/secretuse"
 	"github.com/harrymitchinson/oikade/internal/sun"
 	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
@@ -874,7 +873,6 @@ func (h *Home) manifest() wire.Manifest {
 	}
 	m.Control = settingsOf(decided)
 	m.Inventory = h.inventory()
-	m.Secrets = secretuse.Names()
 	m.Vars = hostVars.names()
 	m.HiddenFromMatter = h.hiddenFromMatter()
 	return m

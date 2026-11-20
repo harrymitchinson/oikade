@@ -27,7 +27,7 @@ func TestAPI(t *testing.T) {
 		{"an unknown route names it", http.MethodPost, "/v1/nothing", "", http.StatusNotFound, "this host speaks /v1"},
 		{"the wrong method is no route", http.MethodPost, "/v1/status", "", http.StatusNotFound, "this host speaks /v1"},
 		{"a body that isn't JSON", http.MethodPost, "/v1/set", "{", http.StatusBadRequest, "reading the request"},
-		{"a refused call", http.MethodPost, "/v1/secrets/set", `{"secret":"../x"}`, http.StatusUnprocessableEntity, ""},
+		{"a refused call", http.MethodPost, "/v1/matter/open", `{}`, http.StatusUnprocessableEntity, "Matter turned off"},
 		{"a call with no body", http.MethodGet, "/v1/info", "", http.StatusOK, ""},
 	}
 	for _, c := range cases {

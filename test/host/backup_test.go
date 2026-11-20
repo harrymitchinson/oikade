@@ -1,13 +1,9 @@
 package host
 
 import (
-	"bytes"
-	"encoding/json"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -15,24 +11,6 @@ import (
 	"github.com/harrymitchinson/oikade/internal/host/api"
 	"github.com/harrymitchinson/oikade/internal/matter/nodetest"
 )
-
-const secretValue = "correct-horse-battery-staple"
-
-// setSecret sets a secret as a script does, with its value on stdin.
-func (r *rig) setSecret(name string) error {
-	r.t.Helper()
-	cmd := exec.Command(ctlBin, "set", "--data-dir", r.dir, "secret/"+name)
-	cmd.Stdin = strings.NewReader(secretValue + "\n")
-	var out bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &out
-	if err := cmd.Run(); err != nil {
-		return &exec.ExitError{Stderr: out.Bytes()}
-	}
-	if strings.Contains(out.String(), secretValue) {
-		r.t.Errorf("oikade set secret/NAME printed the value: %s", out.String())
-	}
-	return nil
-}
 
 // copyDataDir copies what's in a data directory, as a backup tool does: it has no use for sockets.
 func copyDataDir(t *testing.T, from string) string {
@@ -86,9 +64,6 @@ func TestARestoredDataDirectoryBringsTheHomeBackWithNoPairing(t *testing.T) {
 	if version == "" {
 		t.Fatal("no version running")
 	}
-	if err := r.setSecret("api-key"); err != nil {
-		t.Fatal(err)
-	}
 	backup := strings.TrimSpace(string(r.stdout(nil, "backup")))
 	if filepath.Dir(backup) != filepath.Join(r.dir, "backups") {
 		t.Fatalf("the backup is at %s", backup)
@@ -135,117 +110,5 @@ func TestARestoredDataDirectoryBringsTheHomeBackWithNoPairing(t *testing.T) {
 	c.reaches("fan")
 	if got := r.status().Home.Version; got != version {
 		t.Errorf("version %s became %s", version, got)
-	}
-	if !strings.Contains(string(r.stdout(nil, "list", "secrets")), "api-key") {
-		t.Error("the secret didn't come back")
-	}
-}
-
-func TestSecretsReachYourProcessAndPluginsAndNoLogOrAnswer(t *testing.T) {
-	t.Parallel()
-	r := prepare(t)
-	if err := os.MkdirAll(filepath.Join(r.dir, "secrets"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	r.launch("--matter-port=0")
-	r.waitFor(func(l line) bool { return l.is(attached) })
-	if err := r.setSecret("fixture-secret"); err != nil {
-		t.Fatal(err)
-	}
-	info, err := os.Stat(filepath.Join(r.dir, "secrets", "fixture-secret"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("the secret's file is %o", info.Mode().Perm())
-	}
-
-	// The next process finds it, as a file, and says only how long it was.
-	r.kill()
-	r.awaitCount(1, "Read secret", "length", float64(len(secretValue)))
-
-	var listed []api.Secret
-	if err := json.Unmarshal(r.stdout(nil, "list", "secrets", "--json"), &listed); err != nil {
-		t.Fatal(err)
-	}
-	if len(listed) != 1 || listed[0].Name != "fixture-secret" || listed[0].Changed.IsZero() {
-		t.Errorf("listed %+v", listed)
-	}
-	if out := r.stdout(nil, "list", "secrets", "--json"); bytes.Contains(out, []byte(secretValue)) {
-		t.Errorf("--json has the value: %s", out)
-	}
-	r.stdout(nil, "remove", "secret/fixture-secret")
-	if out := r.stdout(nil, "list", "secrets"); len(out) != 0 {
-		t.Errorf("after removing it: %s", out)
-	}
-	if strings.Contains(r.dump(), secretValue) {
-		t.Errorf("the value is in the host's log:\n%s", r.dump())
-	}
-}
-
-func TestASecretsNameCantLeaveTheDirectory(t *testing.T) {
-	t.Parallel()
-	r := start(t, "--matter-port=0")
-	for _, name := range []string{"../oikade.db", ".hidden", "a/b", ""} {
-		if err := r.setSecret(name); err == nil {
-			t.Errorf("set a secret called %q", name)
-		}
-	}
-	if _, err := os.Stat(filepath.Join(r.dir, "oikade.db")); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// oikade set secret/NAME needs a running host, so a host can't refuse to start for want of a secret.
-func TestAHostStartsBeforeItsBrokerPasswordIsSet(t *testing.T) {
-	t.Parallel()
-	r := start(t, "--outside-plugins", "kettle",
-		"--broker", "mqtt://oikade@127.0.0.1:1", "--broker-password-secret", "broker")
-	if err := r.setSecret("broker"); err != nil {
-		t.Fatal(err)
-	}
-	if r.count("Could not read the broker's password; restart the host once it's set") != 1 {
-		t.Errorf("it didn't say why it has no password:\n%s", r.dump())
-	}
-}
-
-// A deploy goes ahead with a secret the home uses that isn't set, and names it, as status does until
-// it's set.
-func TestADeployNamesTheSecretsThatArentSet(t *testing.T) {
-	t.Parallel()
-	r := start(t, "--matter-port=0")
-	stderr, err := r.deploy("second")
-	if err != nil {
-		t.Fatalf("%v: %s", err, stderr)
-	}
-	r.awaitDeployed()
-	notSet := "Secret fixture-secret isn't set: oikade set secret/fixture-secret"
-	if !strings.Contains(stderr, notSet) {
-		t.Errorf("the deploy said:\n%s", stderr)
-	}
-	status := func() *api.Status {
-		var st api.Status
-		if err := json.Unmarshal(r.stdout(nil, "status", "--json"), &st); err != nil {
-			t.Fatal(err)
-		}
-		return &st
-	}
-	if got := status().Home.UnsetSecrets; !slices.Equal(got, []string{"fixture-secret"}) {
-		t.Errorf("status has unset %q", got)
-	}
-	if err := r.setSecret("fixture-secret"); err != nil {
-		t.Fatal(err)
-	}
-	if got := status().Home.UnsetSecrets; len(got) != 0 {
-		t.Errorf("once it's set, status has unset %q", got)
-	}
-}
-
-func TestASecretsBadNameFailsTheCheck(t *testing.T) {
-	t.Parallel()
-	r := start(t, "--matter-port=0")
-	stderr, err := r.deploy("badsecret")
-	if err == nil || !strings.Contains(stderr, `"not/a-name" isn't a secret name`) {
-		t.Errorf("err = %v, the deploy said:\n%s", err, stderr)
 	}
 }

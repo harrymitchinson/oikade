@@ -61,8 +61,8 @@ type Plugin struct{}
 func (h *Home) Plugin(name string, factory any) *Plugin { return &Plugin{} }
 func (p *Plugin) HideFromMatter() *Plugin               { return p }
 
-// Secret declares a secret as it's made, so a discarded one still does something.
-func Secret(name string) string { return name }
+// Var declares a value as it's read, so a discarded one still does something.
+func Var(name string) string { return "" }
 
 type FlowRun struct{}
 

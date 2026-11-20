@@ -7,24 +7,19 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
-func TestListSkipsWhatACrashLeft(t *testing.T) {
-	dir := t.TempDir()
-	for _, name := range []string{"api-key", ".new-123"} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte("value"), 0o600); err != nil {
-			t.Fatal(err)
+// eWeLink LAN keeps a device's key under the device's ID, which starts with a digit, and a name that
+// would leave the directory is refused.
+func TestASetupKeepsASecretUnderAPluginsName(t *testing.T) {
+	s := secrets{dir: t.TempDir()}
+	if err := s.set("1000aabbcc", "v"); err != nil {
+		t.Error(err)
+	}
+	for _, name := range []string{"../x", "a/b", ""} {
+		if err := s.set(name, "the-value"); err == nil || strings.Contains(err.Error(), "the-value") {
+			t.Errorf("%q: %v", name, err)
 		}
-	}
-	found, err := secrets{dir: dir}.list()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(found) != 1 || found[0].Name != "api-key" {
-		t.Errorf("found %+v", found)
 	}
 }
 
@@ -51,47 +46,7 @@ func TestSetLeavesOnlyTheFileAndReplacesIt(t *testing.T) {
 	}
 }
 
-func TestSetOnAReadOnlyDirectorySaysWhereToChangeIt(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root writes anywhere")
-	}
-	dir := t.TempDir()
-	if err := os.Chmod(dir, 0o500); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
-	err := secrets{dir: dir}.set("api-key", "value")
-	if err == nil || !strings.Contains(err.Error(), "read-only") {
-		t.Errorf("err = %v", err)
-	}
-}
-
-func TestASecretCanHaveAPluginsName(t *testing.T) {
-	// eWeLink LAN keeps a device's key under the device's ID, which starts with a digit.
-	s := &apiServer{log: logging.Discard(), secrets: secrets{dir: t.TempDir()}}
-	for _, req := range []api.Request{
-		{Type: api.TypeSecretSet, Secret: "1000aabbcc", SecretValue: "v"},
-		{Type: api.TypeSecretRemove, Secret: "1000aabbcc"},
-	} {
-		if resp := s.secret(req); resp.Error != "" {
-			t.Errorf("%s: %s", req.Type, resp.Error)
-		}
-	}
-}
-
-func TestAnAPIRefusalNeverEchoesTheValue(t *testing.T) {
-	s := &apiServer{log: logging.Discard(), secrets: secrets{dir: filepath.Join(t.TempDir(), "gone")}}
-	resp := s.secret(api.Request{Type: api.TypeSecretSet, Secret: "api-key", SecretValue: "the-value"})
-	if resp.Error == "" || strings.Contains(resp.Error, "the-value") {
-		t.Errorf("error = %q", resp.Error)
-	}
-	resp = s.secret(api.Request{Type: api.TypeSecretSet, Secret: "../x", SecretValue: "the-value"})
-	if resp.Error == "" || strings.Contains(resp.Error, "the-value") {
-		t.Errorf("error = %q", resp.Error)
-	}
-}
-
-func TestBrokerPasswordComesFromTheSecretAndStaysOutOfTheLog(t *testing.T) {
+func TestBrokerPasswordComesFromItsFileAndStaysOutOfTheLog(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "broker"), []byte("p@ss/word\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -128,18 +83,4 @@ func mustTime(t *testing.T, s string) time.Time {
 		t.Fatal(err)
 	}
 	return at
-}
-
-func TestUnsetAreTheNamesWithNoFile(t *testing.T) {
-	s := secrets{dir: t.TempDir()}
-	if err := s.set("cozytouch", "value"); err != nil {
-		t.Fatal(err)
-	}
-	got := s.unset([]string{"cozytouch", "weather-api-key", "../escape"})
-	if !slices.Equal(got, []string{"weather-api-key"}) {
-		t.Errorf("unset = %q", got)
-	}
-	if got := s.unset(nil); got != nil {
-		t.Errorf("with none used: %q", got)
-	}
 }

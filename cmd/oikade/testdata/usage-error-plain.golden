@@ -1,8 +1,7 @@
 exit 2
 --- stdout
 --- stderr
-Error: oikade set takes a capability's ref and its value, or a secret's ref
+Error: oikade set takes a capability's ref and its value
 Usage:
   oikade set device/DEVICE/CAPABILITY VALUE [--json]
-  oikade set secret/NAME [--json]
 Hint: oikade set --help says more

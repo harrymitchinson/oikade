@@ -10,18 +10,23 @@ import (
 	"testing"
 )
 
-// gone are the commands and flags OIK-355 replaced, each with what replaced it.
+// gone are the commands and flags OIK-355 and OIK-365 replaced, each with what replaced it.
 var gone = []struct {
 	pattern *regexp.Regexp
 	now     string
 }{
 	{regexp.MustCompile(`oikade devices\b`), "oikade list devices, or oikade forget"},
-	{regexp.MustCompile(`oikade secret\b`), "oikade set secret/NAME, oikade list secrets or oikade remove secret/NAME"},
+	{regexp.MustCompile(`oikade secrets?\b`), "a value in .env, which oikade.Var reads"},
 	{regexp.MustCompile(`oikade client\b`), "oikade list clients, or oikade remove client/NAME"},
 	{regexp.MustCompile(`oikade-host client\b`), "oikade-host add client/NAME"},
 	{regexp.MustCompile(`oikade matter\b`), "oikade status matter, or oikade pair matter"},
 	{regexp.MustCompile(`\b(devices remove|secret set|secret remove|client revoke|client add|matter open)\b`),
-		"forget, set secret/NAME, remove or pair matter"},
+		"forget, a value in .env, remove or pair matter"},
+	{regexp.MustCompile(`oikade (set|remove) secret/|oikade list secrets?\b|secret/NAME`),
+		"a value in .env, which oikade.Var reads"},
+	{regexp.MustCompile(`\b(oikade|plugin)\.(New)?Secret\b|ErrSecretNotSet|unsetSecrets`),
+		"oikade.Var, and a plain string in a plugin's config"},
+	{regexp.MustCompile(`--secrets-dir\b`), "a value in .env, or a file in the data directory's secrets"},
 	{regexp.MustCompile(`--allow-safety-removal\b`), "--allow-safety"},
 	{regexp.MustCompile(`oikade init\b[^\n]*--module\b[^-]`), "oikade init --module-path"},
 }

@@ -206,10 +206,10 @@ func TestTheHostFiltersItsEvents(t *testing.T) {
 	if !reflect.DeepEqual(got, want) || len(want) == 0 || len(want) == len(all) {
 		t.Errorf("from %s to %s the host sent %d events, want %d of %d", since, until, len(got), len(want), len(all))
 	}
-	err := api.Events(t.Context(), api.Local{DataDir: r.dir}, api.EventFilter{Refs: []string{"secret/token"}},
+	err := api.Events(t.Context(), api.Local{DataDir: r.dir}, api.EventFilter{Refs: []string{"client/laptop"}},
 		func(api.EventLog) error { return nil }, func(api.Event) error { return nil })
-	if err == nil || !strings.Contains(err.Error(), "secret/token has no events") {
-		t.Errorf("a secret's events: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "client/laptop has no events") {
+		t.Errorf("a client's events: %v", err)
 	}
 
 	// The lamp's past, then the lamp as it happens, and nothing of the fan either way.

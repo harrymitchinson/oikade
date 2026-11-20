@@ -21,7 +21,7 @@ Ask your home
   tail      What's your home doing, as it happens?
 
 Drive it
-  set       Set a capability as a person would, or a secret.
+  set       Set a capability as a person would.
   pause     Pause a rule, so it lets go of what it holds until you resume it.
   resume    Resume a rule you paused.
 
@@ -29,7 +29,7 @@ Pair and clean up
   setup     Give a plugin what it needs, such as a sign-in, on the host.
   pair      Open the Matter bridge's window to pair a controller.
   forget    Forget devices a plugin reports, or every device of a plugin.
-  remove    Remove secrets and clients from the host, for good.
+  remove    Remove clients from the host, for good.
 
 Host access
   login     Trust a host's network API, and use it from now on.
@@ -38,7 +38,7 @@ Host access
 
 oikade help COMMAND, or oikade COMMAND --help, says more of one, and oikade help
 KIND, such as oikade help device, lists the commands that take one: device,
-capability, room, case, flow, plugin, secret, client, context or matter.
+capability, room, case, flow, plugin, client, context or matter.
 
 Every command that talks to a host takes --data-dir DIR, for the host on this
 machine, and --context NAME, which reaches a host you logged in to over its

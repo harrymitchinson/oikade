@@ -3,13 +3,13 @@ Home f113018 · automations connected 8 min ago
 [1mNAME[0m         [1mROOM[0m   [1mVALUES[0m                                                    [1mSTATE[0m
 hall-lamp    hall   on false
 office-ac           mode cool, on true, setpoint 21.5°C, temperature 24.25°C  [2mnot in your code[0m
-porch-light                                                                   no LAN key: oikade set secret/1000ddeeff
+porch-light                                                                   no LAN key: oikade setup ewelink-lan
 study-blind  study  position 40%, target-position 40, moving false            went offline today 12:25
 
 case/office-ac/on/too-warm  case  active since 13:52
 flow/morning  flow
 --- stderr
-Plugin overkiz: login refused: check secret/overkiz
+Plugin overkiz: login refused: check overkiz.Local's Token
 Devices with a problem: porch-light. Their STATE says what's wrong.
 [2moffice-ac isn't in your code: oikade list devices shows how to declare it[0m
 [2mHint: oikade status office-ac says why each of its values is what it is[0m
