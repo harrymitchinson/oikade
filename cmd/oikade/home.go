@@ -448,7 +448,9 @@ func TestPorchLightFollowsThePorchSensor(t *testing.T) {
 // where the host serves its API, turns them on. The deploy then needs OIKADE_PIN, the pin add printed,
 // because a key taken from whatever answers proves nothing, and the secret OIKADE_TOKEN, from
 // oikade-host add client/ci --token. Until then, a push to main leaves a notice saying how. GitHub's
-// runners reach the host only if it's on the internet, so deploys run on a self-hosted runner.
+// runners reach the host only if it's on the internet, so deploys run on a self-hosted runner. That
+// runner's user may be a person's too, so the deploy keeps its oikade and its context in RUNNER_TEMP,
+// which GitHub empties for each job, rather than replacing theirs.
 const homeWorkflow = `name: Home
 
 on:
@@ -476,11 +478,19 @@ jobs:
     needs: test
     if: github.event_name == 'push' && vars.OIKADE_ADDRESS != ''
     runs-on: self-hosted
+    # One deploy at a time, and a push replaces a deploy still waiting, so the last push wins.
+    concurrency: deploy
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      # A self-hosted runner keeps its home between jobs, so this oikade and its login stay out of it.
+      - name: Keep to the job's own directory
+        run: |
+          echo "GOBIN=$RUNNER_TEMP/bin" >> "$GITHUB_ENV"
+          echo "XDG_CONFIG_HOME=$RUNNER_TEMP/config" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
       - run: go install github.com/harrymitchinson/oikade/cmd/oikade@OIKADE_VERSION
       - name: Deploy
         env:

@@ -13,7 +13,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go install github.com/harrymitchinson/oikade/cmd/oikade@main
+      - run: go install github.com/harrymitchinson/oikade/cmd/oikade@VERSION
       - run: oikade check
       - run: oikade test
       - name: Deploy is off
@@ -25,12 +25,20 @@ jobs:
     needs: test
     if: github.event_name == 'push' && vars.OIKADE_ADDRESS != ''
     runs-on: self-hosted
+    # One deploy at a time, and a push replaces a deploy still waiting, so the last push wins.
+    concurrency: deploy
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go install github.com/harrymitchinson/oikade/cmd/oikade@main
+      # A self-hosted runner keeps its home between jobs, so this oikade and its login stay out of it.
+      - name: Keep to the job's own directory
+        run: |
+          echo "GOBIN=$RUNNER_TEMP/bin" >> "$GITHUB_ENV"
+          echo "XDG_CONFIG_HOME=$RUNNER_TEMP/config" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - run: go install github.com/harrymitchinson/oikade/cmd/oikade@VERSION
       - name: Deploy
         env:
           OIKADE_TOKEN: ${{ secrets.OIKADE_TOKEN }}

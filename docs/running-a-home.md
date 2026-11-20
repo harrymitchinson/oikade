@@ -35,6 +35,8 @@ Removing a Safety rule is refused, and so is renaming one, because a rule's clai
 
 The workflow `oikade init` writes, `.github/workflows/deploy.yml`, checks and tests every change on GitHub's runners. Once you turn deploys on, it also deploys what reaches `main`, over the [network API](#the-network-api), from a runner that can reach the host. Until then a push to `main` passes, and leaves a notice that deploys are off, so a home you deploy from your laptop never fails its CI (OIK-286).
 
+GitHub's own runners reach the host only if its API is on the internet, which it shouldn't be, so the deploy job runs on `self-hosted`. Add a runner on your network first, in the repo's Settings → Actions → Runners: a deploy waits 24 hours for one, then GitHub cancels it. To use GitHub's runners instead, change the deploy job's `runs-on` to `ubuntu-latest`, and join the runner to your network over a VPN in a step before the deploy.
+
 CI has no one to type a code, so give it a token. On the host's machine:
 
 ```sh
@@ -49,9 +51,7 @@ gh variable set OIKADE_PIN --body sha256:9f2c…
 gh variable set OIKADE_ADDRESS --body pi.home:8443   # last, because this turns deploys on
 ```
 
-The deploy job runs `oikade login "$OIKADE_ADDRESS" --pin "$OIKADE_PIN"` with `OIKADE_TOKEN` set. That saves a context with no token in it, and `OIKADE_TOKEN` supplies one whenever that context is used. A context with a token of its own never sends `OIKADE_TOKEN`, so a token meant for one host doesn't reach another.
-
-GitHub's own runners reach the host only if its API is on the internet, which it shouldn't be, so the deploy job runs on `self-hosted`: add a runner on your network in the repo's Settings → Actions → Runners. Until one is online, a deploy waits in GitHub's queue. To use GitHub's runners instead, change the deploy job's `runs-on` to `ubuntu-latest`, and join the runner to your network over a VPN in a step before the deploy. `oikade remove client/ci` stops the token working.
+The deploy job runs `oikade login "$OIKADE_ADDRESS" --pin "$OIKADE_PIN"` with `OIKADE_TOKEN` set. That saves a context with no token in it, and `OIKADE_TOKEN` supplies one whenever that context is used. A context with a token of its own never sends `OIKADE_TOKEN`, so a token meant for one host doesn't reach another. The job keeps its `oikade` and that context in its own temporary directory, so a runner that runs as you leaves your own login alone. One deploy runs at a time, and a push while one waits takes its place, so the last push wins. `oikade remove client/ci` stops the token working.
 
 ## Running the host
 
