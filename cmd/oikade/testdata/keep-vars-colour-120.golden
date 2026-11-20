@@ -23,13 +23,13 @@ needs --allow-safety.
   oikade deploy --module ~/my-home
   oikade deploy --keep-vars
 ---
-[31m✗[0m [31mError:[0m --keep-vars keeps the host's values, and --env-file replaces them: pass one or the other
+[31m✗[0m [31mError:[0m --keep-vars and --env-file don't go together
 [1mUsage:[0m
   oikade deploy [--module DIR | --binary FILE] [--env-file FILE] [--allow-safety]
   oikade deploy [--module DIR | --binary FILE] --keep-vars [--allow-safety]
-[2mHint: oikade deploy --help says more[0m
+[2mHint: --keep-vars keeps the host's values, and --env-file replaces them with a file's: pass one[0m
 ---
 [31m✗[0m [31mError:[0m TOSHIBA_PASSWORD isn't set
-[2mHint: add it to .env or the environment, or pass --keep-vars to keep the host's values[0m
+[2mHint: add it to .env or the environment, or pass --keep-vars to use the host's, if it has it[0m
 [31m✗[0m [31mError:[0m the version uses TOSHIBA_PASSWORD, which isn't among the host's values
 [2mHint: add it to your .env, and deploy without --keep-vars, which sends your values[0m

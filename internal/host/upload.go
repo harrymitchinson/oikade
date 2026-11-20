@@ -147,7 +147,7 @@ func (s *apiServer) receive(parts *multipart.Reader) (map[string]string, string,
 	return vars, f.Name(), nil
 }
 
-// nextPart is the next part, which must be called name.
+// nextPart is the next part, which must be called one of names. A body with none names the last.
 func nextPart(parts *multipart.Reader, names ...string) (*multipart.Part, error) {
 	part, err := parts.NextPart()
 	switch {

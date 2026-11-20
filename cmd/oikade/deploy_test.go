@@ -389,12 +389,12 @@ func TestADeployMissingAValueStopsBeforeItsUpload(t *testing.T) {
 	t.Chdir(module)
 	_, err := deployValues(t, host, ".", "", []string{"TOSHIBA_USER", "TOSHIBA_PASSWORD"}, nil)
 	if err == nil || err.Error() != "TOSHIBA_PASSWORD isn't set" ||
-		hintOf(err) != "add it to .env or the environment, or pass --keep-vars to keep the host's values" {
+		hintOf(err) != "add it to .env or the environment, or pass --keep-vars to use the host's, if it has it" {
 		t.Errorf("got %v, hint %q", err, hintOf(err))
 	}
 	_, err = deployValues(t, host, ".", "", []string{"TAHOMA_PIN", "TOSHIBA_PASSWORD"}, nil)
 	if err == nil || err.Error() != "TAHOMA_PIN and TOSHIBA_PASSWORD aren't set" ||
-		hintOf(err) != "add them to .env or the environment, or pass --keep-vars to keep the host's values" {
+		hintOf(err) != "add them to .env or the environment, or pass --keep-vars to use the host's, if it has them" {
 		t.Errorf("got %v, hint %q", err, hintOf(err))
 	}
 	if got := host.deploys(); len(got) != 0 {
@@ -418,6 +418,13 @@ func TestADeployReadsTheEnvFileItsGiven(t *testing.T) {
 	_, err := deployValues(t, host, module, "missing.env", nil, nil)
 	if err == nil || err.Error() != "there's no missing.env" {
 		t.Errorf("got %v", err)
+	}
+	// --keep-vars doesn't go with --env-file, so the hint swaps one for the other.
+	_, err = deployValues(t, host, module, other, []string{"B"}, nil)
+	want := "add it to " + other + " or the environment, " +
+		"or swap --env-file for --keep-vars to use the host's, if it has it"
+	if err == nil || hintOf(err) != want {
+		t.Errorf("got %v, hint %q", err, hintOf(err))
 	}
 }
 
@@ -452,7 +459,7 @@ func TestAVersionTheHostRefusesForAMissingValueSaysWhereToAddIt(t *testing.T) {
 	t.Chdir(module)
 	_, err := deployValues(t, host, ".", "", nil, nil)
 	if err == nil || err.Error() != "the version uses A, which isn't among the deploy's values" ||
-		hintOf(err) != "add it to .env, or pass --keep-vars to keep the host's values" {
+		hintOf(err) != "add it to .env, or pass --keep-vars to use the host's, if it has it" {
 		t.Errorf("got %v, hint %q", err, hintOf(err))
 	}
 }

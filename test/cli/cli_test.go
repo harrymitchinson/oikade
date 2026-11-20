@@ -263,8 +263,8 @@ func TestADeployMissingAValueStopsBeforeItReachesAHost(t *testing.T) {
 	}
 	nowhere := t.TempDir()
 	out, err := run(t, bin, dir, "", "deploy", "--binary", "home", "--data-dir", nowhere)
-	if err == nil || !strings.Contains(out, "Error: TOSHIBA_PASSWORD isn't set\n") ||
-		!strings.Contains(out, "Hint: add it to .env or the environment, or pass --keep-vars to keep the host's values\n") ||
+	hint := "Hint: add it to .env or the environment, or pass --keep-vars to use the host's, if it has it\n"
+	if err == nil || !strings.Contains(out, "Error: TOSHIBA_PASSWORD isn't set\n") || !strings.Contains(out, hint) ||
 		strings.Contains(out, "Uploading") {
 		t.Fatalf("got %v:\n%s", err, out)
 	}
@@ -275,7 +275,7 @@ func TestADeployMissingAValueStopsBeforeItReachesAHost(t *testing.T) {
 		t.Fatalf("with --keep-vars, got %v:\n%s", err, out)
 	}
 	out, err = run(t, bin, dir, "", "deploy", "--binary", "home", "--keep-vars", "--env-file", "test-host.env")
-	usage := "Error: --keep-vars keeps the host's values, and --env-file replaces them"
+	usage := "Error: --keep-vars and --env-file don't go together"
 	if code := exitCode(err); code != 2 || !strings.Contains(out, usage) {
 		t.Fatalf("with --keep-vars and --env-file, exit %d:\n%s", code, out)
 	}

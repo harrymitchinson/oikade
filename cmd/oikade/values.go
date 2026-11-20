@@ -36,10 +36,10 @@ func readValues(module, envFile string, used []string, lookup func(string) (stri
 		return values{}, err
 	case len(missing) == 1:
 		return values{}, cli.Errorf("%s isn't set", missing[0]).
-			WithHint("add it to %s or the environment, or pass --keep-vars to keep the host's values", v.file)
+			WithHint("add it to %s or the environment, %s", v.file, keepInstead(envFile, missing))
 	case len(missing) > 1:
 		return values{}, cli.Errorf("%s aren't set", andList(missing)).
-			WithHint("add them to %s or the environment, or pass --keep-vars to keep the host's values", v.file)
+			WithHint("add them to %s or the environment, %s", v.file, keepInstead(envFile, missing))
 	}
 	return v, nil
 }

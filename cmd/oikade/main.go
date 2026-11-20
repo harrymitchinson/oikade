@@ -46,7 +46,8 @@ func runDeploy(ctx context.Context, args []string) error {
 	renamed(fs, "allow-safety-removal", "allow-safety", true)
 	_ = fs.Parse(args)
 	if *keepVars && *envFile != "" {
-		return cli.UsageErrorf("--keep-vars keeps the host's values, and --env-file replaces them: pass one or the other")
+		return cli.UsageErrorf("--keep-vars and --env-file don't go together").
+			WithHint("--keep-vars keeps the host's values, and --env-file replaces them with a file's: pass one")
 	}
 	if *binary == "" {
 		if err := requireHome(*module); err != nil {
@@ -176,7 +177,16 @@ func (d deployer) run(ctx context.Context, transport api.Transport, o deployOpti
 		return err
 	}
 	d.progress.startUpload(file.Size())
-	resp, err := api.Deploy(ctx, transport, path, vals.set, o.allow, d.progress.upload)
+	// No values keeps the host's, which only --keep-vars asks for: any other deploy sends a set, if
+	// an empty one.
+	send := vals.set
+	switch {
+	case o.keepVars:
+		send = nil
+	case send == nil:
+		send = map[string]string{}
+	}
+	resp, err := api.Deploy(ctx, transport, path, send, o.allow, d.progress.upload)
 	d.progress.end()
 	if err != nil {
 		return err
@@ -201,7 +211,7 @@ func (d deployer) run(ctx context.Context, transport api.Transport, o deployOpti
 	// The host refuses a value that's missing only when the check couldn't run here, and then the
 	// environment's go only for the file's names.
 	return report(stdout, resp, "Deployed version", vals.sent(),
-		fmt.Sprintf("add %s to %s, or pass --keep-vars to keep the host's values", them(resp.MissingVars), vals.file))
+		fmt.Sprintf("add %s to %s, %s", them(resp.MissingVars), vals.file, keepInstead(envFile, resp.MissingVars)))
 }
 
 // homeCheck runs your home's check with vars, for the values its code uses: the binary at path, or
@@ -222,6 +232,16 @@ func homeCheck(ctx context.Context, module, path string, vars map[string]string)
 		return wire.Manifest{}, err
 	}
 	return checkWith(ctx, abs, vars)
+}
+
+// keepInstead says how to deploy with the host's values instead of the missing names, which works
+// only if the host has them: a name your code has just started using, it doesn't.
+func keepInstead(envFile string, missing []string) string {
+	pass := "pass --keep-vars"
+	if envFile != "" {
+		pass = "swap --env-file for --keep-vars"
+	}
+	return fmt.Sprintf("or %s to use the host's, if it has %s", pass, them(missing))
 }
 
 // them is "it" or "them", for names.

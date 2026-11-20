@@ -149,7 +149,7 @@ func TestAMissingValueStopsADeployBeforeItsUpload(t *testing.T) {
 	r.sync()
 	out, err := r.cli(nil, "deploy", "--binary", variant(t, "vars"))
 	if err == nil || !strings.Contains(out, "Error: "+tokenVar+" isn't set") ||
-		!strings.Contains(out, "Hint: add it to .env or the environment, or pass --keep-vars to keep the host's values") {
+		!strings.Contains(out, "or pass --keep-vars to use the host's, if it has it") {
 		t.Fatalf("got %v: %s", err, out)
 	}
 	if n := r.count("Received API request", "type", "deploy"); n != 0 {

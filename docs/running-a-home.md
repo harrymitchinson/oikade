@@ -68,7 +68,7 @@ A deploy's values replace the host's whole. One your code uses that neither the 
 $ oikade deploy
 Checking your code
 Error: TAHOMA_PIN isn't set
-Hint: add it to .env or the environment, or pass --keep-vars to keep the host's values
+Hint: add it to .env or the environment, or pass --keep-vars to use the host's, if it has it
 ```
 
 From somewhere without your values, such as CI, another machine or a clean clone, `oikade deploy --keep-vars` sends none, and the host keeps its own. It doesn't read `.env` or the environment, so it can't go with `--env-file`, and the host refuses a version whose code uses a value it lacks, naming it:
