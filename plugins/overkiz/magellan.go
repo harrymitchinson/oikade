@@ -18,7 +18,6 @@ import (
 	"time"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
 
 // Magellan is Atlantic's own cloud, beside Overkiz, behind the same Cozytouch login: an account's
@@ -364,9 +363,9 @@ type magellan struct {
 	skipped map[string]bool
 }
 
-func newMagellan(c Cozytouch, env plugin.Environment, t timing, log *slog.Logger) *magellan {
+func newMagellan(c Cozytouch, t timing, log *slog.Logger) *magellan {
 	return &magellan{
-		account: c, env: env, timing: t, log: log, name: "Magellan",
+		account: c, timing: t, log: log, name: "Magellan",
 		cozytouch: c, kick: make(chan struct{}, 1),
 		devices: map[string]*mDeviceState{}, running: map[string]mExecution{},
 		queued: map[string][]mQueued{}, sending: map[string]bool{}, skipped: map[string]bool{},
@@ -379,7 +378,7 @@ func (m *magellan) serve(ctx context.Context, out reporter) {
 	m.follow(ctx, m)
 }
 
-func (m *magellan) session(ctx context.Context, password string, connected func()) (err error) {
+func (m *magellan) session(ctx context.Context, connected func()) (err error) {
 	httpc := &http.Client{Timeout: m.timing.request, Transport: m.cozytouch.transport}
 	defer httpc.CloseIdleConnections()
 	// A token both clouds have used may have ended, so one Magellan refuses as it reads the setup is
@@ -390,7 +389,7 @@ func (m *magellan) session(ctx context.Context, password string, connected func(
 	)
 	for fresh := false; ; fresh = true {
 		var failed error
-		if token, failed = m.cozytouch.token(ctx, password); failed != nil {
+		if token, failed = m.cozytouch.token(ctx); failed != nil {
 			return failed
 		}
 		c = newMagellanClient(httpc, cmp.Or(m.cozytouch.atlanticAPI, atlanticAPI), token)

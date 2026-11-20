@@ -6,14 +6,25 @@ A TaHoma hub puts its devices in the Home app itself, so on Oikade's Matter brid
 
 ```go
 home.Plugin("tahoma", overkiz.New(overkiz.Local{
-	Address: "192.168.1.40:8443", // the hub, or gateway-1234-5678-9012.local:8443
-	PIN:     "1234-5678-9012",    // the hub's PIN, which an IP address doesn't give
-	Token:   oikade.Secret("tahoma-token"),
+	Address: oikade.Var("TAHOMA_ADDRESS"), PIN: oikade.Var("TAHOMA_PIN"), Token: oikade.Var("TAHOMA_TOKEN"),
 }))
 home.Plugin("cozytouch", overkiz.New(overkiz.Cozytouch{
-	Brand: overkiz.Thermor, Username: "someone@example.com", Password: oikade.Secret("cozytouch"),
+	Brand: overkiz.Thermor, Username: oikade.Var("COZYTOUCH_USER"), Password: oikade.Var("COZYTOUCH_PASSWORD"),
 }))
 ```
+
+Each `oikade.Var` is a value from your home's `.env`, which Git ignores and `oikade deploy` takes to the host ([Your values](../../docs/running-a-home.md#your-values)):
+
+```sh
+# .env
+TAHOMA_ADDRESS=192.168.1.40:8443   # the hub, or gateway-1234-5678-9012.local:8443
+TAHOMA_PIN=1234-5678-9012          # the hub's PIN, which an IP address doesn't give
+TAHOMA_TOKEN=…
+COZYTOUCH_USER=someone@example.com
+COZYTOUCH_PASSWORD=…
+```
+
+A new token or password goes up with a deploy, which starts the plugin again with it.
 
 ## Setting up a TaHoma hub
 
@@ -21,19 +32,19 @@ The local API needs a TaHoma Switch, or another TaHoma with Developer Mode. The 
 
 1. **Turn on Developer Mode** in the TaHoma By Somfy app: under "Configure the installation", then "Access the parameters", tap the hub's PIN (such as `1234-5678-9012`) seven times.
 2. **Make a token** from the Developer Mode menu, as [Somfy's Developer Mode guide](https://github.com/Somfy-Developer/Somfy-TaHoma-Developer-Mode) says. The app shows it only once, so copy it then.
-3. **Give the token to Oikade:** run `oikade set secret/tahoma-token`, and paste it. The plugin reads it at each login, so a new token needs no deploy.
+3. **Put the token in `.env`,** as `TAHOMA_TOKEN=…`, and deploy.
 
-Until the token is set, or while the hub refuses it, `oikade status` says so, and the plugin waits for the secret to change rather than trying the same token again. It tries a refused token once an hour.
+While the hub refuses the token, `oikade status` says so, and the plugin tries it again only once an hour.
 
 **The hub's certificate is checked** (OIK-292), so nothing else on the network can pose as the hub and take its token. Overkiz signs each hub's certificate with its own root authority, which the plugin carries, for the hub's name, `gateway-<pin>.local`. The plugin checks that name against the PIN in `Address`, or in `PIN` for any other `Address`, such as an IP address. Without a PIN it can only check that Overkiz signed the certificate, so any TaHoma hub's would pass, and it logs a warning saying so. A certificate it refuses shows in `oikade status` with the names it gives and what to check, and the plugin tries again with backoff. If your hub's real certificate is refused, `SkipCertificateCheck: true` turns the check off, and anything on the network that poses as the hub then gets its token.
 
 ## Setting up a Cozytouch account
 
-`Brand` is the app your account is in: `overkiz.Atlantic`, `overkiz.Thermor` or `overkiz.Sauter`. `Username` is the account's email address, and its password is a secret: run `oikade set secret/cozytouch`, and paste it. It's read at each login, so a new password needs no deploy.
+`Brand` is the app your account is in: `overkiz.Atlantic`, `overkiz.Thermor` or `overkiz.Sauter`. `Username` is the account's email address, and `Password` its password, both from `.env`.
 
 **Your account's devices can be on either of Atlantic's clouds, or both:** Overkiz, or Magellan, where newer WiFi devices such as a Thermor Riva 5 are (OIK-329). You don't need to know which. The plugin logs in once and reads both. A cloud that has no account for your login, as Overkiz answers `No such user account` for an account on Magellan, isn't a problem: the plugin logs it once, and asks it again hourly.
 
-A refused password shows in `oikade status`, and the plugin waits for the secret to change, or an hour, rather than trying again, since too many failed logins can lock the account. A session the cloud ends is logged in again by itself.
+A refused password shows in `oikade status`, and the plugin tries it again only once an hour, since too many failed logins can lock the account. A session the cloud ends is logged in again by itself.
 
 **The Cozytouch APIs aren't published.** The plugin logs in as Atlantic's app does, with its client ID, as [pyoverkiz](https://github.com/iMicknl/python-overkiz-api) does, and speaks Magellan as the [Homey app](https://github.com/NicolasYDDER/homey-cozytouch) does. Atlantic can change either. If it does, the plugin's status says the login failed.
 

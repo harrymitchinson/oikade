@@ -133,7 +133,7 @@ const (
 	// unreachable is the hub or the cloud not answering, or answering with a server error: try
 	// again soon.
 	unreachable failure = iota
-	// refused is the credentials refused: say so, and wait for new ones.
+	// refused is the credentials refused: say so, and wait long before trying them again.
 	refused
 	// limited is too many requests: back off.
 	limited

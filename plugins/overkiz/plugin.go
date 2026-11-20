@@ -23,12 +23,10 @@ import (
 
 // Account is where the plugin reaches Overkiz. Local is a TaHoma hub's local API.
 type Account interface {
-	// secret is the name of the secret that holds the credential, or "" if it has none.
-	secret() string
-	// secretField is the field that holds it, as an error names it.
-	secretField() string
+	// credentialField is the field that holds its credential, as a problem names it.
+	credentialField() string
 	// connect returns a client authorized with the credential, logging in first if it must.
-	connect(ctx context.Context, credential string) (*client, error)
+	connect(ctx context.Context) (*client, error)
 	// timing is how often to poll, and how long to wait.
 	timing() timing
 	// describe is the account as a log or an error says it.
@@ -47,8 +45,8 @@ type Local struct {
 	// Address is the hub's host and port, such as 192.168.1.40:8443 or
 	// gateway-1234-5678-9012.local:8443.
 	Address string
-	// Token is the token you made in Developer Mode, such as oikade.Secret("tahoma-token").
-	Token plugin.Secret
+	// Token is the token you made in Developer Mode, such as oikade.Var("TAHOMA_TOKEN").
+	Token string
 	// PIN is the hub's PIN, such as 1234-5678-9012, which its certificate is checked against when
 	// Address isn't of the form gateway-<pin>.local, which gives it already. Without one, any
 	// certificate Overkiz signed for a hub passes.
@@ -64,9 +62,7 @@ type Local struct {
 // pin is the PIN the hub's certificate is checked against, or "" if it isn't known.
 func (l Local) pin() string { return cmp.Or(gatewayPIN(l.Address), l.PIN) }
 
-func (l Local) secret() string { return l.Token.Name() }
-
-func (Local) secretField() string { return "overkiz.Local's Token" }
+func (Local) credentialField() string { return "overkiz.Local's Token" }
 
 func (l Local) describe() string { return "the TaHoma hub at " + l.Address }
 
@@ -81,6 +77,8 @@ func (l Local) check() error {
 	switch {
 	case l.Address == "":
 		return errors.New("overkiz.Local has no Address")
+	case l.Token == "":
+		return errors.New("overkiz.Local has no Token")
 	case l.PIN != "" && !pinPattern.MatchString(l.PIN):
 		return fmt.Errorf("overkiz.Local has PIN %q: it's the hub's PIN, such as 1234-5678-9012", l.PIN)
 	case l.PIN != "" && named != "" && !strings.EqualFold(l.PIN, named):
@@ -101,7 +99,7 @@ func (l Local) warn(log *slog.Logger) {
 
 // connect needs no login: every request carries the token. The hub's certificate is signed by
 // Overkiz's own root CA for its gateway-<pin>.local name, which hubTLS checks.
-func (l Local) connect(_ context.Context, token string) (*client, error) {
+func (l Local) connect(context.Context) (*client, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = hubTLS(cmp.Or(l.roots, overkizRoots), l.pin())
 	// The hub's own name is gateway-<pin>.local, which only mDNS answers (OIK-328).
@@ -113,7 +111,7 @@ func (l Local) connect(_ context.Context, token string) (*client, error) {
 		http: &http.Client{Transport: transport, Timeout: localTiming.request},
 		base: "https://" + l.Address + "/enduser-mobile-web/1/enduserAPI",
 		authorize: func(r *http.Request) {
-			r.Header.Set("Authorization", "Bearer "+token)
+			r.Header.Set("Authorization", "Bearer "+l.Token)
 		},
 	}, nil
 }
@@ -131,10 +129,9 @@ type timing struct {
 	retry, retryMax time.Duration
 	// limited is how long to wait after being told there were too many requests.
 	limited time.Duration
-	// refused is how long to wait before trying refused credentials again, unless they change.
+	// refused is how long to wait before trying refused credentials again, since too many failed
+	// logins could lock the account.
 	refused time.Duration
-	// secret is how often the secret is read while waiting for it to change.
-	secret time.Duration
 	// request bounds one request, and set a write, which must answer within the host's Matter
 	// write timeout (5s).
 	request, set time.Duration
@@ -147,36 +144,33 @@ type timing struct {
 
 var localTiming = timing{
 	poll: 5 * time.Second, busy: 2 * time.Second, retry: 5 * time.Second, retryMax: time.Minute,
-	limited: time.Minute, refused: time.Hour, secret: 5 * time.Second,
+	limited: time.Minute, refused: time.Hour,
 	request: 10 * time.Second, set: 4 * time.Second, execution: 2 * time.Minute,
 }
 
 // New returns the plugin's Factory, for home.Plugin.
 func New(a Account) plugin.Factory {
-	return func(env plugin.Environment, declared []contractv1.DeclaredDevice) (plugin.Handler, error) {
+	return func(_ plugin.Environment, declared []contractv1.DeclaredDevice) (plugin.Handler, error) {
 		if a == nil {
 			return nil, errors.New("overkiz.New has no Account")
 		}
 		if err := a.check(); err != nil {
 			return nil, err
 		}
-		if a.secret() == "" {
-			return nil, fmt.Errorf("%s isn't set: pass it an oikade.Secret", a.secretField())
-		}
 		log := slog.New(slog.NewJSONHandler(os.Stderr, nil)).With("logger", "overkiz")
 		if l, ok := a.(Local); ok {
 			l.warn(log)
 		}
-		return newHandler(a, env, declared, a.timing(), log), nil
+		return newHandler(a, declared, a.timing(), log), nil
 	}
 }
 
 // newHandler is a hub's bridge, or a Cozytouch account's two clouds.
-func newHandler(a Account, env plugin.Environment, declared []contractv1.DeclaredDevice, t timing, log *slog.Logger) plugin.Handler {
+func newHandler(a Account, declared []contractv1.DeclaredDevice, t timing, log *slog.Logger) plugin.Handler {
 	if c, ok := a.(Cozytouch); ok {
-		return newClouds(c, env, declared, t, log)
+		return newClouds(c, declared, t, log)
 	}
-	return newBridge(a, env, declared, t, log)
+	return newBridge(a, declared, t, log)
 }
 
 // device is one Overkiz device the plugin serves, with its sub-devices folded in.
@@ -216,13 +210,13 @@ type bridge struct {
 
 var _ plugin.Handler = (*bridge)(nil)
 
-func newBridge(a Account, env plugin.Environment, declared []contractv1.DeclaredDevice, t timing, log *slog.Logger) *bridge {
+func newBridge(a Account, declared []contractv1.DeclaredDevice, t timing, log *slog.Logger) *bridge {
 	ids := make([]string, 0, len(declared))
 	for _, d := range declared {
 		ids = append(ids, d.ID)
 	}
 	return &bridge{
-		account: a, env: env, timing: t, log: log, name: "Overkiz",
+		account: a, timing: t, log: log, name: "Overkiz",
 		declared: ids, kick: make(chan struct{}, 1),
 		devices: map[string]*device{}, byURL: map[string]*device{}, running: map[string]time.Time{}, skipped: map[string]bool{},
 	}
@@ -259,8 +253,8 @@ func (b *bridge) absent(ctx context.Context) {
 
 // session logs in, reads the setup and follows its events until something fails. connected runs
 // once the setup is read.
-func (b *bridge) session(ctx context.Context, credential string, connected func()) error {
-	c, err := b.account.connect(ctx, credential)
+func (b *bridge) session(ctx context.Context, connected func()) error {
+	c, err := b.account.connect(ctx)
 	if err != nil {
 		return err
 	}

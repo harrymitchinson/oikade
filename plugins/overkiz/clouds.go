@@ -22,9 +22,9 @@ type clouds struct {
 
 var _ plugin.Handler = (*clouds)(nil)
 
-func newClouds(c Cozytouch, env plugin.Environment, declared []contractv1.DeclaredDevice, t timing, log *slog.Logger) *clouds {
+func newClouds(c Cozytouch, declared []contractv1.DeclaredDevice, t timing, log *slog.Logger) *clouds {
 	c.signer = &signer{hold: t.refused}
-	return &clouds{overkiz: newBridge(c, env, declared, t, log), magellan: newMagellan(c, env, t, log)}
+	return &clouds{overkiz: newBridge(c, declared, t, log), magellan: newMagellan(c, t, log)}
 }
 
 // Serve implements plugin.Handler. It follows both clouds until ctx ends, or either fails to report.
