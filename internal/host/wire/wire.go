@@ -35,6 +35,9 @@ const (
 	KindCase = "case"
 	// SocketEnv names the host's socket to the process it starts.
 	SocketEnv = "OIKADE_SOCKET"
+	// VarsEnv names the file of your values, a JSON object of names to values, to a process the host
+	// starts from your binary. Only the host's user can read it.
+	VarsEnv = "OIKADE_VARS_FILE"
 )
 
 // Type is a message's type.
@@ -93,6 +96,9 @@ type Manifest struct {
 	Warnings []string `json:"warnings,omitempty"`
 	// Secrets names the secrets the home's code uses, made with oikade.Secret as it was built.
 	Secrets []string `json:"secrets,omitempty"`
+	// Vars names the values the home's code uses, read with oikade.Var as it was built, which a
+	// version can't go ahead without.
+	Vars []string `json:"vars,omitempty"`
 	// HiddenFromMatter are the plugins whose devices the home keeps off Matter.
 	HiddenFromMatter []HiddenPlugin `json:"hiddenFromMatter,omitempty"`
 }
