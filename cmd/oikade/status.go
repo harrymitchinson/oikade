@@ -135,7 +135,7 @@ func missingFrom(st *api.Status, n named) (what, hint string) {
 		d, ok := device(n.parts[0])
 		switch {
 		case !ok:
-			return fmt.Sprintf("There's no %s on record", ident.DeviceRef(n.parts[0])), "oikade devices lists them"
+			return fmt.Sprintf("There's no %s on record", ident.DeviceRef(n.parts[0])), "oikade list devices lists them"
 		case len(n.parts) > 1 && !has(d, n.parts[1]):
 			return fmt.Sprintf("%s has no %s", ident.DeviceRef(n.parts[0]), n.parts[1]),
 				"oikade status " + n.parts[0] + " lists what it has"
@@ -555,9 +555,9 @@ func countUndeclared(stderr *cli.Printer, undeclared []string) {
 	switch len(undeclared) {
 	case 0:
 	case 1:
-		stderr.Println(stderr.Dim(undeclared[0] + " isn't in your code: oikade devices shows how to declare it"))
+		stderr.Println(stderr.Dim(undeclared[0] + " isn't in your code: oikade list devices shows how to declare it"))
 	default:
-		stderr.Println(stderr.Dim(fmt.Sprintf("%d devices aren't in your code: oikade devices shows how to declare them",
+		stderr.Println(stderr.Dim(fmt.Sprintf("%d devices aren't in your code: oikade list devices shows how to declare them",
 			len(undeclared))))
 	}
 }
@@ -607,7 +607,7 @@ func printDeviceLines(out *cli.Printer, devices []api.Device, wide bool, now tim
 			{Header: "ROOM", Drop: 1},
 			{Header: "VALUES", Shrink: true},
 			// A problem names its fix, so it never shortens.
-			{Header: "STATE", DimIf: func(cell string) bool { return cell == notInYourCode }},
+			{Header: stateHeader, DimIf: func(cell string) bool { return cell == notInYourCode }},
 		},
 		Wide: wide,
 	}
@@ -669,7 +669,7 @@ func stateOf(d api.Device, down string) string {
 	if d.PluginNotImported {
 		state = append(state, notImported)
 	}
-	// Offline comes first, and the driver's problem may say why, as oikade devices has it (OIK-340).
+	// Offline comes first, and the driver's problem may say why, as oikade devices had it (OIK-340).
 	off := d.Online != nil && !*d.Online && !d.PluginNotImported
 	switch {
 	case off && d.Problem != "":
@@ -746,7 +746,7 @@ func setupGaps(st *api.Status) []string {
 		}
 	}
 	if len(problems) > 0 {
-		gaps = append(gaps, fmt.Sprintf("Devices with a problem: %s. oikade devices says what's wrong.", names(problems)))
+		gaps = append(gaps, fmt.Sprintf("Devices with a problem: %s. Their STATE says what's wrong.", names(problems)))
 	}
 	if len(unimported) > 0 {
 		gaps = append(gaps, fmt.Sprintf("Devices whose plugin isn't imported: %s. "+

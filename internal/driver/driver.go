@@ -35,7 +35,7 @@ func (k InstanceKey) Label() string {
 }
 
 // Product is what a driver says a device is, each field empty if it doesn't say. Its JSON is in the
-// registry, and so in oikade devices --json: add to it, and don't rename.
+// registry, and so in oikade list devices --json: add to it, and don't rename.
 type Product struct {
 	Manufacturer    string `json:"manufacturer,omitempty"`
 	Model           string `json:"model,omitempty"`

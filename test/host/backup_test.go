@@ -136,7 +136,7 @@ func TestARestoredDataDirectoryBringsTheHomeBackWithNoPairing(t *testing.T) {
 	if got := r.status().Home.Version; got != version {
 		t.Errorf("version %s became %s", version, got)
 	}
-	if !strings.Contains(string(r.stdout(nil, "secret", "list")), "api-key") {
+	if !strings.Contains(string(r.stdout(nil, "list", "secrets")), "api-key") {
 		t.Error("the secret didn't come back")
 	}
 }
@@ -165,17 +165,17 @@ func TestSecretsReachYourProcessAndPluginsAndNoLogOrAnswer(t *testing.T) {
 	r.awaitCount(1, "Read secret", "length", float64(len(secretValue)))
 
 	var listed []api.Secret
-	if err := json.Unmarshal(r.stdout(nil, "secret", "list", "--json"), &listed); err != nil {
+	if err := json.Unmarshal(r.stdout(nil, "list", "secrets", "--json"), &listed); err != nil {
 		t.Fatal(err)
 	}
 	if len(listed) != 1 || listed[0].Name != "fixture-secret" || listed[0].Changed.IsZero() {
 		t.Errorf("listed %+v", listed)
 	}
-	if out := r.stdout(nil, "secret", "list", "--json"); bytes.Contains(out, []byte(secretValue)) {
+	if out := r.stdout(nil, "list", "secrets", "--json"); bytes.Contains(out, []byte(secretValue)) {
 		t.Errorf("--json has the value: %s", out)
 	}
 	r.stdout(nil, "secret", "remove", "fixture-secret")
-	if out := r.stdout(nil, "secret", "list"); len(out) != 0 {
+	if out := r.stdout(nil, "list", "secrets"); len(out) != 0 {
 		t.Errorf("after removing it: %s", out)
 	}
 	if strings.Contains(r.dump(), secretValue) {

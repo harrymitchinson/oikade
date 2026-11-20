@@ -63,7 +63,7 @@ func TestKilledAsTheRegistrySavesKeepsTheChange(t *testing.T) {
 	}
 	r.died()
 	r.launchAttached()
-	if out := r.stdout(nil, "devices"); strings.Contains(string(out), "shed-lamp") {
+	if out := r.stdout(nil, "list", "devices"); strings.Contains(string(out), "shed-lamp") {
 		t.Errorf("the removed device is back after the restart:\n%s", out)
 	}
 }
@@ -132,7 +132,7 @@ func TestKilledAsASecretSavesKeepsIt(t *testing.T) {
 	}
 	r.died()
 	r.launchAttached()
-	if out := r.stdout(nil, "secret", "list"); !strings.Contains(string(out), "api-key") {
+	if out := r.stdout(nil, "list", "secrets"); !strings.Contains(string(out), "api-key") {
 		t.Errorf("the secret is gone after the restart:\n%s", out)
 	}
 	if got, err := os.ReadFile(filepath.Join(r.dir, "secrets", "api-key")); err != nil || string(got) != secretValue {

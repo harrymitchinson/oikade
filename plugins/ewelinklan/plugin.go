@@ -85,7 +85,7 @@ type device struct {
 	// secret is its LAN key as last read, and key what that derives, nil until there is one.
 	secret string
 	key    []byte
-	// problem is what's wrong, as oikade devices shows it.
+	// problem is what's wrong, as oikade status shows it.
 	problem string
 	// firmware is its firmware version, as its last report that said it, empty until one does.
 	firmware string

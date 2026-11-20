@@ -502,7 +502,7 @@ func (s *apiServer) resume(ctx context.Context, req api.Request) api.Response {
 
 // noDevice is a device the host has no record of, as every answer says it.
 func noDevice(name string) error {
-	return fmt.Errorf("there's no %s: oikade devices lists them", ident.DeviceRef(name))
+	return fmt.Errorf("there's no %s: oikade list devices lists them", ident.DeviceRef(name))
 }
 
 // noRule is a rule the running version doesn't have, as every answer says it.

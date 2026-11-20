@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -53,8 +52,8 @@ func runSecret(ctx context.Context, args []string) error {
 	}
 	req := api.Request{}
 	switch {
-	case len(words) == 1 && words[0] == "list":
-		req.Type = api.TypeSecrets
+	case len(words) == 1 && words[0] == verbList:
+		return cli.UsageErrorf("oikade secret doesn't list secrets any more").WithHint("oikade list secrets does")
 	case len(words) == 2 && words[0] == "set":
 		value, err := readSecret(os.Stdin)
 		if err != nil {
@@ -64,7 +63,7 @@ func runSecret(ctx context.Context, args []string) error {
 	case len(words) == 2 && words[0] == "remove":
 		req = api.Request{Type: api.TypeSecretRemove, Secret: words[1]}
 	default:
-		return cli.UsageErrorf("oikade secret takes list, set NAME, or remove NAME")
+		return cli.UsageErrorf("oikade secret takes set NAME, or remove NAME")
 	}
 	resp, err := api.Call(ctx, t.transport(), req)
 	if err != nil {
@@ -73,35 +72,16 @@ func runSecret(ctx context.Context, args []string) error {
 	if resp.Error != "" {
 		return errors.New(resp.Error)
 	}
-	if req.Type != api.TypeSecrets {
-		if !*asJSON {
-			did := "Set"
-			if req.Type == api.TypeSecretRemove {
-				did = "Removed"
-			}
-			std.out.Done("%s secret %s. Your process and plugins read it when they next ask, "+
-				"so one that reads it once needs a restart", did, req.Secret)
-			return nil
+	if !*asJSON {
+		did := "Set"
+		if req.Type == api.TypeSecretRemove {
+			did = "Removed"
 		}
-		return cli.PrintJSON(struct{}{})
-	}
-	return printSecrets(std.out, std.err, resp.Secrets, *asJSON)
-}
-
-// printSecrets lists the secrets' names, or says there are none and how to add one.
-func printSecrets(stdout, stderr *cli.Printer, secrets []api.Secret, asJSON bool) error {
-	if asJSON {
-		return json.NewEncoder(stdout).Encode(append([]api.Secret{}, secrets...))
-	}
-	if len(secrets) == 0 {
-		stderr.Println("No secrets. oikade secret set NAME adds one.")
+		std.out.Done("%s secret %s. Your process and plugins read it when they next ask, "+
+			"so one that reads it once needs a restart", did, req.Secret)
 		return nil
 	}
-	// Names alone, with no header, so that a script can read them a line each.
-	for _, s := range secrets {
-		stdout.Println(s.Name)
-	}
-	return nil
+	return cli.PrintJSON(struct{}{})
 }
 
 // readSecret takes a value from a pipe, or asks for it without echoing. Never from an argument,

@@ -343,19 +343,19 @@ func TestChipToolPairsAndDrivesADevice(t *testing.T) {
 	})
 
 	endpoint := func(name string) string {
-		out, err := h.client("devices", "--json").Output()
+		out, err := h.client("list", "devices", "--json").Output()
 		if err != nil {
 			t.Fatal(err)
 		}
-		var list registry.Snapshot
+		var list []registry.Device
 		if err := json.Unmarshal(out, &list); err != nil {
 			t.Fatalf("%v in %s", err, out)
 		}
-		i := slices.IndexFunc(list.Devices, func(d registry.Device) bool { return d.Name == name })
+		i := slices.IndexFunc(list, func(d registry.Device) bool { return d.Name == name })
 		if i < 0 {
 			t.Fatalf("no %s in %s", name, out)
 		}
-		return fmt.Sprint(list.Devices[i].Endpoint)
+		return fmt.Sprint(list[i].Endpoint)
 	}
 	light, shed := endpoint("porch-light"), endpoint("shed-temperature")
 

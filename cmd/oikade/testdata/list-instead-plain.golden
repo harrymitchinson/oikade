@@ -1,0 +1,56 @@
+$ oikade devices
+Error: oikade devices doesn't list devices any more
+Usage:
+  oikade devices remove DEVICE [--allow-safety] [--json]
+  oikade devices remove --plugin NAME [--allow-safety] [--json]
+Hint: oikade list devices lists them
+exit 2
+
+$ oikade devices --json
+Error: oikade devices doesn't list devices any more
+Usage:
+  oikade devices remove DEVICE [--allow-safety] [--json]
+  oikade devices remove --plugin NAME [--allow-safety] [--json]
+Hint: oikade list devices lists them
+exit 2
+
+$ oikade secret list
+Error: oikade secret doesn't list secrets any more
+Usage:
+  oikade secret set NAME [--json]
+  oikade secret remove NAME [--json]
+Hint: oikade list secrets does
+exit 2
+
+$ oikade client list
+Error: oikade client doesn't list clients any more
+Usage:
+  oikade client revoke NAME [--json]
+Hint: oikade list clients does
+exit 2
+
+$ oikade logs
+Error: oikade has no logs command
+Hint: oikade history shows what your home did, and oikade tail follows it
+exit 2
+
+$ oikade events
+Error: oikade has no events command
+Hint: oikade history shows what your home did, and oikade tail follows it
+exit 2
+
+$ oikade ls
+Error: oikade has no ls command
+Hint: oikade list KIND lists devices, rules, plugins, secrets, clients or contexts
+exit 2
+
+$ oikade get
+Error: oikade has no get command
+Hint: oikade status REF shows what something is doing now, and oikade list KIND what's on record
+exit 2
+
+$ oikade show
+Error: oikade has no show command
+Hint: oikade status REF shows what something is doing now, and oikade list KIND what's on record
+exit 2
+

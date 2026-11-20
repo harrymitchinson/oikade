@@ -1,7 +1,7 @@
 // Package devicetype says what a device is, in Matter's names: an on/off light, a plug, a wall
 // switch, or a sensor. A device's capabilities say what it can do, and only a device that's on or off
 // can be more than one thing, so that's the type you or its driver can choose. The rest follow from
-// its capabilities. One function, Of, gives the answer that the Matter bridge and oikade devices
+// its capabilities. One function, Of, gives the answer that the Matter bridge and oikade list devices
 // read.
 package devicetype
 

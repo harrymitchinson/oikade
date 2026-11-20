@@ -190,7 +190,7 @@ func checkShown(list registry.Snapshot, hidden []wire.HiddenPlugin) error {
 			i := slices.IndexFunc(list.Devices, func(d registry.Device) bool { return d.Name == name })
 			if i < 0 || list.Devices[i].Removed || !isPlugins(list.Devices[i], h.Plugin) {
 				errs = append(errs, fmt.Errorf("plugin %s: ShowOnMatter names %s, which isn't one of its devices on record "+
-					"(oikade devices lists them)", h.Plugin, name))
+					"(oikade list devices lists them)", h.Plugin, name))
 			}
 		}
 	}
@@ -404,7 +404,7 @@ import (
 func home() *oikade.Home {
 	home := oikade.NewHome(oikade.Options{})
 	// A device keeps the name its app gives it until you declare it here, with its hardware, its
-	// room and what it is to the Home app. oikade devices prints the line for each one:
+	// room and what it is to the Home app. oikade list devices prints the line for each one:
 	//
 	//	home.Device("hall-lamp").Hardware("zigbee2mqtt", "0x00158d0001a2b3c4").Room("hall").Is(oikade.OnOffLight)
 	home.Decide(PorchLight.On).

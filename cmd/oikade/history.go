@@ -235,7 +235,8 @@ func unrecorded(ctx context.Context, t api.Transport, refs []named) []string {
 			d, ok := device(n.parts[0])
 			switch {
 			case !ok:
-				out = append(out, fmt.Sprintf("There's no %s on record: oikade devices lists them.", ident.DeviceRef(n.parts[0])))
+				out = append(out, fmt.Sprintf("There's no %s on record: oikade list devices lists them.",
+					ident.DeviceRef(n.parts[0])))
 			case len(n.parts) > 1 && !has(d, n.parts[1]):
 				out = append(out, fmt.Sprintf("%s has no %s: oikade status %s lists what it has.",
 					ident.DeviceRef(n.parts[0]), n.parts[1], n.parts[0]))

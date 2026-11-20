@@ -31,7 +31,7 @@ func (h *Home) Device(name string) *Declaration {
 }
 
 // Hardware says which hardware it is: the name you imported its plugin by, with Home.Plugin, and the
-// ID the plugin knows it by, as it is in oikade devices --json and the line oikade devices gives an
+// ID the plugin knows it by, as it is in oikade list devices --json and the line oikade list devices gives an
 // undeclared device. The last part of its hardware/<plugin>/<id> ref is that ID, percent-encoded.
 // Change the ID to swap the hardware: the name keeps its Matter endpoint, so the Home app keeps its
 // room and scenes.

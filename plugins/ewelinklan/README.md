@@ -1,6 +1,6 @@
 # eWeLink LAN plugin
 
-This plugin connects relays with sensors that speak the eWeLink LAN protocol, such as SONOFF's TH Elite. It's a plugin your home imports (OIK-10). It needs no broker and no list of devices: it listens on the network, and any device it hears appears in `oikade devices`, under its hardware's ref, `hardware/<plugin>/<ID>` by the name your home imports it by.
+This plugin connects relays with sensors that speak the eWeLink LAN protocol, such as SONOFF's TH Elite. It's a plugin your home imports (OIK-10). It needs no broker and no list of devices: it listens on the network, and any device it hears appears in `oikade list devices`, under its hardware's ref, `hardware/<plugin>/<ID>` by the name your home imports it by.
 
 ```go
 home.Plugin("ewelink-lan", ewelinklan.New(ewelinklan.Config{
@@ -11,7 +11,7 @@ home.Plugin("ewelink-lan", ewelinklan.New(ewelinklan.Config{
 Each device's reports are encrypted with its own LAN key, which is one [secret](../../docs/running-a-home.md#secrets) named for its ID. Until it has one, the device is listed with what to do, and the Home app shows it as not responding. Setup fetches every device's key from your eWeLink account:
 
 ```sh
-oikade devices                              # 1000aabbcc  no LAN key: oikade setup ewelink-lan
+oikade status                               # 1000aabbcc  no LAN key: oikade setup ewelink-lan
 oikade setup ewelink-lan                    # online within seconds, with no deploy
 ```
 

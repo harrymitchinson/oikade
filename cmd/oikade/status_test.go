@@ -143,7 +143,7 @@ func TestStatusOfARefThatNamesNothingFails(t *testing.T) {
 		args []string
 		want string
 	}{
-		{st, []string{"boilr"}, "Error: there's no device/boilr on record\nHint: oikade devices lists them\n"},
+		{st, []string{"boilr"}, "Error: there's no device/boilr on record\nHint: oikade list devices lists them\n"},
 		{st, []string{"boiler", "boilr"}, "Error: there's no device/boilr on record\n"},
 		{
 			st, []string{"device/boiler/setpoint"},

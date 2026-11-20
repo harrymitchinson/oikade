@@ -88,10 +88,10 @@ func TestADeviceNotInYourCodeSaysHowToDeclareIt(t *testing.T) {
 	r := startPlugins(t)
 	r.untilValue("valve", true)
 	want := `home.Device("valve").Hardware("relays", "valve")`
-	if stderr, err := r.oikade(nil, "devices"); err != nil || !strings.Contains(stderr, want) {
+	if stderr, err := r.oikade(nil, "list", "devices"); err != nil || !strings.Contains(stderr, want) {
 		t.Errorf("oikade devices said %v:\n%s", err, stderr)
 	}
-	if out := string(r.stdout(nil, "devices")); !strings.Contains(out, "not in your code") {
+	if out := string(r.stdout(nil, "list", "devices")); !strings.Contains(out, "not in your code") {
 		t.Errorf("got:\n%s", out)
 	}
 	if out := string(r.stdout(nil, "status", "--json")); !strings.Contains(out, `"declare":"home.Device(\"valve\")`) {
@@ -99,11 +99,11 @@ func TestADeviceNotInYourCodeSaysHowToDeclareIt(t *testing.T) {
 	}
 
 	r.mustDeploy("plugins-mains")
-	if out := string(r.stdout(nil, "devices", "--json")); !strings.Contains(out, `"name":"mains-valve"`) ||
+	if out := string(r.stdout(nil, "list", "devices", "--json")); !strings.Contains(out, `"name":"mains-valve"`) ||
 		!strings.Contains(out, `"declared":true`) {
 		t.Errorf("got:\n%s", out)
 	}
-	if stderr, _ := r.oikade(nil, "devices"); strings.Contains(stderr, `home.Device("mains-valve")`) {
+	if stderr, _ := r.oikade(nil, "list", "devices"); strings.Contains(stderr, `home.Device("mains-valve")`) {
 		t.Errorf("a declared device has a line to declare it:\n%s", stderr)
 	}
 }

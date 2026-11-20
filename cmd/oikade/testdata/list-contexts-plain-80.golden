@@ -1,0 +1,7 @@
+NAME  ADDRESS            STATE                    PIN
+ci    10.0.0.4:8443      token from OIKADE_TOKEN  sha256:0b7d5e2a91c4f3e8
+home  europa.local:8443  current                  sha256:9f2c41d0a7b3e8f6
+--- stderr
+--- none
+--- stderr
+No contexts, so commands go to this machine's host. oikade login adds one: oikade-host client add, on the host's machine, prints the line to run.

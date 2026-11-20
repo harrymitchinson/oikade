@@ -1,0 +1,9 @@
+NAME         STATE                                      DEVICES
+ewelink-lan  needs setup: run oikade setup ewelink-lan  porch-light
+overkiz                                                 study-blind
+zigbee2mqtt  plugin not imported                        shed-relay
+--- stderr
+Hint: oikade status plugin/NAME says what's wrong with one
+--- none
+--- stderr
+No plugins. Your home imports one with oikade.Plugin, and oikade deploy starts it.
