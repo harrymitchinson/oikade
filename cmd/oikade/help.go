@@ -87,12 +87,17 @@ var groups = []group{
 		{
 			Name:    "oikade deploy",
 			Summary: "Check and build your home, and run it on the host.",
-			Usage:   []string{"oikade deploy [--module DIR | --binary FILE] [--env-file FILE] [--allow-safety]"},
+			Usage: []string{
+				"oikade deploy [--module DIR | --binary FILE] [--env-file FILE] [--allow-safety]",
+				"oikade deploy [--module DIR | --binary FILE] --keep-vars [--allow-safety]",
+			},
 			About: "The host keeps the version it was running until the new one has stayed up, and puts it back " +
 				"if it doesn't. Your values go with it, from the .env beside your go.mod and the environment, " +
 				"which wins, and replace the host's: one your code uses that neither has stops the deploy. " +
+				"From somewhere without them, such as CI or a clean clone, --keep-vars sends none, and the host " +
+				"keeps its own and refuses a version that uses one they lack. " +
 				"A deploy that would end a Safety rule's claims needs --allow-safety.",
-			Example: []string{"oikade deploy --module ~/my-home"},
+			Example: []string{"oikade deploy --module ~/my-home", "oikade deploy --keep-vars"},
 			Hide:    []string{"allow-safety-removal"},
 		},
 		{

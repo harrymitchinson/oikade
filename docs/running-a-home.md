@@ -68,7 +68,19 @@ A deploy's values replace the host's whole. One your code uses that neither the 
 $ oikade deploy
 Checking your code
 Error: TAHOMA_PIN isn't set
-Hint: add it to .env, or set it in the environment
+Hint: add it to .env or the environment, or pass --keep-vars to keep the host's values
+```
+
+From somewhere without your values, such as CI, another machine or a clean clone, `oikade deploy --keep-vars` sends none, and the host keeps its own. It doesn't read `.env` or the environment, so it can't go with `--env-file`, and the host refuses a version whose code uses a value it lacks, naming it:
+
+```console
+$ oikade deploy --keep-vars
+Checking your code
+Building for linux/arm64
+Uploading 11 MB: 11 MB sent
+Waiting for the host to check and settle
+Error: the version uses TAHOMA_PIN, which isn't among the host's values
+Hint: add it to your .env, and deploy without --keep-vars, which sends your values
 ```
 
 To learn which names your code uses, `oikade deploy` runs your home's check here: it builds your module for this machine too when the host is another kind, and runs `--binary FILE` itself when it can. A binary that can't run here, such as one built for another kind of machine, takes only the file's values, and the host refuses it if its code uses one they lack.
@@ -90,7 +102,7 @@ Under `go test` and `hometest`, a `Var` is empty.
 
 ### Deploying from CI
 
-The workflow `oikade init` writes, `.github/workflows/deploy.yml`, checks and tests every change on GitHub's runners. Both jobs write your values to a file from the secret `OIKADE_ENV`, in the job's temporary directory rather than the checkout, which a self-hosted runner keeps, and `oikade check` and `oikade deploy` read it with `--env-file`. Set it to your `.env` whole: `gh secret set OIKADE_ENV < .env`. A pull request from a fork gets no secrets, so its check warns of the values it lacks and passes. Once you turn deploys on, it also deploys what reaches `main`, over the [network API](#the-network-api), from a runner that can reach the host. Until then a push to `main` passes, and leaves a notice that deploys are off, so a home you deploy from your laptop never fails its CI (OIK-286).
+The workflow `oikade init` writes, `.github/workflows/deploy.yml`, checks and tests every change on GitHub's runners. Both jobs write your values to a file from the secret `OIKADE_ENV`, in the job's temporary directory rather than the checkout, which a self-hosted runner keeps, and `oikade check` and `oikade deploy` read it with `--env-file`. Set it to your `.env` whole: `gh secret set OIKADE_ENV < .env`. To keep your values off GitHub instead, change the deploy job's `--env-file` to `--keep-vars`, so it deploys with the values your last deploy from your laptop sent. A pull request from a fork gets no secrets, so its check warns of the values it lacks and passes. Once you turn deploys on, it also deploys what reaches `main`, over the [network API](#the-network-api), from a runner that can reach the host. Until then a push to `main` passes, and leaves a notice that deploys are off, so a home you deploy from your laptop never fails its CI (OIK-286).
 
 GitHub's own runners reach the host only if its API is on the internet, which it shouldn't be, so the deploy job runs on `self-hosted`. Add a runner on your network first, in the repo's Settings → Actions → Runners: a deploy waits 24 hours for one, then GitHub cancels it. To use GitHub's runners instead, change the deploy job's `runs-on` to `ubuntu-latest`, and join the runner to your network over a VPN in a step before the deploy.
 
