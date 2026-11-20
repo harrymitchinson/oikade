@@ -57,6 +57,12 @@ type Config struct {
 	// Humidity lists the devices that also announce humidity, by ID. A device's sensors decide what
 	// the Home app shows, so they're stated rather than worked out from its reports.
 	Humidity []string
+	// AppID is your eWeLink developer app's ID, such as oikade.Var("EWELINK_APP_ID"). Only setup
+	// needs it and AppSecret, to sign in to your eWeLink account and fetch each device's LAN key.
+	// The plugin works on the LAN without them once the host has the keys.
+	AppID string
+	// AppSecret is that app's secret, such as oikade.Var("EWELINK_APP_SECRET").
+	AppSecret string
 }
 
 // lan is the network the plugin listens on: mdns.Listener, or a test's.
@@ -118,6 +124,8 @@ type bridge struct {
 	log    *slog.Logger
 	client *http.Client
 	cloud  cloud
+	// app is your eWeLink developer app, from Config, which only setup uses.
+	app app
 
 	// ctx and plugin are set before anything can be heard.
 	ctx    context.Context
@@ -157,6 +165,7 @@ func newBridge(c Config, env plugin.Environment, declared []contractv1.DeclaredD
 	return &bridge{
 		humidity: humidity, env: env, declared: ids, named: named, listen: listen, timing: t, now: now, log: log,
 		client: &http.Client{Timeout: t.http}, cloud: ewelink,
+		app:     app{id: strings.TrimSpace(c.AppID), secret: strings.TrimSpace(c.AppSecret)},
 		devices: map[string]*device{}, records: newRecords(), skipped: map[string]bool{}, early: map[string]contractv1.State{},
 	}
 }

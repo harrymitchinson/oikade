@@ -15,6 +15,7 @@ import (
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/mqtt"
+	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
 
 const (
@@ -93,9 +94,9 @@ const things = `[
 	{"itemType":3,"itemData":{"name":"Downstairs"}}
 ]`
 
-// person answers a setup as someone at oikade setup would, and as the host does.
+// person answers a setup as someone at oikade setup would, and as the host does. Setup asks nothing,
+// so any question fails the test.
 type person struct {
-	answers map[string]string
 	// browse follows the sign-in page, and returns the query it redirects with.
 	browse func(page string) string
 }
@@ -153,11 +154,7 @@ func (b *bench) setup(p person) []contractv1.SetupStep {
 			case s.Done != nil:
 				return steps
 			case s.Ask != nil:
-				answer, ok := p.answers[s.Ask.Prompt]
-				if !ok {
-					b.t.Fatalf("unexpected question %q", s.Ask.Prompt)
-				}
-				send(contractv1.SetupRequest{Session: "s", Reply: s.Seq, Value: answer})
+				b.t.Fatalf("unexpected question %q", s.Ask.Prompt)
 			case s.Open != nil:
 				send(contractv1.SetupRequest{Session: "s", Reply: s.Seq, Value: p.browse(s.Open.URL)})
 			case s.Keep != nil:
@@ -169,6 +166,9 @@ func (b *bench) setup(p person) []contractv1.SetupStep {
 		}
 	}
 }
+
+// withApp is a Config with the test's developer app.
+func withApp() Config { return Config{AppID: testAppID, AppSecret: testAppSecret} }
 
 func kept(steps []contractv1.SetupStep) []string {
 	var out []string
@@ -192,7 +192,7 @@ func said(steps []contractv1.SetupStep) string {
 
 func TestSetupFetchesEachDevicesLANKeyAndTheDeviceComesUp(t *testing.T) {
 	cloud := newFakeEWeLink(t, things)
-	b := startWith(t, Config{}, fast, cloud.cloud())
+	b := startWith(t, withApp(), fast, cloud.cloud())
 	d := b.device(relayID, "th_plug", relayOf("on"))
 	d.report()
 	// A neighbour's, which isn't in the account.
@@ -201,7 +201,6 @@ func TestSetupFetchesEachDevicesLANKeyAndTheDeviceComesUp(t *testing.T) {
 
 	a := app{id: testAppID, secret: testAppSecret}
 	steps := b.setup(person{
-		answers: map[string]string{"Its app ID": testAppID, "Its app secret": testAppSecret},
 		browse: func(page string) string {
 			u, _ := url.Parse(page)
 			if q := u.Query(); q.Get("authorization") != a.sign([]byte(testAppID+"_"+q.Get("seq"))) {
@@ -214,13 +213,9 @@ func TestSetupFetchesEachDevicesLANKeyAndTheDeviceComesUp(t *testing.T) {
 	if done.Error != "" || done.Result != "ewelink is set up: 2 LAN keys kept, 0 already up to date" {
 		t.Fatalf("done: %+v\n%s", done, said(steps))
 	}
-	if got := strings.Join(kept(steps), ","); got != "ewelink-app-id,ewelink-app-secret,1000aabbcc,1000ddeeff" {
+	// Only the devices' keys: the app is the Config's.
+	if got := strings.Join(kept(steps), ","); got != "1000aabbcc,1000ddeeff" {
 		t.Errorf("kept %s", got)
-	}
-	for _, s := range steps {
-		if s.Ask != nil && s.Ask.Prompt == "Its app secret" && !s.Ask.Secret {
-			t.Error("The app secret should be asked for as a secret")
-		}
 	}
 	if want := `1000aabbcc is "Greenhouse heater" in the eWeLink app: ` +
 		`home.Device("greenhouse-heater").Hardware("ewelink", "1000aabbcc") in your home's code names it so`; !strings.Contains(said(steps), want) {
@@ -241,13 +236,11 @@ func TestSetupFetchesEachDevicesLANKeyAndTheDeviceComesUp(t *testing.T) {
 
 func TestSetupAgainAsksNothingAndChangesNothing(t *testing.T) {
 	cloud := newFakeEWeLink(t, things)
-	b := startWith(t, Config{}, fast, cloud.cloud())
-	b.secret(appIDSecret, testAppID+"\n")
-	b.secret(appSecretSecret, testAppSecret)
+	// Space around the app's ID, as a .env could leave, is no part of it.
+	b := startWith(t, Config{AppID: testAppID + "\n", AppSecret: " " + testAppSecret}, fast, cloud.cloud())
 	b.secret(relayID, fixtureKey)
 	b.secret(probeID, "an old key")
 
-	// No answers: any question fails the test.
 	steps := b.setup(person{browse: signIn(t, "us")})
 	if done := steps[len(steps)-1].Done; done.Result != "ewelink is set up: 1 LAN key kept, 1 already up to date" {
 		t.Fatalf("done: %+v", done)
@@ -263,9 +256,7 @@ func TestSetupAgainAsksNothingAndChangesNothing(t *testing.T) {
 
 func TestSetupGivesNoDeclarationForADeviceWithAName(t *testing.T) {
 	cloud := newFakeEWeLink(t, things)
-	b := startWith(t, Config{}, fast, cloud.cloud(), relayID+"=greenhouse-heater-2")
-	b.secret(appIDSecret, testAppID+"\n")
-	b.secret(appSecretSecret, testAppSecret)
+	b := startWith(t, withApp(), fast, cloud.cloud(), relayID+"=greenhouse-heater-2")
 	b.device(relayID, "th_plug", relayOf("on")).report()
 	b.eventually("the relay", func() bool { _, ok := b.reports()[relayID]; return ok })
 
@@ -288,8 +279,9 @@ func TestSetupSaysWhatWentWrong(t *testing.T) {
 		"wrong app secret": {
 			things: things, secret: "not-the-secret",
 			browse: func(t *testing.T) func(string) string { t.Helper(); return signIn(t, "eu") },
-			want: "eWeLink refused to sign in: wrong sign (error 401): check the app's ID, secret and redirect URL, " +
-				"and change them with oikade set secret/ewelink-app-id and oikade set secret/ewelink-app-secret",
+			want: "eWeLink refused to sign in: wrong sign (error 401): check the app's ID and secret in .env, " +
+				"which your code passes as ewelinklan.Config's AppID and AppSecret, and that its redirect URL is " +
+				"http://127.0.0.1:8765/callback, then deploy and run setup again",
 		},
 		"refused sign-in": {
 			things: things, secret: testAppSecret,
@@ -326,9 +318,7 @@ func TestSetupSaysWhatWentWrong(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			cloud := newFakeEWeLink(t, c.things)
-			b := startWith(t, Config{}, fast, cloud.cloud())
-			b.secret(appIDSecret, testAppID)
-			b.secret(appSecretSecret, c.secret)
+			b := startWith(t, Config{AppID: testAppID, AppSecret: c.secret}, fast, cloud.cloud())
 			steps := b.setup(person{browse: c.browse(t)})
 			done := steps[len(steps)-1].Done
 			if !strings.Contains(done.Error, c.want) {
@@ -339,6 +329,44 @@ func TestSetupSaysWhatWentWrong(t *testing.T) {
 			}
 			if got := kept(steps); len(got) != 0 {
 				t.Errorf("kept %v", got)
+			}
+		})
+	}
+}
+
+func TestSetupWithoutTheAppSaysHowToMakeItBeforeSigningIn(t *testing.T) {
+	// The plugin runs without the app, which only setup needs.
+	if _, err := New(Config{})(plugin.Environment{}, nil); err != nil {
+		t.Fatalf("New without the app: %v", err)
+	}
+	how := ": make an app on the eWeLink developer platform, under Platform → App Management, with the redirect URL " +
+		"http://127.0.0.1:8765/callback, put its ID and secret in .env, pass them as " +
+		`AppID: oikade.Var("EWELINK_APP_ID") and AppSecret: oikade.Var("EWELINK_APP_SECRET"), and deploy`
+	for name, c := range map[string]struct {
+		config Config
+		want   string
+	}{
+		"no ID":     {Config{AppSecret: testAppSecret}, "ewelinklan.Config has no AppID" + how},
+		"no secret": {Config{AppID: testAppID, AppSecret: " \n"}, "ewelinklan.Config has no AppSecret" + how},
+		"neither":   {Config{}, "ewelinklan.Config has no AppID or AppSecret" + how},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cloud := newFakeEWeLink(t, things)
+			b := startWith(t, c.config, fast, cloud.cloud())
+			steps := b.setup(person{browse: func(page string) string {
+				t.Errorf("opened %s", page)
+				return ""
+			}})
+			if done := steps[len(steps)-1].Done; done.Error != c.want {
+				t.Errorf("got %+v\nwant %q", done, c.want)
+			}
+			if got := kept(steps); len(got) != 0 {
+				t.Errorf("kept %v", got)
+			}
+			cloud.mu.Lock()
+			defer cloud.mu.Unlock()
+			if cloud.tokens != 0 || cloud.listings != 0 {
+				t.Errorf("reached eWeLink: %d tokens, %d listings", cloud.tokens, cloud.listings)
 			}
 		})
 	}
