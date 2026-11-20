@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -63,7 +64,8 @@ type fakeCloud struct {
 	connects [][2]string
 	// answers are the topics the plugin answered method calls on.
 	answers []string
-	// sent are the messages the plugin sent the cloud, as topic, QoS and payload.
+	// sent are the messages the plugin sent the cloud, as topic, QoS and payload, each recorded
+	// before the hub acknowledges it.
 	sent []string
 	rid  int
 }
@@ -230,13 +232,6 @@ func (c *fakeCloud) startHub() {
 	}); err != nil {
 		c.t.Fatal(err)
 	}
-	if err := s.Subscribe("devices/#", 2, func(_ *mochi.Client, _ packets.Subscription, pk packets.Packet) {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		c.sent = append(c.sent, fmt.Sprintf("%s %d %s", pk.TopicName, pk.FixedHeader.Qos, pk.Payload))
-	}); err != nil {
-		c.t.Fatal(err)
-	}
 	go func() { _ = s.Serve() }()
 	c.hub = s
 	c.t.Cleanup(func() { _ = s.Close() })
@@ -280,7 +275,7 @@ type hubHook struct {
 func (h *hubHook) ID() string { return "fake-iot-hub" }
 
 func (h *hubHook) Provides(b byte) bool {
-	return b == mochi.OnConnectAuthenticate || b == mochi.OnACLCheck
+	return b == mochi.OnConnectAuthenticate || b == mochi.OnACLCheck || b == mochi.OnPublish
 }
 
 func (h *hubHook) OnConnectAuthenticate(cl *mochi.Client, pk packets.Packet) bool {
@@ -294,6 +289,18 @@ func (h *hubHook) OnConnectAuthenticate(cl *mochi.Client, pk packets.Packet) boo
 }
 
 func (h *hubHook) OnACLCheck(*mochi.Client, string, bool) bool { return true }
+
+// OnPublish records a device's message as the hub takes it. A subscriber would hear it only after
+// the hub had sent the PUBACK, which a write returns on, so a test could look before it's there.
+func (h *hubHook) OnPublish(_ *mochi.Client, pk packets.Packet) (packets.Packet, error) {
+	if strings.HasPrefix(pk.TopicName, "devices/") {
+		c := h.cloud
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.sent = append(c.sent, fmt.Sprintf("%s %d %s", pk.TopicName, pk.FixedHeader.Qos, pk.Payload))
+	}
+	return pk, nil
+}
 
 // hubListener serves an already bound TLS listener.
 type hubListener struct {
