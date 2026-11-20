@@ -1,5 +1,144 @@
 # Changelog
 
+## [0.2.0-alpha.3](https://github.com/harrymitchinson/oikade/compare/v0.2.0-alpha.2...v0.2.0-alpha.3) (2026-11-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* oikade.Secret and plugin.Secret are gone, and so are the secret commands and calls, unsetSecrets and --secrets-dir. Put each secret in .env and pass it with oikade.Var.
+* oikade devices' DRIVER and ID columns are one HARDWARE column.
+* the rule label of every oikade_rule_* series is the rule's ref, so each rule's series start afresh.
+* set's answer, status's rule lines, a pause's ended and kept, and the "holds it" errors name things by their refs.
+* oikade pause and resume take a case's or a flow's ref rather than three words or a bare name, and a claim's source in --json, the host API and hometest.ExpectClaim is a ref.
+* a room, group, case, flow, plugin, secret or client name with capitals, spaces, '_' or '.' is refused.
+* **capability:** oikade.Value includes ClimateMode, and contract/v1 values may be strings for mode.
+* **contract:** oikade/v1 hosts drop a devices[] entry with an invalid or repeated id, and sdk/plugin's SetDevices returns an error for one.
+* oikade devices name, room, type, reserve and replace, and POST /v1/devices/name, room, type, reserve and replace, are removed. Declare the device with home.Device in your home's code instead.
+* **cli:** oikade devices restore is gone, with the file's registry lines it read: a deploy gives devices back the names, rooms and types your home declares, and a backup restores everything.
+* **contract:** contractv1.DeclaredDevice has no Parameters, and the devices file's "parameters" is ignored.
+* InRoom and Room[T] are removed: use home.Room(name, kinds...).Capability. The room filter Group is now Kind, and Snapshot's Any, All, Count and Readings take a group's capability.
+* values that follow readings: Follow, AverageOver and a budget's conditions ([#293](https://github.com/harrymitchinson/oikade/issues/293))
+* Hold, Control, Priority, Resolve and External are gone. A home is NewHome(options, parts...) and home.Decide(cap)...Default(v), and oikade pause names a case in three words.
+* import github.com/harrymitchinson/oikade in place of github.com/harrymitchinson/oikade/framework, and .../oikade/hometest in place of .../framework/hometest, and run oikade types again.
+* **framework:** every InRoom call takes a group. InRoom(room, c) is InRoom(room, framework.Everything, c), and .Types(...) is a Kinds(...) group.
+* **framework:** oikade-host refuses --matter-name, and --broker or --broker-password-secret without --outside-plugins, naming the field that replaces each. zigbee2mqtt.Config needs a Broker.
+* **framework:** framework.Secret returns a plugin.Secret rather than the value, and overkiz.Local.TokenSecret and overkiz.Cozytouch.PasswordSecret are now Token and Password, each a plugin.Secret.
+
+### Features
+
+* --json, handles and answers print refs ([#358](https://github.com/harrymitchinson/oikade/issues/358)) ([95338fe](https://github.com/harrymitchinson/oikade/commit/95338fe80d31c742680ae3a906bdb3de36b040b9))
+* **capability:** mode, a capability whose values are names ([#344](https://github.com/harrymitchinson/oikade/issues/344)) ([47c2ebc](https://github.com/harrymitchinson/oikade/commit/47c2ebc17437e5d12b96cc7ac0aee20ed4f05ea8))
+* check and dev give your code your values, and init keeps them out of Git ([#417](https://github.com/harrymitchinson/oikade/issues/417)) ([dfa3d9e](https://github.com/harrymitchinson/oikade/commit/dfa3d9eafa5e80484a1bbad33dd106085bd4472b))
+* **cli:** a new home's CI passes from its first push, and deploys once you turn it on ([#412](https://github.com/harrymitchinson/oikade/issues/412)) ([f058c23](https://github.com/harrymitchinson/oikade/commit/f058c230446ee84fa4cdcf2405f088682d2f2010))
+* **cli:** errors that read as sentences, with the next step ([#380](https://github.com/harrymitchinson/oikade/issues/380)) ([6536e59](https://github.com/harrymitchinson/oikade/commit/6536e59ea4445e5b02b4590923799e54c5142855))
+* **cli:** forget, remove and oikade-host add ([#408](https://github.com/harrymitchinson/oikade/issues/408)) ([f964722](https://github.com/harrymitchinson/oikade/commit/f9647225e4e394cca3ce241f5c8c0ec9f429c58d))
+* **cli:** help that teaches, and a slip's usage alone ([#378](https://github.com/harrymitchinson/oikade/issues/378)) ([ef53816](https://github.com/harrymitchinson/oikade/commit/ef53816f266d978f0b514100c8903a49022443b5))
+* **cli:** matter, tail, version and every change in the same look ([#384](https://github.com/harrymitchinson/oikade/issues/384)) ([f62b74a](https://github.com/harrymitchinson/oikade/commit/f62b74a2e537bb96b0399b1d04df5e4a5daaa0e8))
+* **cli:** oikade history, and tail takes refs and --since ([#403](https://github.com/harrymitchinson/oikade/issues/403)) ([775d2e6](https://github.com/harrymitchinson/oikade/commit/775d2e64a113496a2fc95993a6bc6f4905677956))
+* **cli:** oikade list KIND ([#407](https://github.com/harrymitchinson/oikade/issues/407)) ([803d455](https://github.com/harrymitchinson/oikade/commit/803d45519a22734099431015d246929b5b729d64))
+* **cli:** oikade setup PLUGIN runs a plugin's setup on the host ([#283](https://github.com/harrymitchinson/oikade/issues/283)) ([41403b1](https://github.com/harrymitchinson/oikade/commit/41403b1595260407deb85754a3eb26dfae76693e))
+* **cli:** oikade types names devices as your home declares them ([#301](https://github.com/harrymitchinson/oikade/issues/301)) ([edb0252](https://github.com/harrymitchinson/oikade/commit/edb025285eed6f7b3f3ed8184c7c5f4c0cbdcf18))
+* **cli:** one JSON shape, help KIND, and every verb's exit codes checked ([#410](https://github.com/harrymitchinson/oikade/issues/410)) ([ae0cf42](https://github.com/harrymitchinson/oikade/commit/ae0cf422e70f55a0569481f0846e3f02d90bc9c3))
+* **cli:** one look for what oikade prints, and devices, clients and secrets in it ([#375](https://github.com/harrymitchinson/oikade/issues/375)) ([1884150](https://github.com/harrymitchinson/oikade/commit/18841505ed8fe67bf92ef31d1844267d9ba6a31e))
+* **cli:** pair matter, set secret/NAME, and set fails when held ([#409](https://github.com/harrymitchinson/oikade/issues/409)) ([f682dc4](https://github.com/harrymitchinson/oikade/commit/f682dc4304eb011022e9524d689f408e8b75e6d0))
+* **cli:** status shows a device a line, fitted to the terminal ([#382](https://github.com/harrymitchinson/oikade/issues/382)) ([1d32a95](https://github.com/harrymitchinson/oikade/commit/1d32a95ec687ce700ee80b264576465be724c469))
+* **cli:** status takes any ref, and --check ([#406](https://github.com/harrymitchinson/oikade/issues/406)) ([f68ad2d](https://github.com/harrymitchinson/oikade/commit/f68ad2d453be03359e7da4bd76809912e0d313a4))
+* **contract:** a declared device has no parameters ([#296](https://github.com/harrymitchinson/oikade/issues/296)) ([a085278](https://github.com/harrymitchinson/oikade/commit/a0852789acf92d2d3dde5de57384ee4ce745fdb4))
+* **contract:** a device's serial number, firmware and hardware version ([#396](https://github.com/harrymitchinson/oikade/issues/396)) ([940a4a7](https://github.com/harrymitchinson/oikade/commit/940a4a7530528736a4cd000a935962e1ea798689))
+* **contract:** a devices entry with an invalid or repeated id is dropped ([#333](https://github.com/harrymitchinson/oikade/issues/333)) ([88ff4ca](https://github.com/harrymitchinson/oikade/commit/88ff4ca6c38360f1e7a0a45833a75c81dc805b9f))
+* **contract:** a plugin's setup as a dialogue on _setup/in and _setup/out ([#282](https://github.com/harrymitchinson/oikade/issues/282)) ([27984e3](https://github.com/harrymitchinson/oikade/commit/27984e31d8ce5da151f7872878722fbd31d70bfa))
+* **contract:** let a plugin say what's wrong with it in its status ([#278](https://github.com/harrymitchinson/oikade/issues/278)) ([68458dc](https://github.com/harrymitchinson/oikade/commit/68458dc129005a599e8cf8162b66acdbbac1bb7f))
+* devices are named, placed and typed only in your home's code ([#302](https://github.com/harrymitchinson/oikade/issues/302)) ([74f3cdd](https://github.com/harrymitchinson/oikade/commit/74f3cdd378294b28e3bc46f19755cfa0eae6f98e))
+* **devices:** keep a device's manufacturer and model, and show them ([#395](https://github.com/harrymitchinson/oikade/issues/395)) ([16c9a35](https://github.com/harrymitchinson/oikade/commit/16c9a3552d978d32b9e55fbcba8711ba9f7003ac))
+* **engine:** the position capability, and Spec.Settle for writes that take time ([#275](https://github.com/harrymitchinson/oikade/issues/275)) ([9154f1a](https://github.com/harrymitchinson/oikade/commit/9154f1a363f1accb9b3dc658cd295e03533a0ac9))
+* **events:** a write says who made it ([#400](https://github.com/harrymitchinson/oikade/issues/400)) ([248526c](https://github.com/harrymitchinson/oikade/commit/248526c61765719eb9c639256ede3a1b89bdbb31))
+* **events:** the host filters its events ([#402](https://github.com/harrymitchinson/oikade/issues/402)) ([659100e](https://github.com/harrymitchinson/oikade/commit/659100ea389d953660ebcbe8d529a8a379a67e56))
+* **events:** the log records what a device's history needs ([#401](https://github.com/harrymitchinson/oikade/issues/401)) ([c817ac2](https://github.com/harrymitchinson/oikade/commit/c817ac250f478373ae33ad0b698b22d9506515d1))
+* every name Oikade owns follows the device rule ([#356](https://github.com/harrymitchinson/oikade/issues/356)) ([4f3dec1](https://github.com/harrymitchinson/oikade/commit/4f3dec19b106e64aacf946434821c1521d0cef16))
+* **ewelinklan:** oikade setup fetches each device's LAN key ([#285](https://github.com/harrymitchinson/oikade/issues/285)) ([7608c77](https://github.com/harrymitchinson/oikade/commit/7608c77b6f13426b0a779534071314bb4c2d97a6))
+* **framework:** a room names its group: InRoom(room, framework.Lights, framework.On) ([#288](https://github.com/harrymitchinson/oikade/issues/288)) ([482ef3d](https://github.com/harrymitchinson/oikade/commit/482ef3d5486fde340a09fb98e7b55cd987d27109))
+* **framework:** a secret is a value you pass in, declared by making it ([#286](https://github.com/harrymitchinson/oikade/issues/286)) ([fe75099](https://github.com/harrymitchinson/oikade/commit/fe750996b59b1722bf81742ee0c9d2a79fa40c44))
+* **framework:** declare a device in your home's code with home.Device ([#299](https://github.com/harrymitchinson/oikade/issues/299)) ([e002aac](https://github.com/harrymitchinson/oikade/commit/e002aaccf3763e24cf191ffcba8196e13f32d228))
+* **framework:** heaters join room-wide on, and Types takes Thermostat ([#274](https://github.com/harrymitchinson/oikade/issues/274)) ([173ba0b](https://github.com/harrymitchinson/oikade/commit/173ba0b57b374f4104caa502e95fd9a11d9c4826))
+* **framework:** keep a plugin's devices off Matter when the Home app has them ([#297](https://github.com/harrymitchinson/oikade/issues/297)) ([d15140d](https://github.com/harrymitchinson/oikade/commit/d15140db8fa27ca7de837ee6343c013220c440ba))
+* **framework:** the bridge's name and Zigbee2MQTT's broker are in the home's code ([#287](https://github.com/harrymitchinson/oikade/issues/287)) ([a687914](https://github.com/harrymitchinson/oikade/commit/a687914f93b953b67ca681b56e7dd086f8b24d6e))
+* groups and rooms: a decision on many devices, and Then ([#294](https://github.com/harrymitchinson/oikade/issues/294)) ([c139b6c](https://github.com/harrymitchinson/oikade/commit/c139b6cc1dd59b1b94a2eb9a5638cf8e95c32f61))
+* **host:** a declared rename takes the device's claims with it ([#300](https://github.com/harrymitchinson/oikade/issues/300)) ([d590f88](https://github.com/harrymitchinson/oikade/commit/d590f88e104fa89dc9cbe39c07a4b2f189c1ceb3))
+* **host:** a deploy warns when its declared rooms and types empty a room a hold reads ([#371](https://github.com/harrymitchinson/oikade/issues/371)) ([3a6fec8](https://github.com/harrymitchinson/oikade/commit/3a6fec8e53f782d177805c9b36e78fbae4bbedbd))
+* **host:** oikade-host install puts the host under systemd, and upgrades it ([#348](https://github.com/harrymitchinson/oikade/issues/348)) ([6f3a416](https://github.com/harrymitchinson/oikade/commit/6f3a41679ae99a57e7b6dd75038e4689bcde91ed))
+* logs and metrics name rules by their refs ([#359](https://github.com/harrymitchinson/oikade/issues/359)) ([dd2b1f1](https://github.com/harrymitchinson/oikade/commit/dd2b1f1b52242e07fe78207efeda34acebb6eca1))
+* **matter:** a scannable QR code, and oikade matter open ([#349](https://github.com/harrymitchinson/oikade/issues/349)) ([9a8a3dc](https://github.com/harrymitchinson/oikade/commit/9a8a3dc4efeb2a8a87bdc7dca4d714a5537b3d8a))
+* **matter:** air conditioners as Room Air Conditioners ([#345](https://github.com/harrymitchinson/oikade/issues/345)) ([3583a75](https://github.com/harrymitchinson/oikade/commit/3583a756db79c0a980009a74fb3831e5f8afbde6))
+* **matter:** blinds, shades and shutters as Window Coverings ([#276](https://github.com/harrymitchinson/oikade/issues/276)) ([d14d871](https://github.com/harrymitchinson/oikade/commit/d14d871c117a164e5275203827e06e8995f9e0b5))
+* **matterbridge:** log each Window Covering command a controller sends ([#377](https://github.com/harrymitchinson/oikade/issues/377)) ([ddb0c47](https://github.com/harrymitchinson/oikade/commit/ddb0c473d6d0393dd65a304f19ecc2373a44733e))
+* **matter:** mDNS breaks a tie between two hosts probing one name ([#391](https://github.com/harrymitchinson/oikade/issues/391)) ([bf8d40b](https://github.com/harrymitchinson/oikade/commit/bf8d40b7b5fdaec082a923f5e846e1ab4832ba1d))
+* **matter:** mDNS defends its names after announcing them ([#392](https://github.com/harrymitchinson/oikade/issues/392)) ([8c24a20](https://github.com/harrymitchinson/oikade/commit/8c24a20c97002cf475ff468b33dff33e8bf1eea2))
+* **matter:** mDNS replies carry NSEC records ([#389](https://github.com/harrymitchinson/oikade/issues/389)) ([6d1c3ef](https://github.com/harrymitchinson/oikade/commit/6d1c3ef848ee0a5bce9b57b569c80fbeabf59f90))
+* **matter:** the locked capability, and locks as Door Locks ([#273](https://github.com/harrymitchinson/oikade/issues/273)) ([953ae24](https://github.com/harrymitchinson/oikade/commit/953ae2442bc5861e12682395ee819d455d76824e))
+* **matter:** the mDNS responder follows interface and address changes ([#387](https://github.com/harrymitchinson/oikade/issues/387)) ([3f34e8e](https://github.com/harrymitchinson/oikade/commit/3f34e8e3a7eb75d16ee4ebe23b0ac05f4f175148))
+* **matter:** the setpoint capability, and heaters as heat-only Thermostats ([#271](https://github.com/harrymitchinson/oikade/issues/271)) ([3dbdbc2](https://github.com/harrymitchinson/oikade/commit/3dbdbc2bfa9a19c9404b8f04fa81af18163c9756))
+* **metrics:** VictoriaMetrics/metrics instead of client_golang ([#298](https://github.com/harrymitchinson/oikade/issues/298)) ([ffcfe21](https://github.com/harrymitchinson/oikade/commit/ffcfe215aa96c1b37ab51024fe495add33ac0a86))
+* oikade deploy --keep-vars deploys with the host's values ([#419](https://github.com/harrymitchinson/oikade/issues/419)) ([af35b83](https://github.com/harrymitchinson/oikade/commit/af35b833634ac3b90511f5c597e7d9ae704c3322))
+* oikade devices shows hardware by its ref ([#360](https://github.com/harrymitchinson/oikade/issues/360)) ([b314eaa](https://github.com/harrymitchinson/oikade/commit/b314eaa0a75ff308f250001c7b30e280302662ea))
+* one decision per capability: home.Decide replaces Hold and Control ([#291](https://github.com/harrymitchinson/oikade/issues/291)) ([7d22b7b](https://github.com/harrymitchinson/oikade/commit/7d22b7bacb60c7c33051275ae7c3e52d0f2a9d9b))
+* **overkiz:** check the TaHoma hub's certificate against Overkiz's root CA ([#281](https://github.com/harrymitchinson/oikade/issues/281)) ([c076933](https://github.com/harrymitchinson/oikade/commit/c0769337e0bb9f2048bd870888dbf2f5714fc0bc))
+* **overkiz:** Cozytouch accounts on Atlantic's Magellan cloud ([#364](https://github.com/harrymitchinson/oikade/issues/364)) ([9c282db](https://github.com/harrymitchinson/oikade/commit/9c282dbed943aa4c851fd3af3e1009c9ea16f462))
+* **overkiz:** log in to Cozytouch's cloud, and serve Atlantic towel radiators ([#280](https://github.com/harrymitchinson/oikade/issues/280)) ([ec11d65](https://github.com/harrymitchinson/oikade/commit/ec11d657f60363621c4e39c167ea914abeabb6f3))
+* **overkiz:** serve Somfy io shutters through a TaHoma hub's local API ([#279](https://github.com/harrymitchinson/oikade/issues/279)) ([6868430](https://github.com/harrymitchinson/oikade/commit/68684308e858d8cef5d19c87e06aadce5c459c6f))
+* **plan:** export the plan from Linear into plan/ ([#386](https://github.com/harrymitchinson/oikade/issues/386)) ([a16ea0e](https://github.com/harrymitchinson/oikade/commit/a16ea0e25319da3aeb683d1bae878da32d5d6025))
+* **plan:** give every issue its ID as an Obsidian alias ([#394](https://github.com/harrymitchinson/oikade/issues/394)) ([0f0fa0d](https://github.com/harrymitchinson/oikade/commit/0f0fa0d8507e79d154c502f9be468a5ccb138b19))
+* **plan:** hack/plan works from plan/, not Linear ([#388](https://github.com/harrymitchinson/oikade/issues/388)) ([65a775b](https://github.com/harrymitchinson/oikade/commit/65a775b00142dc94998844e5b08c7117f24557ba))
+* **plugins:** report a device's firmware version where its platform says it ([#397](https://github.com/harrymitchinson/oikade/issues/397)) ([8e387c3](https://github.com/harrymitchinson/oikade/commit/8e387c3066788cfb758a58615f19f5a5a2073f95))
+* refs, and claim sources and pause by them ([#357](https://github.com/harrymitchinson/oikade/issues/357)) ([a4ee784](https://github.com/harrymitchinson/oikade/commit/a4ee7844766e37e24f33b43cbe9c72fd54a7fe6a))
+* secrets give way to your values ([#418](https://github.com/harrymitchinson/oikade/issues/418)) ([f4875d0](https://github.com/harrymitchinson/oikade/commit/f4875d0fe4f03fdf6c14d9bbe16265c234a068d8))
+* **toshibaac:** log in to Toshiba Home AC Control and report its units ([#352](https://github.com/harrymitchinson/oikade/issues/352)) ([9d5887c](https://github.com/harrymitchinson/oikade/commit/9d5887c0554984a7036ea52ee4f0dec70d611985))
+* **toshibaac:** refuse a mode that clashes on a shared outdoor unit ([#354](https://github.com/harrymitchinson/oikade/issues/354)) ([fbece18](https://github.com/harrymitchinson/oikade/commit/fbece185069631d54e7d0ab0694a6c5caa5796fa))
+* **toshibaac:** set a unit's on, mode and setpoint ([#353](https://github.com/harrymitchinson/oikade/issues/353)) ([118c0b7](https://github.com/harrymitchinson/oikade/commit/118c0b7b66abf729a07a34ff2d968386c2671411))
+* values that follow readings: Follow, AverageOver and a budget's conditions ([#293](https://github.com/harrymitchinson/oikade/issues/293)) ([1521bd2](https://github.com/harrymitchinson/oikade/commit/1521bd2c0fe4101a6d63cd6920762f76fd4d5336))
+* your values go up with a deploy, and oikade.Var reads them ([#416](https://github.com/harrymitchinson/oikade/issues/416)) ([a345622](https://github.com/harrymitchinson/oikade/commit/a34562213dde2755a7e9fb6234ba739b72f07197))
+* **zigbee2mqtt:** covers become position, and locks locked ([#277](https://github.com/harrymitchinson/oikade/issues/277)) ([c03096d](https://github.com/harrymitchinson/oikade/commit/c03096d06226d97007548f245730bf0d82c12685))
+* **zigbee2mqtt:** oikade setup checks the broker and Zigbee2MQTT's settings ([#284](https://github.com/harrymitchinson/oikade/issues/284)) ([64de419](https://github.com/harrymitchinson/oikade/commit/64de4199e51a7211c763418b7fe1316b2607038a))
+
+
+### Bug Fixes
+
+* bound ewelinklan's state, and fuzz the parsers that read untrusted input ([#325](https://github.com/harrymitchinson/oikade/issues/325)) ([3c61d8b](https://github.com/harrymitchinson/oikade/commit/3c61d8b78fa6c9de4f02c5f2bd1d5930c1790250))
+* **ci:** install qemu-user for the cross-compiled check ([#399](https://github.com/harrymitchinson/oikade/issues/399)) ([e5b5e7b](https://github.com/harrymitchinson/oikade/commit/e5b5e7b78c8e1395184920288c3278a12d58431d))
+* **engine:** a device's first report after the host starts is never an Override ([#335](https://github.com/harrymitchinson/oikade/issues/335)) ([b50ee65](https://github.com/harrymitchinson/oikade/commit/b50ee65235dcf271ed96b3a2198551803430ab1e))
+* **engine:** a group hold's start that reaches some members is active ([#374](https://github.com/harrymitchinson/oikade/issues/374)) ([9bb51a3](https://github.com/harrymitchinson/oikade/commit/9bb51a3cb6cd5d33162ec65f3f1231f967102740))
+* **engine:** a line hands over to the next at the same moment with no write ([#368](https://github.com/harrymitchinson/oikade/issues/368)) ([dbdb156](https://github.com/harrymitchinson/oikade/commit/dbdb156b609c9683c94aab39aa9f1059890622f6))
+* **engine:** a rounded report of a write is the write, not an outside change ([#346](https://github.com/harrymitchinson/oikade/issues/346)) ([b50a58f](https://github.com/harrymitchinson/oikade/commit/b50a58f59d79d7d718fff6ca51570375d8c4d7e6))
+* **engine:** save a hold as started before its claim ([#350](https://github.com/harrymitchinson/oikade/issues/350)) ([6de56ed](https://github.com/harrymitchinson/oikade/commit/6de56ed09fd9c5e3201dfee9c8db9d90be7ce3f3))
+* find .local hosts over mDNS in static builds ([#363](https://github.com/harrymitchinson/oikade/issues/363)) ([c9f2da5](https://github.com/harrymitchinson/oikade/commit/c9f2da568ebbced608895fe9531b432d211778a4))
+* **ident:** an ID logs as its name ([#376](https://github.com/harrymitchinson/oikade/issues/376)) ([918942f](https://github.com/harrymitchinson/oikade/commit/918942f07413b92c8e3e022d89a49fc25f86a6a4))
+* **matter:** a shutter's drag in the Home app is one move ([#385](https://github.com/harrymitchinson/oikade/issues/385)) ([6e6edad](https://github.com/harrymitchinson/oikade/commit/6e6edadb5513d1bcc2810f9ea7a0dd6b78100b1a))
+* **matter:** the commissioning window's timeout reads as a duration, and advertising has a part ([#379](https://github.com/harrymitchinson/oikade/issues/379)) ([b806f98](https://github.com/harrymitchinson/oikade/commit/b806f9830fb28f54101db3b6eebfee987614161f))
+* **mdns:** a lookup that finds nothing dials the addresses found before ([#414](https://github.com/harrymitchinson/oikade/issues/414)) ([6d06884](https://github.com/harrymitchinson/oikade/commit/6d0688468429b7e5cf5155ec6245b65e716c9fdd))
+* **overkiz:** a Magellan write waits for the device's last to end ([#381](https://github.com/harrymitchinson/oikade/issues/381)) ([5bed3de](https://github.com/harrymitchinson/oikade/commit/5bed3de86c22095347e7ddfd51dcc978ceaeeda8))
+* **overkiz:** log a cloud's missing account once, not hourly ([#366](https://github.com/harrymitchinson/oikade/issues/366)) ([4dda264](https://github.com/harrymitchinson/oikade/commit/4dda2643334dd986cac6e1f5776735b12d9cfa8e))
+* **plan:** a stale lock is taken over only while it's still stale ([#404](https://github.com/harrymitchinson/oikade/issues/404)) ([5bb19d8](https://github.com/harrymitchinson/oikade/commit/5bb19d89a3fc21b7cb258923f219549a3c4d6992))
+* **plan:** bash makes the plan's lock, since Ubuntu 26.04's mkdir isn't atomic ([#405](https://github.com/harrymitchinson/oikade/issues/405)) ([0002983](https://github.com/harrymitchinson/oikade/commit/0002983e3f23e41e349240457e0b2e4522d931d7))
+* **plugin:** don't count a removed device's messages as rejections ([#347](https://github.com/harrymitchinson/oikade/issues/347)) ([29d0282](https://github.com/harrymitchinson/oikade/commit/29d0282d268cf53370d6d0c47b415c995e083a83))
+* **plugin:** IDs no Device has can't grow the decoder's state without bound ([#328](https://github.com/harrymitchinson/oikade/issues/328)) ([7966b38](https://github.com/harrymitchinson/oikade/commit/7966b3832128f84b5f9343286ee4e9ac066ae363))
+* **schedule:** a block planned mid-slot meets MinimumOn from now ([#369](https://github.com/harrymitchinson/oikade/issues/369)) ([4621ec0](https://github.com/harrymitchinson/oikade/commit/4621ec017ffacc91c49ffc60506e1ff06c7a7fc5))
+* **sdk:** a step whose session ends mid-publish returns ErrSetupEnded ([#307](https://github.com/harrymitchinson/oikade/issues/307)) ([552f90d](https://github.com/harrymitchinson/oikade/commit/552f90def51ad5793974ce8172366b232255c852))
+* **simhome:** a replay compares the writes the home makes as it starts ([#372](https://github.com/harrymitchinson/oikade/issues/372)) ([75208ed](https://github.com/harrymitchinson/oikade/commit/75208ed9862b24660753aebd15aeb693a485ac5b))
+* **simhome:** settle waits for the engine to say it may be idle ([#339](https://github.com/harrymitchinson/oikade/issues/339)) ([14dc33d](https://github.com/harrymitchinson/oikade/commit/14dc33d66aeeb3bfef9e40de49abbcb084a6da41))
+* status and devices say a device is offline, and the host logs when ([#383](https://github.com/harrymitchinson/oikade/issues/383)) ([c376d12](https://github.com/harrymitchinson/oikade/commit/c376d12880cf160a2f832b6a62c8ec4b7f59a8ee))
+* **store:** a file cut short or not bbolt's is refused, and the store's syncs are tested ([#315](https://github.com/harrymitchinson/oikade/issues/315)) ([e24488d](https://github.com/harrymitchinson/oikade/commit/e24488d8c3859e72352ad6add6a4f5b7c03fce05))
+* **toshibaac:** fan runs beside any mode on a shared outdoor unit ([#355](https://github.com/harrymitchinson/oikade/issues/355)) ([3d08797](https://github.com/harrymitchinson/oikade/commit/3d087971273b0ada088cd0764188b1de9abb0d03))
+* **toshibaac:** log in with a Device-ID and no User-Agent ([#362](https://github.com/harrymitchinson/oikade/issues/362)) ([31ec832](https://github.com/harrymitchinson/oikade/commit/31ec83225d7faa1435d51e62996fcd7c2d6033c6))
+* **toshibaac:** wait as long as a 429 asks, not 10 minutes ([#413](https://github.com/harrymitchinson/oikade/issues/413)) ([f802cb5](https://github.com/harrymitchinson/oikade/commit/f802cb5a8ec2af1b62f5d4c029df759b65c8bf87))
+* why a case doesn't apply names an average readably ([#370](https://github.com/harrymitchinson/oikade/issues/370)) ([b2473ec](https://github.com/harrymitchinson/oikade/commit/b2473ecda045186fe5799cea770f4c9717417605))
+* why a case doesn't apply rounds an average to two decimals ([#373](https://github.com/harrymitchinson/oikade/issues/373)) ([524aa9b](https://github.com/harrymitchinson/oikade/commit/524aa9b8a92d04ec3a5414d51fedb90216d99f7a))
+* **zigbee2mqtt:** an object value_on and state no longer panic and hold the lock ([#319](https://github.com/harrymitchinson/oikade/issues/319)) ([5ee1a9f](https://github.com/harrymitchinson/oikade/commit/5ee1a9f27b06a2207445274506771cd344e15a15))
+* **zigbee2mqtt:** setup waits its whole stateWait for bridge/state ([#313](https://github.com/harrymitchinson/oikade/issues/313)) ([20985b4](https://github.com/harrymitchinson/oikade/commit/20985b4f55da4d815066ce3473b564f964af1270))
+
+
+### Code Refactoring
+
+* the package a home imports is oikade, at the module root ([#289](https://github.com/harrymitchinson/oikade/issues/289)) ([229ab73](https://github.com/harrymitchinson/oikade/commit/229ab732058e675e103de74ce1f11ce27bb15ec7))
+
 ## [0.2.0-alpha.2](https://github.com/harrymitchinson/oikade/compare/v0.2.0-alpha.1...v0.2.0-alpha.2) (2026-11-15)
 
 
