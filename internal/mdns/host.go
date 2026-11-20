@@ -144,9 +144,10 @@ func addresses(b []byte, name dnsmessage.Name) []netip.Addr {
 
 // DialContext dials address as a net.Dialer does, but finds a host in .local over mDNS first, and
 // with the system's resolver only if nothing answers there, since a router's DNS may answer for
-// any name. The system's resolver still reads /etc/hosts. It keeps what it finds for a minute, or
-// until no address it found answers. On macOS, where the system's resolver asks mDNS itself, it
-// dials as a net.Dialer does.
+// any name. The system's resolver still reads /etc/hosts. It keeps what it finds until no address
+// it found answers, and looks the host up again after a minute, dialing what it found before if
+// nothing answers then. On macOS, where the system's resolver asks mDNS itself, it dials as a
+// net.Dialer does.
 func DialContext(ctx context.Context, network, address string) (net.Conn, error) {
 	return defaultDialer.DialContext(ctx, network, address)
 }
@@ -168,20 +169,23 @@ type dialer struct {
 	now        func() time.Time
 
 	mu    sync.Mutex
-	found map[string]found // by lower-case host
+	found map[string]*found // by hostKey
 }
 
+// found is a host's addresses, which a dial that finds them replaces, rather than changing them.
 type found struct {
 	addrs []netip.Addr
-	until time.Time
+	until time.Time // when to look the host up again
 }
 
 func newDialer(mdns, system lookupFunc) *dialer {
-	return &dialer{mdns: mdns, system: system, now: time.Now, found: map[string]found{}}
+	return &dialer{mdns: mdns, system: system, now: time.Now, found: map[string]*found{}}
 }
 
-// keepFor is how long a host's addresses are kept: less than the two minutes a host's own mDNS
-// records last (RFC 6762, 10).
+func hostKey(host string) string { return strings.ToLower(strings.TrimSuffix(host, ".")) }
+
+// keepFor is how long a host's addresses are dialed before it's looked up again: less than the two
+// minutes a host's own mDNS records last (RFC 6762, 10).
 const keepFor = time.Minute
 
 // dialTimeout bounds a dial whose context has no deadline, as http.DefaultTransport's does.
@@ -197,12 +201,12 @@ func (d *dialer) DialContext(ctx context.Context, network, address string) (net.
 	if err != nil || !IsLocal(host) || d.systemOnly {
 		return nd.DialContext(ctx, network, address)
 	}
-	addrs, err := d.lookup(ctx, host)
+	f, stale, err := d.lookup(ctx, host)
 	if err != nil {
 		return nil, &net.OpError{Op: "dial", Net: network, Err: err}
 	}
 	var candidates []netip.Addr
-	for _, a := range ipv4First(addrs) {
+	for _, a := range ipv4First(f.addrs) {
 		switch {
 		case strings.HasSuffix(network, "4") && !a.Is4(), strings.HasSuffix(network, "6") && a.Is4():
 			continue
@@ -232,7 +236,10 @@ func (d *dialer) DialContext(ctx context.Context, network, address string) (net.
 			break
 		}
 	}
-	d.forget(host)
+	d.forget(host, f)
+	if stale != nil {
+		return nil, fmt.Errorf("%w; and the addresses found for it before: %w", stale, errors.Join(errs...))
+	}
 	return nil, errors.Join(errs...)
 }
 
@@ -255,18 +262,55 @@ func ipv4First(addrs []netip.Addr) []netip.Addr {
 	return out
 }
 
-// lookup returns the host's addresses kept from before, or finds them: over mDNS, else with the
-// system's resolver. It asks both at once, so falling back costs no more time than mDNS takes to
-// give up. If neither finds the host, the error says what each found.
-func (d *dialer) lookup(ctx context.Context, host string) ([]netip.Addr, error) {
-	key := strings.ToLower(strings.TrimSuffix(host, "."))
+// lookup returns the host's addresses kept from before, or finds them afresh. A host's mDNS
+// responder misses the odd query, since multicast is lossy, so if nothing finds a host it has found
+// before, it returns what it found then, for another keepFor, and stale says why it couldn't find
+// them afresh. Looking such a host up gets at most half the time left, so there's time to dial
+// them. Only forget, once none of them answers, drops them.
+func (d *dialer) lookup(ctx context.Context, host string) (f *found, stale, err error) {
+	key := hostKey(host)
 	d.mu.Lock()
-	f, ok := d.found[key]
+	kept := d.found[key]
 	d.mu.Unlock()
-	if ok && d.now().Before(f.until) {
-		return f.addrs, nil
+	if kept != nil && d.now().Before(kept.until) {
+		return kept, nil, nil
 	}
+	fctx := ctx
+	if kept != nil {
+		left := dialTimeout
+		if deadline, ok := ctx.Deadline(); ok {
+			left = time.Until(deadline)
+		}
+		var cancel context.CancelFunc
+		fctx, cancel = context.WithTimeout(ctx, min(lookupTimeout, left/2))
+		defer cancel()
+	}
+	addrs, err := d.find(fctx, host)
 
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	switch current := d.found[key]; {
+	case err == nil:
+		f = &found{addrs: addrs}
+	case ctx.Err() != nil || current == nil:
+		// With nobody left waiting, nothing found before, or another dial finding meanwhile that
+		// none of it answers, there's nothing to dial.
+		return nil, nil, err
+	case current != kept:
+		// Another dial found the host meanwhile, or kept what it found before.
+		return current, err, nil
+	default:
+		f, stale = &found{addrs: kept.addrs}, err
+	}
+	f.until = d.now().Add(keepFor)
+	d.found[key] = f
+	return f, stale, nil
+}
+
+// find asks over mDNS and with the system's resolver at once, so falling back costs no more time
+// than mDNS takes to give up, and takes mDNS's answer if it has one, since a router's DNS may answer
+// for any name. If neither finds the host, the error says what each found.
+func (d *dialer) find(ctx context.Context, host string) ([]netip.Addr, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	type result struct {
@@ -286,23 +330,23 @@ func (d *dialer) lookup(ctx context.Context, host string) ([]netip.Addr, error) 
 	}
 	mdns, system := run(d.mdns), run(d.system)
 	m := <-mdns
-	addrs := m.addrs
-	if m.err != nil {
-		s := <-system
-		if s.err != nil {
-			return nil, fmt.Errorf("could not find %s: %w; and the system's resolver: %w", host, m.err, s.err)
-		}
-		addrs = s.addrs
+	if m.err == nil {
+		return m.addrs, nil
 	}
-	d.mu.Lock()
-	d.found[key] = found{addrs: addrs, until: d.now().Add(keepFor)}
-	d.mu.Unlock()
-	return addrs, nil
+	s := <-system
+	if s.err != nil {
+		return nil, fmt.Errorf("could not find %s: %w; and the system's resolver: %w", host, m.err, s.err)
+	}
+	return s.addrs, nil
 }
 
-// forget drops a host's addresses, once none of them answers.
-func (d *dialer) forget(host string) {
+// forget drops a host's addresses f, once none of them answers, unless another dial has found the
+// host since.
+func (d *dialer) forget(host string, f *found) {
+	key := hostKey(host)
 	d.mu.Lock()
-	delete(d.found, strings.ToLower(strings.TrimSuffix(host, ".")))
+	if d.found[key] == f {
+		delete(d.found, key)
+	}
 	d.mu.Unlock()
 }
