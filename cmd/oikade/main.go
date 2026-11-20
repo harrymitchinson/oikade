@@ -201,7 +201,8 @@ func them(names []string) string {
 func runRollback(ctx context.Context, args []string) error {
 	fs := newFlags("rollback")
 	target := addTarget(fs)
-	envFile := fs.String("env-file", "", "Values to replace the host's with, from this file. Without it, the host keeps its own.")
+	envFile := fs.String("env-file", "",
+		"Values to replace the host's with, from this file. Without it, the host keeps its own.")
 	allow := fs.Bool("allow-safety", false, "Go ahead even though a Safety rule would go, and end its claims.")
 	renamed(fs, "allow-safety-removal", "allow-safety", true)
 	_ = fs.Parse(args)

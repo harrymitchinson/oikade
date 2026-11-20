@@ -94,12 +94,12 @@ func TestCheckVarNameSuggestsAName(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, want := range map[string]string{
-		"toshiba-user": `"toshiba-user" isn't a variable name: ` + VarRule + `, such as "TOSHIBA_USER"`,
+		"toshiba-user":       `"toshiba-user" isn't a variable name: ` + VarRule + `, such as "TOSHIBA_USER"`,
 		"Cozytouch.Password": `"Cozytouch.Password" isn't a variable name: ` + VarRule + `, such as "COZYTOUCH_PASSWORD"`,
-		"_token":       `"_token" isn't a variable name: ` + VarRule + `, such as "TOKEN"`,
-		"2fa code":     `"2fa code" isn't a variable name: ` + VarRule + `, such as "VAR_2FA_CODE"`,
-		"—":            `"—" isn't a variable name: ` + VarRule,
-		"":             "a variable needs a name: " + VarRule,
+		"_token":             `"_token" isn't a variable name: ` + VarRule + `, such as "TOKEN"`,
+		"2fa code":           `"2fa code" isn't a variable name: ` + VarRule + `, such as "VAR_2FA_CODE"`,
+		"—":                  `"—" isn't a variable name: ` + VarRule,
+		"":                   "a variable needs a name: " + VarRule,
 	} {
 		err := CheckVarName(name)
 		if err == nil || err.Error() != want {

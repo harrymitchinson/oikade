@@ -240,9 +240,12 @@ func setting(sets ...oikade.Set) func(*oikade.FlowRun) {
 	}
 }
 
+// automations says whether this is the automations process, rather than check mode or a plugin.
+func automations() bool { return len(os.Args) > 1 && os.Args[1] == "automations" }
+
 // start acts out the variants that fail at run time. Check mode doesn't reach this far.
 func start() {
-	if len(os.Args) < 2 || os.Args[1] != "automations" {
+	if !automations() {
 		return
 	}
 	switch variant {
@@ -270,7 +273,7 @@ var fixtureSecret = oikade.Secret("fixture-secret")
 
 // reportSecret tells the tests a secret arrived, and only how long it is: the value mustn't be logged.
 func reportSecret() {
-	if len(os.Args) < 2 || os.Args[1] != "automations" {
+	if !automations() {
 		return
 	}
 	if value, err := fixtureSecret.Read(); err == nil {
@@ -462,7 +465,7 @@ func home() *oikade.Home {
 		if variant == "vars-more" {
 			_ = oikade.Var(fixtureExtra)
 		}
-		if len(os.Args) > 1 && os.Args[1] == "automations" {
+		if automations() {
 			reportVar("automations", fixtureToken, token)
 		}
 		h.Plugin("keyed", keyedRelays(token))

@@ -121,7 +121,8 @@ func TestAPluginAndYourAutomationsAreGivenTheDeployedValues(t *testing.T) {
 
 	// The same again changes nothing.
 	pid = r.pid()
-	if out = r.mustDeployValues("vars", map[string]string{tokenVar: second}); !strings.Contains(out, "Already running version") {
+	out = r.mustDeployValues("vars", map[string]string{tokenVar: second})
+	if !strings.Contains(out, "Already running version") {
 		t.Errorf("the deploy said %q", out)
 	}
 	if r.pid() != pid || r.readsVar("plugin", "vars", second) != 1 {

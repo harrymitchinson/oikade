@@ -340,12 +340,15 @@ func TestADeploySendsTheFilesValuesAndTheEnvironmentWins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]string{"TOSHIBA_USER": "someone", "TOSHIBA_PASSWORD": "hunter2", "NOT_USED": "kept", "TAHOMA_PIN": "1234"}
+	want := map[string]string{
+		"TOSHIBA_USER": "someone", "TOSHIBA_PASSWORD": "hunter2", "NOT_USED": "kept", "TAHOMA_PIN": "1234",
+	}
 	if got := host.deploys(); len(got) != 1 || !maps.Equal(got[0], want) {
 		t.Errorf("sent %q", got)
 	}
-	if want := ", with 4 values from " + filepath.Join(module, ".env") + " and the environment\n"; !strings.HasSuffix(out, want) {
-		t.Errorf("got %q, want it to end %q", out, want)
+	line := ", with 4 values from " + filepath.Join(module, ".env") + " and the environment\n"
+	if !strings.HasSuffix(out, line) {
+		t.Errorf("got %q, want it to end %q", out, line)
 	}
 }
 
@@ -355,10 +358,12 @@ func TestADeploySaysWhereItsValuesCameFrom(t *testing.T) {
 		used        []string
 		environment map[string]string
 	}{
-		"none":                 {"", "Deployed version v2\n", nil, nil},
-		"one from the file":    {"A=1\n", "Deployed version v2, with 1 value from .env\n", nil, nil},
-		"all from the file":    {"A=1\nB=2\n", "Deployed version v2, with 2 values from .env\n", nil, nil},
-		"from the environment": {"", "Deployed version v2, with 1 value from the environment\n", []string{"A"}, map[string]string{"A": "1"}},
+		"none":              {"", "Deployed version v2\n", nil, nil},
+		"one from the file": {"A=1\n", "Deployed version v2, with 1 value from .env\n", nil, nil},
+		"all from the file": {"A=1\nB=2\n", "Deployed version v2, with 2 values from .env\n", nil, nil},
+		"from the environment": {
+			"", "Deployed version v2, with 1 value from the environment\n", []string{"A"}, map[string]string{"A": "1"},
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			module := homeWithValues(t, c.env)
@@ -376,7 +381,8 @@ func TestADeployMissingAValueStopsBeforeItsUpload(t *testing.T) {
 	module := homeWithValues(t, "TOSHIBA_USER=someone\n")
 	t.Chdir(module)
 	_, err := deployValues(t, host, ".", "", []string{"TOSHIBA_USER", "TOSHIBA_PASSWORD"}, nil)
-	if err == nil || err.Error() != "TOSHIBA_PASSWORD isn't set" || hintOf(err) != "add it to .env, or set it in the environment" {
+	if err == nil || err.Error() != "TOSHIBA_PASSWORD isn't set" ||
+		hintOf(err) != "add it to .env, or set it in the environment" {
 		t.Errorf("got %v, hint %q", err, hintOf(err))
 	}
 	_, err = deployValues(t, host, ".", "", []string{"TAHOMA_PIN", "TOSHIBA_PASSWORD"}, nil)
@@ -425,7 +431,8 @@ func TestADeployOfOnlyNewValuesSaysWhichChanged(t *testing.T) {
 		t.Errorf("got %q, %v", out, err)
 	}
 	host = startRecordingHost(t, api.Response{Version: "v2", Unchanged: true})
-	if out, err := deployValues(t, host, homeWithValues(t, "A=1\n"), "", nil, nil); err != nil || out != "Already running version v2\n" {
+	out, err = deployValues(t, host, homeWithValues(t, "A=1\n"), "", nil, nil)
+	if err != nil || out != "Already running version v2\n" {
 		t.Errorf("got %q, %v", out, err)
 	}
 }
@@ -437,7 +444,8 @@ func TestAVersionTheHostRefusesForAMissingValueSaysWhereToAddIt(t *testing.T) {
 	module := homeWithValues(t, "")
 	t.Chdir(module)
 	_, err := deployValues(t, host, ".", "", nil, nil)
-	if err == nil || err.Error() != "the version uses A, which isn't among the deploy's values" || hintOf(err) != "add it to .env" {
+	if err == nil || err.Error() != "the version uses A, which isn't among the deploy's values" ||
+		hintOf(err) != "add it to .env" {
 		t.Errorf("got %v, hint %q", err, hintOf(err))
 	}
 }

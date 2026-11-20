@@ -93,7 +93,7 @@ func (f *varsFile) write() error {
 
 // checkVarNames refuses a set with a name that breaks the rule, which a process couldn't ask for.
 func checkVarNames(values map[string]string) error {
-	var errs []error
+	errs := make([]error, 0, len(values))
 	for _, name := range slices.Sorted(maps.Keys(values)) {
 		errs = append(errs, ident.CheckVarName(name))
 	}

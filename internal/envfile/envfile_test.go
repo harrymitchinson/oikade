@@ -72,12 +72,12 @@ func TestParseEmpty(t *testing.T) {
 func TestParseSaysWhichLineIsWrong(t *testing.T) {
 	for file, want := range map[string]string{
 		"A=1\ntoshiba-user=someone\n": `2: "toshiba-user" isn't a variable name: use upper-case letters, digits and underscores, starting with a letter, such as "TOSHIBA_USER"`,
-		"A=1\n\nJUST_A_NAME\n":         `3: "JUST_A_NAME" has no =: write NAME=VALUE`,
-		"=value\n":                     "1: a variable needs a name: use upper-case letters, digits and underscores, starting with a letter",
-		"A=\"open\nB=2\n":              "1: A: its value has no closing \"",
-		"A='open\n":                    "1: A: its value has no closing '",
-		"A=\"x\" y\n":                  `1: A has "y" after its closing quote`,
-		"A=\"two\nlines\"\nb=1\n":      `3: "b" isn't a variable name: use upper-case letters, digits and underscores, starting with a letter, such as "B"`,
+		"A=1\n\nJUST_A_NAME\n":        `3: "JUST_A_NAME" has no =: write NAME=VALUE`,
+		"=value\n":                    "1: a variable needs a name: use upper-case letters, digits and underscores, starting with a letter",
+		"A=\"open\nB=2\n":             "1: A: its value has no closing \"",
+		"A='open\n":                   "1: A: its value has no closing '",
+		"A=\"x\" y\n":                 `1: A has "y" after its closing quote`,
+		"A=\"two\nlines\"\nb=1\n":     `3: "b" isn't a variable name: use upper-case letters, digits and underscores, starting with a letter, such as "B"`,
 	} {
 		_, err := Parse(file)
 		if err == nil || err.Error() != want {

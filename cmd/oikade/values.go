@@ -106,7 +106,8 @@ func shown(path string) string {
 	if err != nil || !filepath.IsAbs(path) {
 		return path
 	}
-	if rel, err := filepath.Rel(wd, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	rel, err := filepath.Rel(wd, path)
+	if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return rel
 	}
 	return path
