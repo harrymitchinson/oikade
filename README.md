@@ -118,7 +118,9 @@ A `-` is a write the deployed version made and your code doesn't, and a `+` the 
 
 A replay never reaches a device: your code runs in `simhome`, as in `oikade dev`, and asks the host only for its status and its log. A flow's `Do` isn't called. It gets the answer the deployed version got, or none if that call isn't on record, and the report says so. What it can't know comes as a note: a pause, a deploy, or your automations being down. It also runs a rule the deployed version had paused, a device that went quiet counts as alive, and a host that died outright leaves no note. Anything your code prints goes to standard error, with its errors. A device renamed during the log looks like two devices.
 
-The log keeps each change, write and rule run, and is bounded by age and size, oldest first. `oikade-host --event-log-age 336h --event-log-mib 64` are the defaults. Prometheus stays the place for history: this exists to be replayed, and losing it costs nothing else.
+The log keeps each change, write and rule run, and is bounded by age and size, oldest first. `oikade-host --event-log-age 336h --event-log-mib 64` are the defaults. Losing it costs nothing else.
+
+`oikade history` reads the same log, to say what the house did and why. `oikade history porch-light --since 03:00` shows the light's changes since 3am, each write with who made it, a rule, a Matter controller or `oikade set`, and when the light dropped off and came back. [Running a home](docs/running-a-home.md#working-with-a-running-home) has the rest. Prometheus stays the place for longer than the log keeps.
 
 A decision also says what a tap in the Home app does, and holds limits and budgets. The pool pump below runs near freezing, whatever its switch says, then in swimming hours, then for a budget of minutes the water's temperature sets, and in spring's cheap hours:
 

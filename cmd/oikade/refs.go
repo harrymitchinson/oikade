@@ -38,6 +38,55 @@ func namesOf(k ident.Kind, args []string) ([]string, error) {
 	return out, nil
 }
 
+// named is a thing an argument names: its ref, and the kind and parts the ref has.
+type named struct {
+	ref   string
+	kind  ident.Kind
+	parts []string
+}
+
+// refsOf is what a command's arguments name, each by its ref, as every output prints it, so that
+// output pastes back in. A bare word is a device's name, as a shorthand, but for matter, which is
+// always the Matter bridge: a device called matter is device/matter. An argument that's neither is
+// a command typed wrong.
+func refsOf(args []string) ([]named, error) {
+	out := make([]named, 0, len(args))
+	for _, arg := range args {
+		ref := arg
+		if !strings.Contains(arg, "/") && arg != string(ident.Matter) {
+			if !ident.ValidName(arg) {
+				return nil, cli.UsageErrorf("%q isn't a device's name, or a ref such as device/desk-plug or flow/morning", arg)
+			}
+			ref = ident.DeviceRef(arg).String()
+		}
+		kind, parts, err := ident.ParseRef(ref)
+		if err != nil {
+			return nil, cli.UsageErrorf("%s", err)
+		}
+		out = append(out, named{ref: ident.NewRef(kind, parts...).String(), kind: kind, parts: parts})
+	}
+	return out, nil
+}
+
+// eventRefs is the refs history and tail take: what the log has events of. A kind with none is
+// refused, with the kinds that have.
+func eventRefs(command string, args []string) ([]named, error) {
+	refs, err := refsOf(args)
+	if err != nil {
+		return nil, err
+	}
+	for _, n := range refs {
+		switch {
+		case n.kind == ident.Device && len(n.parts) > 0, n.kind == ident.Room, n.kind == ident.Case, n.kind == ident.Flow,
+			n.kind == ident.Plugin, n.kind == ident.Matter:
+		default:
+			return nil, cli.UsageErrorf("%s has no events", n.ref).
+				WithHint("oikade %s takes a device, a capability, a room, a case, a flow, a plugin or matter", command)
+		}
+	}
+	return refs, nil
+}
+
 // capabilityOf is the device and capability an argument names by its ref, such as
 // device/desk-plug/on.
 func capabilityOf(arg string) (device, name string, err error) {

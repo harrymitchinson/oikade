@@ -1,0 +1,14 @@
+[1mWed 18 Nov, yesterday[0m
+16:20:03  deployed version f113018
+16:20:04  automations connected
+16:41:00  device/porch-light/on  wrote true  [2mby case/porch-light/on/dusk[0m
+16:41:01  device/porch-light/on  true  [2mwas false[0m
+23:05:12  device/porch-light/on  wrote false  [2mby matter[0m
+23:05:12  device/porch-light/on  false  [2mwas true[0m
+[1mThu 19 Nov, today[0m
+03:00:40  device/porch-light  went offline  [2mno answer on the LAN[0m
+03:02:09  device/porch-light  came back online
+07:00:00  device/porch-light/brightness  wrote 40%  [2mby flow/morning[0m
+07:00:01  device/porch-light/brightness  40%  [2mwas 100%[0m
+09:30:00  automations disconnected
+--- stderr

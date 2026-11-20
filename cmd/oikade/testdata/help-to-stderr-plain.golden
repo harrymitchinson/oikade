@@ -17,6 +17,7 @@ Ship it
 
 Watch and drive
   status    Show each device's values, and the rules that set them.
+  history   Show what your home did: each change, write and run, and why.
   tail      Follow your home's events as they happen.
   set       Set a capability, as a person would, through arbitration.
   pause     Pause a rule, so it lets go of what it holds until you resume it.

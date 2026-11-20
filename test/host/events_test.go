@@ -260,3 +260,59 @@ func TestTheHostFiltersItsEvents(t *testing.T) {
 		t.Errorf("the tail has %d events since it began, want the write and the change: %+v", n, tailed[len(past):])
 	}
 }
+
+// oikade history of a device shows what a rule wrote to it, by the rule's ref, then the change that
+// made, and nothing of another device. A device nothing has on record has an empty history that says
+// so. oikade tail with a ref and --since prints that past, then follows.
+func TestHistoryShowsWhoWroteADevice(t *testing.T) {
+	t.Parallel()
+	r := start(t)
+	r.sync()
+	r.change("bathroom-sensor", humidityCap, 80)
+	r.wrote("fan", true)
+	r.sync()
+
+	for _, device := range []string{"device/fan", "fan"} {
+		out := string(r.stdout(nil, "history", device, "--since", "1h"))
+		wrote := strings.Index(out, "device/fan/on  wrote true  by case/fan/on/fan")
+		changed := strings.Index(out, "device/fan/on  true  was false")
+		if wrote < 0 || changed < wrote || strings.Contains(out, "bathroom-sensor") || !strings.Contains(out, ", today\n") {
+			t.Errorf("oikade history %s --since 1h:\n%s", device, out)
+		}
+	}
+	var by []string
+	for line := range strings.SplitSeq(strings.TrimSpace(string(r.stdout(nil, "history", "fan", "--json"))), "\n") {
+		var e api.Event
+		if err := json.Unmarshal([]byte(line), &e); err != nil {
+			t.Fatalf("history --json printed %q: %v", line, err)
+		}
+		if e.Type == api.EventWrite {
+			by = append(by, e.By)
+		}
+	}
+	if !slices.Equal(by, []string{"case/fan/on/fan"}) {
+		t.Errorf("the fan's writes are by %q", by)
+	}
+	if out := string(r.stdout(nil, "history", "fan", "--since", "1h", "--until", "30m")); out != "" {
+		t.Errorf("the fan's history up to half an hour ago:\n%s", out)
+	}
+	stderr, err := r.oikade(nil, "history", "device/nothing")
+	if err != nil || !strings.Contains(stderr, "No events of device/nothing since ") ||
+		!strings.Contains(stderr, "There's no device/nothing on record: oikade devices lists them.") {
+		t.Errorf("a history of nothing: %v: %s", err, stderr)
+	}
+
+	events := r.tailing("fan", "--since", "1h")
+	fanWrote := func(value bool, by string) func(api.Event) bool {
+		return func(e api.Event) bool {
+			if e.Device != "" && e.Device != "fan" {
+				t.Errorf("the fan's tail has %+v", e)
+			}
+			return e.Type == api.EventWrite && e.Value == value && e.By == by
+		}
+	}
+	awaitEvent(t, events, fanWrote(true, "case/fan/on/fan"))
+	// With the case over, no rule's claim decides the fan: it goes back to its default, which is nobody's.
+	r.change("bathroom-sensor", humidityCap, 40)
+	awaitEvent(t, events, fanWrote(false, ""))
+}

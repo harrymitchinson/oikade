@@ -46,6 +46,12 @@ func (t target) transport() api.Transport {
 	return api.Explained(transport, func(err error) error { return unreachable(transport, name, err) })
 }
 
+// explained is transport, and what to call the host it reaches, from one look at the config.
+func (t target) explained() (api.Transport, string) {
+	transport, name := t.resolve()
+	return api.Explained(transport, func(err error) error { return unreachable(transport, name, err) }), name
+}
+
 // isDNS is a name that didn't resolve.
 func isDNS(err error) bool {
 	_, ok := errors.AsType[*net.DNSError](err)
@@ -540,31 +546,45 @@ func limited(c api.Capability) string {
 func runTail(ctx context.Context, args []string) error {
 	fs := newFlags("tail")
 	target := addTarget(fs)
+	since := fs.String("since", "", "Print the events from then first: a duration, a time of day or a date and time.")
 	asJSON := fs.Bool("json", false, "Print a line of JSON for each event, whose fields stay stable for scripts.")
-	_ = fs.Parse(args)
-	transport, host := target.resolve()
-	return tail(ctx, transport, host, *asJSON, std.out, std.err)
-}
-
-// tail follows a host's events onto stdout, and says on stderr once it has started, so that a quiet
-// house doesn't look hung.
-func tail(ctx context.Context, t api.Transport, host string, asJSON bool, stdout, stderr io.Writer) error {
-	out := json.NewEncoder(stdout)
-	opened := func() {
-		if host == thisMachine {
-			_, _ = fmt.Fprintln(stderr, "Following the events of this machine's host")
-		} else {
-			_, _ = fmt.Fprintf(stderr, "Following %s's events\n", host)
+	refs, err := eventRefs("tail", cli.Parse(fs, args))
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	filter := api.EventFilter{Refs: refStrings(refs)}
+	if *since != "" {
+		if filter.Since, _, err = parseWhen("--since", *since, now); err != nil {
+			return err
 		}
 	}
-	p := printerOf(stdout)
-	return api.Tail(ctx, t, api.EventFilter{}, opened, func(e api.Event) error {
-		if asJSON {
-			return out.Encode(e)
+	transport, host := target.explained()
+	return tail(ctx, transport, host, filter, refs, *asJSON, now, std.out, std.err)
+}
+
+// tail follows a host's events onto stdout, those of refs if there are any, after the log's from
+// filter.Since if it has one. It says on stderr once it's following, so that a quiet house doesn't
+// look hung.
+func tail(ctx context.Context, t api.Transport, host string, filter api.EventFilter, refs []named, asJSON bool,
+	now time.Time, stdout, stderr io.Writer,
+) error {
+	opened := func() {
+		_, _ = fmt.Fprintln(stderr, following(host, refs))
+		// A ref that names nothing would otherwise follow in silence for good.
+		for _, missing := range unrecorded(ctx, t, refs) {
+			_, _ = fmt.Fprintln(stderr, missing)
 		}
-		_, err := fmt.Fprintln(p, eventLine(p, e))
-		return err
-	})
+	}
+	lines := &chronicle{p: printerOf(stdout), now: now, narrowed: len(refs) > 0}
+	if asJSON {
+		lines.json = json.NewEncoder(stdout)
+	}
+	if filter.Since.IsZero() {
+		// What's happening now needs no heading to say it's today.
+		lines.day = cli.Day(now, now)
+	}
+	return api.Tail(ctx, t, filter, opened, lines.add)
 }
 
 // eventLine is an event as tail prints it: its time, the ref of what it's about, what happened, and

@@ -105,10 +105,12 @@ func (s streams) Dial(context.Context) (net.Conn, error) {
 }
 
 func TestTailSaysItHasStartedBeforeAnyEvent(t *testing.T) {
-	body := streams(`{}` + "\n" + `{"type":"change","device":"hall-lamp","capability":"on","value":true}` + "\n")
+	now := time.Now()
+	body := streams(`{}` + "\n" + `{"time":"` + now.Format(time.RFC3339) +
+		`","type":"change","device":"hall-lamp","capability":"on","value":true}` + "\n")
 	for _, asJSON := range []bool{false, true} {
 		var out lockedOutput
-		_ = tail(t.Context(), body, "home", asJSON, out.writer("stdout"), out.writer("stderr"))
+		_ = tail(t.Context(), body, "home", api.EventFilter{}, nil, asJSON, now, out.writer("stdout"), out.writer("stderr"))
 		lines := out.lines()
 		if len(lines) != 2 || lines[0] != "stderr: Following home's events" || !strings.HasPrefix(lines[1], "stdout: ") {
 			t.Errorf("json %v: %q", asJSON, lines)
@@ -118,9 +120,22 @@ func TestTailSaysItHasStartedBeforeAnyEvent(t *testing.T) {
 		}
 	}
 	var out lockedOutput
-	_ = tail(t.Context(), body, thisMachine, false, out.writer("stdout"), out.writer("stderr"))
+	_ = tail(t.Context(), body, thisMachine, api.EventFilter{}, nil, false, now, out.writer("stdout"),
+		out.writer("stderr"))
 	if lines := out.lines(); len(lines) == 0 || lines[0] != "stderr: Following the events of this machine's host" {
 		t.Errorf("on this machine: %q", lines)
+	}
+	// Of some refs, it says which.
+	lamp := []named{{ref: "device/hall-lamp"}, {ref: "flow/morning"}}
+	for host, want := range map[string]string{
+		"home":      "stderr: Following device/hall-lamp, flow/morning on home",
+		thisMachine: "stderr: Following device/hall-lamp, flow/morning on this machine's host",
+	} {
+		var out lockedOutput
+		_ = tail(t.Context(), body, host, api.EventFilter{}, lamp, false, now, out.writer("stdout"), out.writer("stderr"))
+		if lines := out.lines(); len(lines) == 0 || lines[0] != want {
+			t.Errorf("on %s: %q, want %q", host, lines, want)
+		}
 	}
 }
 

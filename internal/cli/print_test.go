@@ -181,6 +181,27 @@ func TestAgoIsRelativeNearNow(t *testing.T) {
 	}
 }
 
+func TestDayNamesTheDayAndSaysTodayAndYesterday(t *testing.T) {
+	loc := testkit.Location("Europe/Paris")
+	now := time.Date(2026, 11, 18, 14, 30, 0, 0, loc)
+	for _, tc := range []struct {
+		t    time.Time
+		want string
+	}{
+		{now, "Wed 18 Nov, today"},
+		{time.Date(2026, 11, 18, 0, 0, 0, 0, loc), "Wed 18 Nov, today"},
+		{time.Date(2026, 11, 17, 23, 59, 59, 0, loc), "Tue 17 Nov, yesterday"},
+		{time.Date(2026, 11, 9, 8, 0, 0, 0, loc), "Mon 9 Nov"},
+		{time.Date(2025, 12, 31, 8, 0, 0, 0, loc), "Wed 31 Dec 2025"},
+		// In now's time zone, whatever t's: late on the 17th in UTC is already the 18th here.
+		{time.Date(2026, 11, 17, 23, 30, 0, 0, time.UTC), "Wed 18 Nov, today"},
+	} {
+		if got := Day(tc.t, now); got != tc.want {
+			t.Errorf("Day(%v) = %q, want %q", tc.t, got, tc.want)
+		}
+	}
+}
+
 func TestShortVersion(t *testing.T) {
 	for v, want := range map[string]string{
 		"f113018fb81c06e4d5fa3500102bfbc4": "f113018",
