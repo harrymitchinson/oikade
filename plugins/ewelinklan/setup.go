@@ -13,6 +13,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,10 +26,6 @@ import (
 )
 
 const (
-	// appIDSecret and appSecretSecret name the secrets that hold your eWeLink developer app's ID and
-	// secret. A device's ID is hex, so no device's key can take either name.
-	appIDSecret     = "ewelink-app-id"
-	appSecretSecret = "ewelink-app-secret"
 	// redirect is where the sign-in sends you back to, which oikade setup listens on. It's the
 	// redirect URL to give the app.
 	redirect = "http://127.0.0.1:8765/callback"
@@ -59,6 +57,24 @@ var regions = []string{"eu", "us", "as", "cn"}
 // app is your eWeLink developer app.
 type app struct{ id, secret string }
 
+// check says what Config lacks of the app, if anything, and how to make one.
+func (a app) check() error {
+	var missing []string
+	if a.id == "" {
+		missing = append(missing, "AppID")
+	}
+	if a.secret == "" {
+		missing = append(missing, "AppSecret")
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("ewelinklan.Config has no %s: make an app on the eWeLink developer platform, under "+
+		"Platform → App Management, with the redirect URL %s, put its ID and secret in .env, pass them as "+
+		`AppID: oikade.Var("EWELINK_APP_ID") and AppSecret: oikade.Var("EWELINK_APP_SECRET"), and deploy`,
+		strings.Join(missing, " or "), redirect)
+}
+
 // sign is the Base64 HMAC-SHA256 of message, keyed with the app's secret, as eWeLink signs requests.
 func (a app) sign(message []byte) string {
 	mac := hmac.New(sha256.New, []byte(a.secret))
@@ -69,9 +85,9 @@ func (a app) sign(message []byte) string {
 // cloudDevice is a device in your eWeLink account.
 type cloudDevice struct{ id, key, name string }
 
-// Setup implements plugin.Setup. It signs in to eWeLink through your browser, once, to fetch each
-// device's LAN key into its secret, and changes only the keys that differ. The token it signs in
-// with is never kept: the host reaches eWeLink only while setup runs.
+// Setup implements plugin.Setup. It signs in to eWeLink through your browser, once, with the app in
+// Config, to fetch each device's LAN key for the host to keep, and changes only the keys that
+// differ. The token it signs in with is never kept: the host reaches eWeLink only while setup runs.
 func (b *bridge) Setup(ctx context.Context, _ *plugin.Plugin, s *plugin.Session) (string, error) {
 	// Whether setup is needed is worked out again on the next sweep, whatever happened.
 	defer func() {
@@ -79,15 +95,14 @@ func (b *bridge) Setup(ctx context.Context, _ *plugin.Plugin, s *plugin.Session)
 		b.dirty = true
 		b.mu.Unlock()
 	}()
-	a, err := b.app(ctx, s)
+	if err := b.app.check(); err != nil {
+		return "", err
+	}
+	token, region, err := b.signIn(ctx, s, b.app)
 	if err != nil {
 		return "", err
 	}
-	token, region, err := b.signIn(ctx, s, a)
-	if err != nil {
-		return "", err
-	}
-	devices, err := b.cloud.devices(ctx, a, region, token)
+	devices, err := b.cloud.devices(ctx, b.app, region, token)
 	if err != nil {
 		return "", err
 	}
@@ -131,57 +146,6 @@ func (b *bridge) Setup(ctx context.Context, _ *plugin.Plugin, s *plugin.Session)
 	return fmt.Sprintf("%s is set up: %s, %d already up to date", b.name(), plural(kept, "LAN key")+" kept", unchanged), nil
 }
 
-// app is your developer app, from its secrets, or asked for and kept once.
-func (b *bridge) app(ctx context.Context, s *plugin.Session) (app, error) {
-	id, haveID, err := b.readSecret(appIDSecret)
-	if err != nil {
-		return app{}, err
-	}
-	secret, haveSecret, err := b.readSecret(appSecretSecret)
-	if err != nil {
-		return app{}, err
-	}
-	if haveID && haveSecret {
-		return app{id: id, secret: secret}, nil
-	}
-	if err := s.Say(ctx, "Make an app on the eWeLink developer platform, under Platform → App Management, "+
-		"with the redirect URL "+redirect); err != nil {
-		return app{}, err
-	}
-	if !haveID {
-		if id, err = s.Ask(ctx, "Its app ID"); err != nil {
-			return app{}, err
-		}
-		if id = strings.TrimSpace(id); id == "" {
-			return app{}, errors.New("no app ID")
-		}
-		if err := s.KeepSecret(ctx, appIDSecret, id); err != nil {
-			return app{}, fmt.Errorf("could not keep the app ID: %w", err)
-		}
-	}
-	if !haveSecret {
-		if secret, err = s.AskSecret(ctx, "Its app secret"); err != nil {
-			return app{}, err
-		}
-		if secret = strings.TrimSpace(secret); secret == "" {
-			return app{}, errors.New("no app secret")
-		}
-		if err := s.KeepSecret(ctx, appSecretSecret, secret); err != nil {
-			return app{}, fmt.Errorf("could not keep the app secret: %w", err)
-		}
-	}
-	return app{id: id, secret: secret}, nil
-}
-
-func (b *bridge) readSecret(name string) (string, bool, error) {
-	value, ok, err := plugin.ReadSecret(b.env, name)
-	if err != nil {
-		return "", false, fmt.Errorf("could not read the secret %s: %w", name, err)
-	}
-	value = strings.TrimSpace(value)
-	return value, ok && value != "", nil
-}
-
 // signIn opens eWeLink's sign-in page and swaps the code it sends you back with for a token, at once,
 // since the code lasts 30 seconds.
 func (b *bridge) signIn(ctx context.Context, s *plugin.Session, a app) (token, region string, err error) {
@@ -220,9 +184,9 @@ func (b *bridge) signIn(ctx context.Context, s *plugin.Session, a app) (token, r
 	return token, region, nil
 }
 
-// fixApp says how to change the app's details that setup kept, which it doesn't ask for again.
-const fixApp = "check the app's ID, secret and redirect URL, and change them with oikade set secret/" +
-	appIDSecret + " and oikade set secret/" + appSecretSecret
+// fixApp says where the app's details are, since eWeLink's refusal could be any of them.
+const fixApp = "check the app's ID and secret in .env, which your code passes as ewelinklan.Config's AppID " +
+	"and AppSecret, and that its redirect URL is " + redirect + ", then deploy and run setup again"
 
 // detail is what a redirect says went wrong, if anything.
 func detail(q url.Values) string {
@@ -330,20 +294,31 @@ func (c cloud) call(req *http.Request, doing string, into any) error {
 	return nil
 }
 
-// needsSetupLocked is whether setup has never run and a device heard has no LAN key. Once it has, a
-// device it couldn't key, such as a neighbour's or one in another account, says so as its own
+// needsSetupLocked is whether a device heard has no LAN key and setup has never kept one. Once it
+// has, a device it couldn't key, such as a neighbour's or one in another account, says so as its own
 // problem, rather than keep the whole plugin needing setup. Call with mu held.
 func (b *bridge) needsSetupLocked() bool {
 	missing := false
 	for _, d := range b.devices {
-		missing = missing || d.key == nil
+		if d.key != nil {
+			return false
+		}
+		missing = true
 	}
-	if !missing {
+	return missing && !b.keptAKey()
+}
+
+// deviceID is the shape of a device's ID, which names its LAN key.
+var deviceID = regexp.MustCompile(`^[0-9a-f]{10}$`)
+
+// keptAKey is whether the host keeps any device's LAN key, as only setup keeps one, whether or not
+// that device has been heard since the plugin started.
+func (b *bridge) keptAKey() bool {
+	entries, err := os.ReadDir(b.env.SecretsDir)
+	if err != nil {
 		return false
 	}
-	_, haveID, errID := b.readSecret(appIDSecret)
-	_, haveSecret, errSecret := b.readSecret(appSecretSecret)
-	return errID != nil || errSecret != nil || !haveID || !haveSecret
+	return slices.ContainsFunc(entries, func(e os.DirEntry) bool { return deviceID.MatchString(e.Name()) })
 }
 
 // name is the plugin's name, as oikade setup names it.

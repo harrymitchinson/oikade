@@ -17,7 +17,6 @@ func TestARefReadsBackAsItsParts(t *testing.T) {
 		{CaseRef("desk-plug", "on", "night"), Case, []string{"desk-plug", "on", "night"}},
 		{NewRef(Flow, "morning"), Flow, []string{"morning"}},
 		{NewRef(Room, "living-room"), Room, []string{"living-room"}},
-		{NewRef(Secret, "1000aabbcc"), Secret, []string{"1000aabbcc"}},
 		{NewRef(Hardware, "overkiz", "io://1234/5"), Hardware, []string{"overkiz", "io://1234/5"}},
 		{NewRef(Matter), Matter, []string{}},
 		{NewRef(Device), Device, []string{}},

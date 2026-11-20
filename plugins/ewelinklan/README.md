@@ -4,11 +4,13 @@ This plugin connects relays with sensors that speak the eWeLink LAN protocol, su
 
 ```go
 home.Plugin("ewelink-lan", ewelinklan.New(ewelinklan.Config{
-	Humidity: []string{"1000ddeeff"}, // these also announce humidity
+	AppID:     oikade.Var("EWELINK_APP_ID"), // your eWeLink developer app, for setup
+	AppSecret: oikade.Var("EWELINK_APP_SECRET"),
+	Humidity:  []string{"1000ddeeff"}, // these also announce humidity
 }))
 ```
 
-Each device's reports are encrypted with its own LAN key, which is one [secret](../../docs/running-a-home.md#secrets) named for its ID. Until it has one, the device is listed with what to do, and the Home app shows it as not responding. Setup fetches every device's key from your eWeLink account:
+Each device's reports are encrypted with its own LAN key, which only your eWeLink account knows. Until the plugin has a device's key, the device is listed with what to do, and the Home app shows it as not responding. Setup fetches every device's key from your account, through an eWeLink developer app. Make the app on the eWeLink developer platform, under Platform → App Management, with the redirect URL `http://127.0.0.1:8765/callback`, where `oikade setup` listens. Put its ID and secret in your home's [`.env`](../../docs/running-a-home.md#your-values) as `EWELINK_APP_ID` and `EWELINK_APP_SECRET`, which the Config above passes in with `oikade.Var`, and deploy. Then run setup:
 
 ```sh
 oikade status                               # 1000aabbcc  no LAN key: oikade setup ewelink-lan
@@ -21,9 +23,7 @@ Then name each one in your home's code, as setup says:
 home.Device("greenhouse-heater").Hardware("ewelink-lan", "1000aabbcc")
 ```
 
-The first time, setup asks for an eWeLink developer app's ID and secret, and keeps them as the secrets `ewelink-app-id` and `ewelink-app-secret`. Make the app on the eWeLink developer platform, under Platform → App Management, with the redirect URL `http://127.0.0.1:8765/callback`, where `oikade setup` listens. Setup then opens eWeLink's sign-in page in your browser, signs in through eWeLink's [OAuth2 API](https://coolkit-technologies.github.io/eWeLink-API/#/en/OAuth2.0), and lists your devices once. It keeps each device's key (its `devicekey`), and changes only the keys that differ. It doesn't keep the token, so the host talks to eWeLink only while setup runs. It also says what each device is called in the eWeLink app, with the [declaration](../../docs/devices.md) that gives it that name. Run it again for a device you pair later.
-
-A wrong app ID or secret shows when you sign in: change it with `oikade set secret/ewelink-app-secret`, then run setup again. You can also set a device's key by hand, with `oikade set secret/1000aabbcc`.
+Setup opens eWeLink's sign-in page in your browser, signs in through eWeLink's [OAuth2 API](https://coolkit-technologies.github.io/eWeLink-API/#/en/OAuth2.0), and lists your devices once. The host keeps each device's key (its `devicekey`), and setup changes only the keys that differ. It doesn't keep the token, so the host talks to eWeLink only while setup runs, and the plugin works on the LAN without the app. Setup also says what each device is called in the eWeLink app, with the [declaration](../../docs/devices.md) that gives it that name. Run it again for a device you pair later. A wrong app ID, secret or redirect URL shows when you sign in: fix it, deploy, and run setup again.
 
 A device of type `th_plug`, such as a THR316D or THR320D, reports `on` and `temperature`, plus `humidity` if its ID is in `Humidity`, which is a list because a device's sensors decide what the Home app shows. A reading that isn't a number, as with humidity from a temperature-only probe, isn't reported, and the last value stays. A device listed in `Humidity` that sends none says so once in the host's log. Any other type isn't reported yet, and the log says so once. Each new type is checked against a real device before it's added. A device's firmware version is its reports' `fwVersion`, as the last report that had one said. The LAN protocol gives no manufacturer, model, serial number or hardware version (OIK-349).
 

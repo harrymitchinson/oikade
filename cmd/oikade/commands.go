@@ -296,8 +296,9 @@ func runSet(ctx context.Context, args []string) error {
 	target := addTarget(fs)
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
 	words := cli.Parse(fs, args)
-	if len(words) > 0 && strings.HasPrefix(words[0], string(ident.Secret)+"/") {
-		return setSecret(ctx, target, words, *asJSON)
+	if len(words) > 0 && strings.HasPrefix(words[0], "secret/") {
+		return cli.UsageErrorf("oikade set takes a capability's ref and its value, and a secret is one of your values now").
+			WithHint("%s", valuesHint)
 	}
 	var device, name string
 	var err error
@@ -310,7 +311,7 @@ func runSet(ctx context.Context, args []string) error {
 		return cli.UsageErrorf("oikade set takes a capability's ref and its value").
 			WithHint("oikade set device/%s/%s %s", words[0], words[1], words[2])
 	default:
-		return cli.UsageErrorf("oikade set takes a capability's ref and its value, or a secret's ref")
+		return cli.UsageErrorf("oikade set takes a capability's ref and its value")
 	}
 	value, err := valueOf(device, name, words[1])
 	if err != nil {
@@ -359,33 +360,6 @@ func heldHint(ref string, c api.Capability) string {
 		return fmt.Sprintf("its limits let go when they're done: oikade status %s says when", ref)
 	}
 	return fmt.Sprintf("oikade status %s says why", ref)
-}
-
-// setSecret sets a secret, whose value comes from stdin or a prompt. One given as an argument is
-// refused before anything is sent, as it's in the shell's history now.
-func setSecret(ctx context.Context, target target, words []string, asJSON bool) error {
-	// Before the name, so a value with a bad name is still told it's in the history.
-	if len(words) > 1 {
-		return cli.UsageErrorf("oikade set doesn't take a secret's value as an argument, so it sent nothing: the "+
-			"value is in your shell's history now").
-			WithHint("run oikade set %s alone, which asks for the value or reads it from stdin, and change the "+
-				"secret where it came from if it matters", words[0])
-	}
-	name, err := nameOf(ident.Secret, words[0])
-	if err != nil {
-		return err
-	}
-	ref := ident.NewRef(ident.Secret, name)
-	value, err := readSecret(os.Stdin)
-	if err != nil {
-		return err
-	}
-	resp, err := api.Call(ctx, target.transport(), api.Request{Type: api.TypeSecretSet, Secret: name, SecretValue: value})
-	if err != nil {
-		return failedJSON(asJSON, ref.String(), err)
-	}
-	return finished(resp, ref.String(), asJSON, fmt.Sprintf("Set %s. Your process and plugins read it when "+
-		"they next ask, so one that reads it once needs a restart", ref), true)
 }
 
 // outcome says what a set left the capability at, and why, rather than what it asked for.
@@ -563,17 +537,4 @@ func finished(resp api.Response, ref string, asJSON bool, message string, change
 		return errors.New(resp.Error)
 	}
 	return nil
-}
-
-// unsetSecret says a secret the home uses isn't set, and how to set it.
-func unsetSecret(name string) string {
-	return fmt.Sprintf("Secret %s isn't set: oikade set secret/%s", name, name)
-}
-
-// printUnsetSecrets says which secrets the version now running uses that aren't set. It comes after
-// the deploy's result, which it doesn't change: the plugin that needs one waits for it.
-func printUnsetSecrets(out io.Writer, names []string) {
-	for _, name := range names {
-		_, _ = fmt.Fprintln(out, unsetSecret(name))
-	}
 }

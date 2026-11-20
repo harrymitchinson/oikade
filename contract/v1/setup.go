@@ -67,7 +67,8 @@ type SetupOpen struct {
 	Redirect string `json:"redirect"`
 }
 
-// SetupKeep is a secret for the host to keep, as oikade set secret/NAME would. Never log Value.
+// SetupKeep is a secret for the host to keep, such as a device's key, which the plugin reads from
+// EnvSecretsDir from then on. Never log Value.
 type SetupKeep struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`

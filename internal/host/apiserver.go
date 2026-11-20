@@ -404,8 +404,6 @@ func (s *apiServer) answer(c caller, req api.Request) api.Response {
 		return s.backup()
 	case api.TypeSetupReply:
 		return s.setupReply(s.ctx, req)
-	case api.TypeSecrets, api.TypeSecretSet, api.TypeSecretRemove:
-		return s.secret(req)
 	case api.TypeDevices, api.TypeForget:
 		return s.device(req)
 	}

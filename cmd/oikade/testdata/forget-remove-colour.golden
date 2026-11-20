@@ -17,8 +17,6 @@ They stay forgotten while relays lists them, and each comes back if it leaves th
 [32m✓[0m Forgot device/boiler
 device/porch-light stays forgotten while ewelink-lan lists it, and comes back if it leaves the list and returns, as a device re-paired in its app does
 Your home doesn't import relays, so device/boiler stays gone
---- remove secret/weather-api-key
-[32m✓[0m Removed secret/weather-api-key. Your process and plugins find it gone when they next ask, so one that read it once has it until it restarts
 --- remove client/old-laptop
 [32m✓[0m Removed client/old-laptop: its token stopped working, and its streams ended. The context on its machine stays, and fails until it logs in again
 --- remove client/phone

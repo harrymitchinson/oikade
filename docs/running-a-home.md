@@ -33,11 +33,11 @@ Removing a Safety rule is refused, and so is renaming one, because a rule's clai
 
 ### Your values
 
-What's yours rather than your home's, such as a login's username, a hub's address or an API key, goes in `.env` beside your `go.mod`, which the `.gitignore` `oikade init` writes keeps out of Git, so the code can be pushed or shared as it stands (OIK-365). Your code reads each value by its name with `oikade.Var`, which returns a string:
+What's yours rather than your home's, such as a login's username and password, a hub's address or an API key, goes in `.env` beside your `go.mod`, which the `.gitignore` `oikade init` writes keeps out of Git, so the code can be pushed or shared as it stands (OIK-365). Your code reads each value by its name with `oikade.Var`, which returns a string:
 
 ```go
 home.Plugin("tahoma", overkiz.New(overkiz.Local{
-	Address: oikade.Var("TAHOMA_ADDRESS"), PIN: oikade.Var("TAHOMA_PIN"), Token: oikade.Secret("tahoma-token"),
+	Address: oikade.Var("TAHOMA_ADDRESS"), PIN: oikade.Var("TAHOMA_PIN"), Token: oikade.Var("TAHOMA_TOKEN"),
 }))
 ```
 
@@ -45,6 +45,8 @@ home.Plugin("tahoma", overkiz.New(overkiz.Local{
 # .env
 TAHOMA_ADDRESS=gateway-1234-5678-9012.local:8443
 export TAHOMA_PIN="1234-5678-9012"
+# A token or a password is a value like any other
+TAHOMA_TOKEN=c1f7e2a94b
 ```
 
 `oikade deploy` sends them to the host with the binary, and says how many went:
@@ -55,7 +57,7 @@ Checking your code
 Building for linux/arm64
 Uploading 11 MB: 11 MB sent
 Waiting for the host to check and settle
-Deployed version 3f9c2a1, with 2 values from .env
+Deployed version 3f9c2a1, with 3 values from .env
 ```
 
 A line is `NAME=VALUE`, with `export` before it if you like. Blank lines and lines starting with `#` are skipped, and in a value without quotes, a `#` after a space starts a comment. A value may be in double quotes, where `\n`, `\"` and `\\` are escapes, or in single quotes, which take it as it is, and either may span lines. Nothing is expanded, so a `$` is a `$`. A name is the same in your code, the file and the environment, and follows an environment variable's rule: upper-case letters, digits and underscores, starting with a letter, such as `TAHOMA_PIN`. Your home's check refuses any other name in your code, and `oikade deploy` any other in the file, and both suggest one. The environment wins over the file, as with other dotenv tools, for any name in the file or your code, so `TAHOMA_PIN=… oikade deploy`, or a CI job's `env:`, needs no file. Pick names your shell doesn't set already: `TOSHIBA_USER`, not `USER`. `--env-file FILE` reads another file in place of `.env`, such as a test host's.
@@ -158,37 +160,9 @@ docker exec oikade oikade-host add client/laptop
 
 ### Secrets
 
-```sh
-oikade set secret/api-key         # asks for the value, or reads it from stdin
-oikade list secrets               # each with when it changed, and those your home uses that aren't set
-oikade remove secret/api-key
-```
+What a plugin's setup learns on the host, such as eWeLink's device keys, it keeps there as secrets: a file each in `secrets` in the data directory, readable only by the host's user, so a backup has them. No command lists them, a deploy keeps them, and running the setup again changes them. They're never in a log or `--json`. A plugin reads them with `plugin.ReadSecret`. What you'd type in yourself, a password included, is one of [your values](#your-values) instead.
 
-Values are never in logs or `--json`, and never on a command line, where `ps` and your shell's history would keep them. Each secret is a file in `secrets` in the data directory, readable only by the host's user, so a backup has them.
-
-Your code names a secret with `oikade.Secret`, and passes it where it's used, such as a plugin's config (OIK-297):
-
-```go
-var weatherKey = oikade.Secret("weather-api-key") // a step reads weatherKey.Read() when it runs
-
-home.Plugin("cozytouch", overkiz.New(overkiz.Cozytouch{
-	Brand: overkiz.Thermor, Username: "someone@example.com", Password: oikade.Secret("cozytouch"),
-}))
-```
-
-Making one declares it, so `oikade deploy` and the top of `oikade status` name each one a deployed version uses that isn't set, with the command that sets it:
-
-```
-$ oikade deploy
-Deployed version 14
-Secret cozytouch isn't set: oikade set secret/cozytouch
-```
-
-A missing secret doesn't stop a deploy: the plugin says what it's waiting for, and reads the secret once it's set. `Read` reads the value each time, so `oikade set secret/NAME` needs no deploy and restarts nothing. Make secrets where the home is built, in a package-level `var` or a plugin's config: one made in a rule as it runs is too late for the host to know of it. A plugin reads the secrets it names itself, such as a device's key, with `plugin.ReadSecret`.
-
-`--secrets-dir DIR` on `oikade-host` points at another directory, which can be read-only, such as a systemd credentials directory. `oikade list secrets` shows what's in it, and `set` says to change it where it's mounted from.
-
-A broker's password is a secret too, passed to the plugin that uses the broker, such as `zigbee2mqtt.Config{Broker: "mqtt://oikade@broker:1883", Password: oikade.Secret("broker")}`. Outside plugins share the host's `--broker`, whose password is `--broker-password-secret broker`. Neither is ever logged.
+Outside plugins share the host's `--broker`, whose password is a file you put in that directory yourself, readable only by the host's user: `--broker-password-secret broker` reads `secrets/broker`, and the host doesn't start without it. A broker that a plugin your home imports uses, such as Zigbee2MQTT's, takes its password as one of your values: `zigbee2mqtt.Config{Broker: "mqtt://oikade@broker:1883", Password: oikade.Var("BROKER_PASSWORD")}`. Neither password is ever logged.
 
 ### Upgrading the host
 
@@ -207,7 +181,7 @@ A new host may speak a new protocol to your code, in which case your process is 
 These talk to the host through a Unix socket in its data directory, which only the user running the host can reach. The [host API](host-api.md) is also served over TLS if you ask for it, with a [token](#the-network-api).
 
 ```sh
-oikade list devices               # what's on record, and how each is set up: rules, plugins, secrets, clients and contexts too
+oikade list devices               # what's on record, and how each is set up: rules, plugins, clients and contexts too
 oikade status                     # the running version, a device a line, and your rules
 oikade status valve               # one device, why each value is what it is, and its last 10 events
 oikade status room/utility plugin/overkiz   # a room's devices, a plugin and its devices
@@ -221,7 +195,7 @@ oikade resume case/fan/on/humid
 oikade pause flow/bedtime         # or a flow
 ```
 
-`oikade status` opens with the running version and your automations, such as `Home f113018 · automations connected 8 min ago`, or when they went down. Then it shows a device a line, with its room, its values in their units (`setpoint 21.5°C`) and what's wrong with it, such as `went offline 8 min ago`, fitted to the terminal: the room goes first, then values shorten, and `--wide` shows it all. A device your code doesn't declare says `not in your code` once, and a line after the table counts them: `oikade list devices` shows how to declare them. `oikade status DEVICE` shows one device in full, and says why as well as what: an arbitrated capability shows the line that won, such as `case/valve/on/leak-shutoff wants false`, and a limit holding it back, such as `case/pool-pump/on/frost wants true, resting until 03:20`. An offline device says when it went offline, and the view ends with its last 10 events, as `oikade history` prints them. `oikade status` takes any [ref](devices.md#refs) of something that's doing something, several at once, in the order given (OIK-355): a device, a capability (`device/valve/on`, only it), a room (`room/utility`, its devices a line each), a case or a flow (its line, and for a case the capability it decides), a plugin (`plugin/overkiz`: its problem, whether it needs setup, and its devices) and `matter`, the Matter bridge. A ref that names nothing fails the command, with exit 1, and one of another kind, such as `secret/overkiz`, exits 2. Without a ref, `oikade status` starts with what's left to set up, a line each on stderr with the command that fixes it, and says nothing when there's nothing left (OIK-287): no home deployed (`oikade deploy`), a Matter bridge that is down or has no controller (`oikade status matter`), plugins that need their setup run (`oikade setup`), devices with a problem (their STATE says what), and devices whose plugin isn't imported. A ref, and `--json`, leave them out. `--check` prints the same, and exits 1 if something a command fixes is wrong: any of those but a bridge with no controller, as well as a secret that isn't set and automations that are down. A device that's only offline doesn't count, as that's its hardware's and no deploy fixes it, unless you name it, a capability of it or its room: `oikade status --check boiler room/hall` exits 1 if either has a device offline. A device's not being in your code never counts, as nothing is broken. An empty `status` or `list` says what would fill it, on stderr, and `--json` prints an empty list. Colour and glyphs are only for a terminal, and never with `NO_COLOR` set or `TERM=dumb`. An error is a sentence, and often a `Hint:` with the command that fixes it; `--debug`, or `OIKADE_DEBUG=1`, adds its causes in full, and a command given the wrong arguments exits 2, with that command's usage. `oikade help` lists the commands by what you're doing, `oikade help KIND`, such as `oikade help device`, lists the commands that take one, and `oikade COMMAND --help` says what one does, with its flags and an example (OIK-331). A command typed wrong exits 2: an unknown command or flag, a ref that doesn't parse, or a kind the command doesn't take, which it names. A word from another tool, such as `rm` or `logs`, or the name of a command that's gone, such as `matter`, names the command to use. Anything else that fails exits 1, such as a ref that parses but names nothing, a refusal that needs `--allow-safety`, or a host out of reach. A case says whether it applies, why not, and why it isn't sure, by its ref, such as `case/lounge-lamp/on/motion  case  active since 23:07, off at 23:10`, `case/pool-pump/on/frost  case  Safety  inactive: device/pool-water/temperature is 12, not below 3`, or `case/hall-heater/on/occupied  case  inactive  stopped: no device in room hall has reported occupancy`. A time that isn't today has its date, and an on or off time that has gone by says `(passed)`. A case whose conditions can't be read keeps its state until they can. A budget that can't be planned keeps its device off.
+`oikade status` opens with the running version and your automations, such as `Home f113018 · automations connected 8 min ago`, or when they went down. Then it shows a device a line, with its room, its values in their units (`setpoint 21.5°C`) and what's wrong with it, such as `went offline 8 min ago`, fitted to the terminal: the room goes first, then values shorten, and `--wide` shows it all. A device your code doesn't declare says `not in your code` once, and a line after the table counts them: `oikade list devices` shows how to declare them. `oikade status DEVICE` shows one device in full, and says why as well as what: an arbitrated capability shows the line that won, such as `case/valve/on/leak-shutoff wants false`, and a limit holding it back, such as `case/pool-pump/on/frost wants true, resting until 03:20`. An offline device says when it went offline, and the view ends with its last 10 events, as `oikade history` prints them. `oikade status` takes any [ref](devices.md#refs) of something that's doing something, several at once, in the order given (OIK-355): a device, a capability (`device/valve/on`, only it), a room (`room/utility`, its devices a line each), a case or a flow (its line, and for a case the capability it decides), a plugin (`plugin/overkiz`: its problem, whether it needs setup, and its devices) and `matter`, the Matter bridge. A ref that names nothing fails the command, with exit 1, and one of another kind, such as `client/laptop`, exits 2. Without a ref, `oikade status` starts with what's left to set up, a line each on stderr with the command that fixes it, and says nothing when there's nothing left (OIK-287): no home deployed (`oikade deploy`), a Matter bridge that is down or has no controller (`oikade status matter`), plugins that need their setup run (`oikade setup`), devices with a problem (their STATE says what), and devices whose plugin isn't imported. A ref, and `--json`, leave them out. `--check` prints the same, and exits 1 if something a command fixes is wrong: any of those but a bridge with no controller, as well as automations that are down. A device that's only offline doesn't count, as that's its hardware's and no deploy fixes it, unless you name it, a capability of it or its room: `oikade status --check boiler room/hall` exits 1 if either has a device offline. A device's not being in your code never counts, as nothing is broken. An empty `status` or `list` says what would fill it, on stderr, and `--json` prints an empty list. Colour and glyphs are only for a terminal, and never with `NO_COLOR` set or `TERM=dumb`. An error is a sentence, and often a `Hint:` with the command that fixes it; `--debug`, or `OIKADE_DEBUG=1`, adds its causes in full, and a command given the wrong arguments exits 2, with that command's usage. `oikade help` lists the commands by what you're doing, `oikade help KIND`, such as `oikade help device`, lists the commands that take one, and `oikade COMMAND --help` says what one does, with its flags and an example (OIK-331). A command typed wrong exits 2: an unknown command or flag, a ref that doesn't parse, or a kind the command doesn't take, which it names. A word from another tool, such as `rm` or `logs`, or the name of a command that's gone, such as `matter`, names the command to use. Anything else that fails exits 1, such as a ref that parses but names nothing, a refusal that needs `--allow-safety`, or a host out of reach. A case says whether it applies, why not, and why it isn't sure, by its ref, such as `case/lounge-lamp/on/motion  case  active since 23:07, off at 23:10`, `case/pool-pump/on/frost  case  Safety  inactive: device/pool-water/temperature is 12, not below 3`, or `case/hall-heater/on/occupied  case  inactive  stopped: no device in room hall has reported occupancy`. A time that isn't today has its date, and an on or off time that has gone by says `(passed)`. A case whose conditions can't be read keeps its state until they can. A budget that can't be planned keeps its device off.
 
 `oikade tail` says `Following home's events` on stderr once the host is listening, naming the context, so a quiet house doesn't look hung. Each event is a line: its time, the ref of what it's about, what happened, and why, dimmed, such as `14:02:07  device/desk-plug/on  true  was false` or `14:02:08  device/desk-plug/on  refused a Matter write of true  case/desk-plug/on/hall-too-humid holds it at Safety`. A write says who made it: `wrote true  by case/desk-plug/on/occupied` for a rule, `by matter` for a controller such as the Home app, and `by command` for `oikade set`. A write with no `by` is the host putting a capability back to its default once no rule holds it, and a change with no write before it was made at the device, by its switch or its maker's app.
 
@@ -293,7 +267,7 @@ Taking an `oikade.Plugin` out of your home doesn't remove its devices (OIK-225).
 
 Losing these means re-pairing, and then the Home app forgets every room, scene and automation, or every Zigbee device has to be paired again.
 
-- **The host's data directory** (`/var/lib/oikade` by default) is everything a home has to keep, in one file: the Matter bridge's setup code, unique ID, attestation key and fabrics, the device registry with its endpoint IDs, latches, claims, flows, your deployed versions with the values the last deploy sent, your secrets, and the network API's key and token hashes. **Back up one directory.** A file copied while it changes may not open, so either stop the host first, or run `oikade backup` and then copy the directory. `oikade backup` writes a consistent snapshot of the store to `backups/oikade-<time>.db` in the directory while the host runs, and keeps the last five. Secrets and your values are in there in the clear, so keep the copy somewhere as private as the machine. Losing your values costs only a deploy, from the `.env` you have.
+- **The host's data directory** (`/var/lib/oikade` by default) is everything a home has to keep, in one file: the Matter bridge's setup code, unique ID, attestation key and fabrics, the device registry with its endpoint IDs, latches, claims, flows, your deployed versions with the values the last deploy sent, what plugins' setups kept, and the network API's key and token hashes. **Back up one directory.** A file copied while it changes may not open, so either stop the host first, or run `oikade backup` and then copy the directory. `oikade backup` writes a consistent snapshot of the store to `backups/oikade-<time>.db` in the directory while the host runs, and keeps the last five. Secrets and your values are in there in the clear, so keep the copy somewhere as private as the machine. Losing your values costs only a deploy, from the `.env` you have.
   - **Upgrade:** take that snapshot first with `oikade backup`, and a new `oikade-host` opens the same directory, so nothing needs pairing again. A file from a newer format is refused rather than guessed at, so keep the backup until the upgrade has worked.
   - **Delete:** deleting the directory forgets the bridge. Every controller has lost it, so remove it from each one and pair again. The next host gets new codes.
   - **Restore:** with the host stopped, copy the directory back, give it to the host's user, and if it came from a running host, copy the newest `backups/oikade-<time>.db` over `oikade.db`. A host on a restored directory is the same bridge, with no pairing again, because the identity and fabrics come back with it. A controller added since that backup isn't in it, and needs pairing again. If the Matter identity or fabrics are unreadable, the host never makes new ones: it runs the home without a bridge, and the log and `oikade status matter` say why, until you restore them. A restore keeps the network API's pin and every token, including any revoked since that backup, so revoke those again.
@@ -305,5 +279,5 @@ Losing these means re-pairing, and then the Home app forgets every room, scene a
 - The API is a Unix socket only the host's user can reach. With `--api-addr` it's on the network too, over TLS 1.3, and every call needs a token, which is as good as a login on the host. Keep it off the open internet.
 - The metrics listener is read-only, but open to whoever can reach the port, and it shows device names and values. Move it with `--metrics-addr`.
 - Importing a plugin means trusting its code, because it runs as the host's user.
-- An outside plugin and Zigbee2MQTT are as safe as your broker: anything that can publish to it can control those devices. Give it a password, and keep it in a [secret](#secrets).
+- An outside plugin and Zigbee2MQTT are as safe as your broker: anything that can publish to it can control those devices. Give it a password: Zigbee2MQTT's is one of [your values](#your-values), and outside plugins' is a file in the host's [secrets directory](#secrets).
 - Each plugin's README says what else it needs, such as the [eWeLink LAN plugin](../plugins/ewelinklan/README.md#security).

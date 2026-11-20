@@ -53,10 +53,6 @@ const (
 	TypeSetup      = "setup"
 	TypeSetupReply = "setupReply"
 
-	TypeSecrets      = "secrets"
-	TypeSecretSet    = "secretSet"
-	TypeSecretRemove = "secretRemove"
-
 	TypeDevices = "devices"
 	// TypeForget drops devices from the record, which come back if their plugin reports them again.
 	TypeForget = "forget"
@@ -116,10 +112,6 @@ var Routes = []Route{
 	{TypeSetup, http.MethodPost, Prefix + "/setup", true, false},
 	{TypeSetupReply, http.MethodPost, Prefix + "/setup/reply", false, false},
 
-	{TypeSecrets, http.MethodGet, Prefix + "/secrets", false, false},
-	{TypeSecretSet, http.MethodPost, Prefix + "/secrets/set", false, false},
-	{TypeSecretRemove, http.MethodPost, Prefix + "/secrets/remove", false, false},
-
 	{TypeDevices, http.MethodGet, Prefix + "/devices", false, false},
 	{TypeForget, http.MethodPost, Prefix + "/devices/forget", false, false},
 
@@ -161,10 +153,6 @@ type Request struct {
 	// Vars are a rollback's: values that replace the host's whole, by name. Without them, a rollback
 	// keeps the host's. A deploy sends its own in its body. They're in no answer and no log.
 	Vars map[string]string `json:"vars,omitzero"`
-	// Secret names a secret to set or remove.
-	Secret string `json:"secret,omitempty"`
-	// SecretValue is what to set it to. It's in no answer and no log.
-	SecretValue string `json:"secretValue,omitempty"`
 	// Client names a client of the network API to add or remove.
 	Client string `json:"client,omitempty"`
 	// Token asks a clientAdd request for a token rather than a code to log in with.
@@ -224,9 +212,6 @@ type Response struct {
 	// the capability's ref, such as device/fan/on.
 	Ended []string `json:"ended,omitempty"`
 	Kept  []string `json:"kept,omitempty"`
-	// UnsetSecrets are a deploy's or a rollback's: the secrets the version now running uses that
-	// aren't set.
-	UnsetSecrets []string `json:"unsetSecrets,omitempty"`
 	// DeviceChanges are a deploy's or a rollback's: what the version's device declarations changed,
 	// a line each, and Unseen the names it declares whose hardware hasn't reported.
 	DeviceChanges []string `json:"deviceChanges,omitempty"`
@@ -250,8 +235,6 @@ type Response struct {
 	MatterWindow *MatterWindow `json:"matterWindow,omitempty"`
 	// Backup is the file a backup wrote, on the host.
 	Backup string `json:"backup,omitempty"`
-	// Secrets are the secrets the host has, and never their values.
-	Secrets []Secret `json:"secrets,omitempty"`
 	// Clients are the network API's clients, and never their tokens.
 	Clients []Client `json:"clients,omitempty"`
 	// Token is a new client's, shown only once.
@@ -371,18 +354,6 @@ func Pin(publicKeyInfo []byte) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// Secret is what the host says about a credential. Its JSON is what oikade list secrets --json prints,
-// so scripts rely on it: add to it, and don't rename.
-type Secret struct {
-	Name string `json:"name"`
-	// Ref is its ref, such as secret/broker.
-	Ref string `json:"ref"`
-	// Changed is when its value last changed.
-	Changed time.Time `json:"changed,omitzero"`
-	// Unset is a secret the running version uses that isn't set, which oikade list secrets adds.
-	Unset bool `json:"unset,omitempty"`
-}
-
 // Matter is the host's Matter bridge. Its JSON is matter in what oikade status --json prints, so
 // scripts rely on it: add to it, and don't rename.
 type Matter struct {
@@ -446,8 +417,6 @@ type Home struct {
 	// went, or the host started.
 	Process bool       `json:"process"`
 	Since   *time.Time `json:"since,omitempty"`
-	// UnsetSecrets are the secrets the running version uses that aren't set.
-	UnsetSecrets []string `json:"unsetSecrets,omitempty"`
 }
 
 // Undeployed is a host that has never had a home deployed.

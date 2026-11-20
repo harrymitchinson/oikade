@@ -13,8 +13,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
 
 // Brand is whose Cozytouch app the account is in. They share one login and its clouds.
@@ -33,10 +31,10 @@ const (
 // Atlantic's app, which Atlantic can change.
 type Cozytouch struct {
 	Brand Brand
-	// Username is the account's email address.
+	// Username is the account's email address, such as oikade.Var("COZYTOUCH_USER").
 	Username string
-	// Password is the account's password, such as oikade.Secret("cozytouch").
-	Password plugin.Secret
+	// Password is the account's password, such as oikade.Var("COZYTOUCH_PASSWORD").
+	Password string
 
 	// signer shares one login between the account's two clouds.
 	signer *signer
@@ -60,13 +58,11 @@ const (
 // or requests a minute.
 var cloudTiming = timing{
 	poll: 30 * time.Second, busy: 2 * time.Second, read: time.Minute, retry: 30 * time.Second, retryMax: 5 * time.Minute,
-	limited: 10 * time.Minute, refused: time.Hour, secret: 5 * time.Second,
+	limited: 10 * time.Minute, refused: time.Hour,
 	request: 15 * time.Second, set: 4 * time.Second, execution: 2 * time.Minute,
 }
 
-func (c Cozytouch) secret() string { return c.Password.Name() }
-
-func (Cozytouch) secretField() string { return "overkiz.Cozytouch's Password" }
+func (Cozytouch) credentialField() string { return "overkiz.Cozytouch's Password" }
 
 func (c Cozytouch) describe() string { return string(c.Brand) + "'s Cozytouch cloud" }
 
@@ -82,13 +78,15 @@ func (c Cozytouch) check() error {
 		return fmt.Errorf("overkiz.Cozytouch has Brand %q: it's overkiz.Atlantic, overkiz.Thermor or overkiz.Sauter", c.Brand)
 	case c.Username == "":
 		return errors.New("overkiz.Cozytouch has no Username")
+	case strings.TrimSpace(c.Password) == "":
+		return errors.New("overkiz.Cozytouch has no Password")
 	}
 	return nil
 }
 
 // connect logs in, in three calls: a password grant from Atlantic, its exchange for a JWT, and an
 // Overkiz session for that, which a cookie keeps.
-func (c Cozytouch) connect(ctx context.Context, password string) (*client, error) {
+func (c Cozytouch) connect(ctx context.Context) (*client, error) {
 	api, endpoint := cmp.Or(c.atlanticAPI, atlanticAPI), cmp.Or(c.endpoint, cozytouchEndpoint)
 	jar, _ := cookiejar.New(nil)
 	httpc := &http.Client{Jar: jar, Timeout: cloudTiming.request, Transport: c.transport}
@@ -96,7 +94,7 @@ func (c Cozytouch) connect(ctx context.Context, password string) (*client, error
 	// one asked for once: only a new token refused is a refused login.
 	var jwt string
 	for fresh := false; ; fresh = true {
-		token, err := c.token(ctx, password)
+		token, err := c.token(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -135,11 +133,11 @@ func (c Cozytouch) connect(ctx context.Context, password string) (*client, error
 
 // token is Atlantic's token for the account, which both clouds take: the signer's, if the account
 // has one, so the two share a login.
-func (c Cozytouch) token(ctx context.Context, password string) (string, error) {
+func (c Cozytouch) token(ctx context.Context) (string, error) {
 	if c.signer != nil {
-		return c.signer.token(ctx, c, password)
+		return c.signer.token(ctx, c)
 	}
-	token, _, err := c.grant(ctx, password)
+	token, _, err := c.grant(ctx)
 	return token, err
 }
 
@@ -151,10 +149,10 @@ func (c Cozytouch) forget(token string) {
 }
 
 // grant asks Atlantic for a token with the account's password, and says how long it lasts.
-func (c Cozytouch) grant(ctx context.Context, password string) (string, time.Duration, error) {
+func (c Cozytouch) grant(ctx context.Context) (string, time.Duration, error) {
 	httpc := &http.Client{Timeout: cloudTiming.request, Transport: c.transport}
 	status, body, err := send(ctx, httpc, http.MethodPost, cmp.Or(c.atlanticAPI, atlanticAPI)+"/token", url.Values{
-		"grant_type": {"password"}, "username": {"GA-PRIVATEPERSON/" + c.Username}, "password": {password},
+		"grant_type": {"password"}, "username": {"GA-PRIVATEPERSON/" + c.Username}, "password": {strings.TrimSpace(c.Password)},
 	}, "Basic "+cozytouchClientID)
 	if err != nil {
 		return "", 0, err
@@ -189,31 +187,28 @@ type signer struct {
 	hold time.Duration
 
 	// mu is held through a grant, so a cloud that asks meanwhile waits for it.
-	mu       sync.Mutex
-	password string
-	current  string
-	expires  time.Time
-	refusal  error
-	refused  time.Time
+	mu      sync.Mutex
+	current string
+	expires time.Time
+	refusal error
+	refused time.Time
 }
 
 // tokenMargin is how long before Atlantic says a token ends that it's asked for another.
 const tokenMargin = 10 * time.Minute
 
-func (s *signer) token(ctx context.Context, c Cozytouch, password string) (string, error) {
+func (s *signer) token(ctx context.Context, c Cozytouch) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
-	if password == s.password {
-		switch {
-		case s.current != "" && now.Before(s.expires):
-			return s.current, nil
-		case s.refusal != nil && now.Sub(s.refused) < s.hold:
-			return "", s.refusal
-		}
+	switch {
+	case s.current != "" && now.Before(s.expires):
+		return s.current, nil
+	case s.refusal != nil && now.Sub(s.refused) < s.hold:
+		return "", s.refusal
 	}
-	token, life, err := c.grant(ctx, password)
-	s.password, s.current, s.refusal = password, "", nil
+	token, life, err := c.grant(ctx)
+	s.current, s.refusal = "", nil
 	switch {
 	case err != nil && classify(err) == refused:
 		s.refusal, s.refused = err, now

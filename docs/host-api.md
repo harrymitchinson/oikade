@@ -12,17 +12,14 @@ A `GET` takes no body. A `POST` takes a JSON object, and every field is optional
 | `GET /v1/status` | | `status` |
 | `GET /v1/matter` | | `matter` |
 | `GET /v1/devices` | | `registry`; `unimported`, the devices of plugins the running version doesn't import; `outsidePlugins`; `safetyHeld`, the plugins' devices a Safety claim holds; `hiddenFromMatter`, the devices your home keeps off Matter |
-| `GET /v1/secrets` | | `secrets`, never their values |
-| `POST /v1/deploy` | Your values, then the binary, as `multipart/form-data` (below), and `?allowSafety=true` in the query | `version`, `unchanged`, `restored`, `findings`; `varsChanged`, the names of the values it added, changed or removed, and `missingVars`, the ones a refused version uses that it lacks; `unimported`, the devices of plugins the version doesn't import, once it's running; `unsetSecrets`, the secrets the version uses that aren't set; `takenOffMatter`, the devices on the bridge it hides from Matter |
-| `POST /v1/rollback` | `allowSafety`, and `vars`, values that replace the host's | `version`, `findings`, `varsChanged`, `missingVars`, `unimported`, `unsetSecrets`, `takenOffMatter` |
+| `POST /v1/deploy` | Your values, then the binary, as `multipart/form-data` (below), and `?allowSafety=true` in the query | `version`, `unchanged`, `restored`, `findings`; `varsChanged`, the names of the values it added, changed or removed, and `missingVars`, the ones a refused version uses that it lacks; `unimported`, the devices of plugins the version doesn't import, once it's running; `takenOffMatter`, the devices on the bridge it hides from Matter |
+| `POST /v1/rollback` | `allowSafety`, and `vars`, values that replace the host's | `version`, `findings`, `varsChanged`, `missingVars`, `unimported`, `takenOffMatter` |
 | `POST /v1/set` | `device`, `capability`, `value` | `outcome`, the capability with its claims once the device answered and nothing wrote it back, after up to 3 seconds; none if the device hadn't answered |
 | `POST /v1/pause`, `POST /v1/resume` | `rule`, the case's or flow's [ref](devices.md#refs), such as `case/fan/on/humid`, and `allowSafety` | `needsAllowSafety`; a pause's `ended`, the claims it ended, and `kept`, its Safety claims, each as the capability's ref, such as `device/fan/on` |
 | `POST /v1/matter/open` | `windowSeconds`, 180 to 900, and 900 if it's left out | `matterWindow`: `manualCode`, `qrCode`, `passcode`, `fresh` and `expires`. It answers once the window is advertised |
 | `POST /v1/backup` | | `backup`, the file it wrote on the host |
 | `POST /v1/setup` | `plugin` | A stream of the plugin's setup steps: see [Setup](#setup) |
 | `POST /v1/setup/reply` | `plugin`, `session`, `seq`, `answer` | |
-| `POST /v1/secrets/set` | `secret`, `secretValue` | |
-| `POST /v1/secrets/remove` | `secret` | |
 | `POST /v1/devices/forget` | `devices`, by name, or `plugin` for every device of that plugin, and `allowSafety`. Every device is checked before any is forgotten | `forgotten`, each with its `device`, `ref`, `plugin`, the claims it `ended` by their sources' refs, `offMatter` if it left the bridge, `comesBack` if its driver's next report brings it back, as a simulated device's does, and `unimported` if your home doesn't import its plugin; `needsAllowSafety`; `warning` |
 | `GET /v1/clients` | | `clients`, never their tokens, with those waiting for their login, each with `expires`, when its code runs out |
 | `POST /v1/clients/add` | `client` | `code`, `expires`, `pin` and `address`. Only on the socket. |
@@ -30,7 +27,7 @@ A `GET` takes no body. A `POST` takes a JSON object, and every field is optional
 | `POST /v1/clients/remove` | `client` | `cancelled` if it was waiting for its login, which cancels its code |
 | `POST /v1/login` | `code` | `token`, shown only once, and `client` |
 
-A call has 5 seconds to send its body, except a deploy, which may send its binary for as long as it keeps sending: up to 30 seconds with nothing, and 1 GiB in all. The host keeps the upload in `uploads` in its data directory until the deploy has copied it, and an upload that's cut off, or a host that stops during one, leaves nothing there and deploys nothing. Secret values go only in a body, and never in a path or a log.
+A call has 5 seconds to send its body, except a deploy, which may send its binary for as long as it keeps sending: up to 30 seconds with nothing, and 1 GiB in all. The host keeps the upload in `uploads` in its data directory until the deploy has copied it, and an upload that's cut off, or a host that stops during one, leaves nothing there and deploys nothing. Your values and setup's answers go only in a body, and never in a path or a log.
 
 A deploy's body has two parts, in this order: `vars`, your values as a JSON object of names to strings, up to 1 MiB, and `binary`, the binary. Only the closing boundary says it's all there. The values replace the host's whole, and a version whose code uses one they lack is refused before anything stops (OIK-365). A deploy of the version already running answers `unchanged`: with `varsChanged`, its processes started again with the new values, and without, nothing changed. A rollback keeps the host's values, unless it sends `vars` of its own. A name follows an environment variable's rule, upper-case letters, digits and underscores starting with a letter, and a set with any other is refused. No value is ever in an answer or a log, only names.
 
@@ -42,7 +39,7 @@ A deploy's body has two parts, in this order: `vars`, your values as a JSON obje
 
 | Field | Means |
 |---|---|
-| `home` | The home: `version`, `deploying`, `process`, `since` (when your automations last connected or went down, or the host started), and `unsetSecrets`, the secrets the running version uses that aren't set (OIK-297). |
+| `home` | The home: `version`, `deploying`, `process`, and `since` (when your automations last connected or went down, or the host started). |
 | `devices` | Each device, with its `room`, `online`, its `capabilities`, its `plugin` if a plugin reports it, and `offlineSince` while it's offline: when the host first heard it was. |
 | `rules` | Each rule, below. |
 | `plugins` | Each plugin the running binary imports or that reports a device on record: its `name`, its `ref` (`plugin/NAME`), its `problem` if it says something's wrong with it as a whole (OIK-17), `needsSetup` if it says its [setup](#setup) needs running, and the `devices` it reports. |

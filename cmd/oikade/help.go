@@ -111,13 +111,13 @@ var groups = []group{
 			Name:    "oikade list",
 			Summary: "What's on record, and how is each set up?",
 			Usage:   []string{"oikade list KIND [--wide] [--all] [--json]"},
-			About: "KIND is devices, rules, plugins, secrets, clients or contexts, singular or plural. devices are each " +
+			About: "KIND is devices, rules, plugins, clients or contexts, singular or plural. devices are each " +
 				"device's record: its room, whether it's paired, reserved, forgotten, hidden from Matter or not in your " +
 				"code, what it is, and its plugin, with its hardware and Matter endpoint under --wide, and the forgotten " +
-				"ones under --all. secrets have when each changed, and those your home uses that aren't set. contexts " +
+				"ones under --all. contexts " +
 				"are the hosts this machine has logged in to, with the current one marked. --json prints an array, each " +
 				"with its ref. oikade status says what each is doing now.",
-			Example: []string{"oikade list devices --wide", "oikade list secrets"},
+			Example: []string{"oikade list devices --wide", "oikade list clients"},
 		},
 		{
 			Name:    "oikade status",
@@ -128,7 +128,7 @@ var groups = []group{
 				"is what it is and its last 10 events, a capability (device/office-ac/on), a room's devices (room/hall), " +
 				"a case or a flow (flow/morning), a plugin and its devices (plugin/overkiz), or matter, the Matter bridge. " +
 				"--check exits 1 if something a command fixes is wrong: no home deployed, the Matter bridge down, a plugin " +
-				"with a problem or that needs setup, a secret not set, a device with a problem or whose plugin isn't " +
+				"with a problem or that needs setup, a device with a problem or whose plugin isn't " +
 				"imported, or automations down. A device that's only offline counts if you name it or its room.",
 			Example: []string{"oikade status office-ac", "oikade status --check room/hall"},
 		},
@@ -155,16 +155,12 @@ var groups = []group{
 	{"Drive it", []cli.Command{
 		{
 			Name:    "oikade set",
-			Summary: "Set a capability as a person would, or a secret.",
-			Usage: []string{
-				"oikade set device/DEVICE/CAPABILITY VALUE [--json]",
-				"oikade set secret/NAME [--json]",
-			},
+			Summary: "Set a capability as a person would.",
+			Usage:   []string{"oikade set device/DEVICE/CAPABILITY VALUE [--json]"},
 			About: "A capability's set says what it is afterwards, and fails, naming the rule or limit that holds " +
 				"it, if that isn't VALUE. One whose device hasn't answered yet isn't a failure: the write was sent. " +
-				"A secret's value comes from stdin, or a prompt, never an argument, which your shell's history and " +
-				"ps would keep. oikade list secrets lists them, and oikade remove secret/NAME removes one.",
-			Example: []string{"oikade set device/hall-heater/setpoint 19.5", "oikade set secret/weather-api-key"},
+				"Your values, such as a plugin's password, are in .env, which oikade deploy sends.",
+			Example: []string{"oikade set device/hall-heater/setpoint 19.5", "oikade set device/porch-light/on true"},
 		},
 		{
 			Name:    "oikade pause",
@@ -210,17 +206,16 @@ var groups = []group{
 				"plugin's device stays forgotten while the plugin lists it, and comes back if it leaves the list and " +
 				"returns, as a device re-paired in its app does. A forgotten device keeps its Matter endpoint, so " +
 				"hardware that comes back is the same device. A device your home's code declares is refused: delete " +
-				"its declaration and deploy first. Secrets and clients are removed, with oikade remove.",
+				"its declaration and deploy first. Clients are removed, with oikade remove.",
 			Example: []string{"oikade forget porch-light", "oikade forget --plugin zigbee2mqtt"},
 		},
 		{
 			Name:    "oikade remove",
-			Summary: "Remove secrets and clients from the host, for good.",
-			Usage:   []string{"oikade remove REF... [--json]"},
-			About: "REF is a secret's, secret/NAME, or a client's, client/NAME. It checks every one is there before it " +
-				"removes any. A client's token stops working at once, and a client waiting for its login has its " +
-				"code cancelled. Devices are forgotten, with oikade forget.",
-			Example: []string{"oikade remove client/old-laptop", "oikade remove secret/weather-api-key"},
+			Summary: "Remove clients from the host, for good.",
+			Usage:   []string{"oikade remove client/NAME... [--json]"},
+			About: "It checks every one is there before it removes any. A client's token stops working at once, and " +
+				"a client waiting for its login has its code cancelled. Devices are forgotten, with oikade forget.",
+			Example: []string{"oikade remove client/old-laptop", "oikade remove client/ci client/spare-laptop"},
 		},
 	}},
 	{"Host access", []cli.Command{
@@ -370,10 +365,11 @@ var instead = map[string]string{
 	"devices": "oikade list devices lists them, and oikade forget DEVICE forgets one",
 	"client":  "oikade list clients lists them, and oikade remove client/NAME removes one",
 	"revoke":  "oikade remove client/NAME removes a client, and its token stops working",
-	"rm":      "oikade remove REF removes a secret or a client, and oikade forget DEVICE forgets a device",
-	"delete":  "oikade remove REF removes a secret or a client, and oikade forget DEVICE forgets a device",
+	"rm":      "oikade remove client/NAME removes a client, and oikade forget DEVICE forgets a device",
+	"delete":  "oikade remove client/NAME removes a client, and oikade forget DEVICE forgets a device",
 	"add":     "oikade-host add client/NAME, on the host's machine, adds a client",
-	"secret":  "oikade set secret/NAME sets one, oikade list secrets lists them and oikade remove secret/NAME removes one",
+	"secret":  valuesHint,
+	"secrets": valuesHint,
 	"matter":  "oikade status matter shows the Matter bridge, and oikade pair matter opens its window to pair one",
 	"open":    "oikade pair matter opens the Matter bridge's window to pair a controller",
 	"logs":    "oikade history shows what your home did, and oikade tail follows it",
@@ -382,6 +378,10 @@ var instead = map[string]string{
 	"get":     "oikade status REF shows what something is doing now, and oikade list KIND what's on record",
 	"show":    "oikade status REF shows what something is doing now, and oikade list KIND what's on record",
 }
+
+// valuesHint says where a secret, and every other value of yours, went (OIK-365).
+const valuesHint = "your values, passwords included, go in .env beside go.mod: your code reads each with " +
+	"oikade.Var, and oikade deploy sends them"
 
 // unknown says there's no command word, and names the one to use, or the one it's likely a slip for.
 func unknown(word string) error {

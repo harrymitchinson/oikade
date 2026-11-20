@@ -57,7 +57,6 @@ func TestLoginFromAnotherMachineThenEveryCommandOverTLS(t *testing.T) {
 		{"list", "devices", "--json"},
 		{"list", "rules"},
 		{"list", "plugins"},
-		{"list", "secrets"},
 		{"list", "clients"},
 		{"backup"},
 	} {

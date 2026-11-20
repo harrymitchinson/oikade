@@ -117,7 +117,7 @@ func TestHistoryTakesRefsAndBareDeviceNames(t *testing.T) {
 		t.Errorf("refs %q, %v, want %q", refStrings(got), err, want)
 	}
 	for arg, want := range map[string]string{
-		"secret/token":      "secret/token has no events",
+		"secret/token":      "isn't a ref",
 		"client/laptop":     "client/laptop has no events",
 		"group/lamps":       "group/lamps has no events",
 		"hardware/x/y":      "hardware/x/y has no events",
@@ -131,9 +131,9 @@ func TestHistoryTakesRefsAndBareDeviceNames(t *testing.T) {
 		}
 	}
 	for _, command := range []string{"history", "tail"} {
-		if _, errs, code := runOikade(t, cli.Plain, command, "secret/token"); code != cli.ExitUsage ||
+		if _, errs, code := runOikade(t, cli.Plain, command, "client/laptop"); code != cli.ExitUsage ||
 			!strings.Contains(errs, "Hint: oikade "+command+" takes a device") {
-			t.Errorf("oikade %s secret/token exits %d: %s", command, code, errs)
+			t.Errorf("oikade %s client/laptop exits %d: %s", command, code, errs)
 		}
 	}
 }

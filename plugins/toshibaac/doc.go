@@ -2,7 +2,7 @@
 // conditioner app and its WiFi modules. A home imports it once per account:
 //
 //	home.Plugin("toshiba", toshibaac.New(toshibaac.Config{
-//		Username: "someone@example.com", Password: oikade.Secret("toshiba"),
+//		Username: oikade.Var("TOSHIBA_USER"), Password: oikade.Var("TOSHIBA_PASSWORD"),
 //	}))
 //
 // The modules listen for nothing on the LAN and only connect out to Toshiba's cloud (OIK-256), so
@@ -14,7 +14,7 @@
 // minutes, in case the hub missed a change.
 //
 // Each unit is reported by an ID from its DeviceUniqueId, which stays the same when it's renamed,
-// with on, mode, setpoint and temperature. The password is a secret, read at each login.
+// with on, mode, setpoint and temperature.
 //
 // A write is a CMD_FCU_TO_AC message to the hub, at QoS 1: a state in which only what changes is
 // set. It returns once the hub has taken it, and refuses a setpoint that isn't whole degrees or a
@@ -22,8 +22,8 @@
 // Config.OutdoorUnits, can't be set running modes that clash, such as heating and cooling.
 //
 // While the cloud or the hub doesn't answer, every unit is offline and the plugin's status says why,
-// and it tries again with backoff. A refused password is tried again once the secret changes, or
-// hourly.
+// and it tries again with backoff. A refused password is tried again hourly, since too many failed
+// logins could lock the account, and a new one comes with a deploy, which restarts the plugin.
 //
 // The README beside this file says how to set it up.
 package toshibaac

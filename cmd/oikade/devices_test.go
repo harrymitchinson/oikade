@@ -86,7 +86,7 @@ func TestStatusSaysWhatsWrongWithADevice(t *testing.T) {
 	var out bytes.Buffer
 	st := &api.Status{Devices: []api.Device{
 		{
-			Name: "porch-light", Problem: "no LAN key: oikade set secret/1000aabbcc",
+			Name: "porch-light", Problem: "no LAN key: oikade setup ewelink-lan",
 			Capabilities: []api.Capability{{Name: "on"}},
 		},
 		{Name: "shed-relay", Problem: "not seen on the LAN"},
@@ -97,7 +97,7 @@ func TestStatusSaysWhatsWrongWithADevice(t *testing.T) {
 	}
 	printNamed(cli.Plain(&out, 0), cli.Plain(io.Discard, 0), st, refs, noEvents, false, time.Now())
 	for _, want := range []string{
-		"porch-light: no LAN key: oikade set secret/1000aabbcc\n",
+		"porch-light: no LAN key: oikade setup ewelink-lan\n",
 		"shed-relay: not seen on the LAN\n",
 	} {
 		if !strings.Contains(out.String(), want) {

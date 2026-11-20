@@ -16,9 +16,9 @@ Flags:
   --broker URL                   The MQTT broker --outside-plugins speak the
                                  contract on. A plugin your home imports, such
                                  as Zigbee2MQTT, takes its broker in its Config.
-  --broker-password-secret NAME  The secret with the password for --broker,
-                                 whose URL names the user. A password in a flag
-                                 lands in ps.
+  --broker-password-secret NAME  The file in --data-dir's secrets directory with
+                                 the password for --broker, whose URL names the
+                                 user. A password in a flag lands in ps.
   --data-dir DIR                 Directory with all the host's state. (default
                                  /var/lib/oikade)
   --event-log-age DURATION       How long oikade replay's event log keeps
@@ -39,9 +39,6 @@ Flags:
                                  --broker, under oikade/v1/<name>.
   --plugin-set-timeout DURATION  How long a plugin's Set may run before the
                                  plugin counts as hung. (default 30s)
-  --secrets-dir DIR              Directory of secrets, one file each. Defaults
-                                 to secrets in --data-dir. A read-only one is
-                                 fine.
   --settle DURATION              How long a new version must stay up. (default
                                  5s)
   --simulate FILE                JSON file of simulated devices. Lines of JSON

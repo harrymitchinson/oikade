@@ -22,7 +22,6 @@ import (
 	"time"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
 
 // The fake hub's PIN, and the name its certificate gives.
@@ -133,8 +132,8 @@ func TestGatewayPIN(t *testing.T) {
 
 func TestAPINIsChecked(t *testing.T) {
 	for l, want := range map[Local]string{
-		{Address: "192.168.1.40:8443", PIN: "1234"}: `has PIN "1234": it's the hub's PIN`,
-		{Address: "gateway-1234-5678-9012.local:8443", PIN: "1111-2222-3333"}: `has PIN "1111-2222-3333", but its Address ` +
+		{Address: "192.168.1.40:8443", Token: token, PIN: "1234"}: `has PIN "1234": it's the hub's PIN`,
+		{Address: "gateway-1234-5678-9012.local:8443", Token: token, PIN: "1111-2222-3333"}: `has PIN "1111-2222-3333", but its Address ` +
 			`"gateway-1234-5678-9012.local:8443" has the PIN "1234-5678-9012"`,
 	} {
 		if err := l.check(); err == nil || !strings.Contains(err.Error(), want) {
@@ -142,9 +141,9 @@ func TestAPINIsChecked(t *testing.T) {
 		}
 	}
 	for _, l := range []Local{
-		{Address: "192.168.1.40:8443", PIN: "1234-5678-9012"},
-		{Address: "gateway-1234-5678-9012.local:8443", PIN: "1234-5678-9012"},
-		{Address: "192.168.1.40:8443"},
+		{Address: "192.168.1.40:8443", Token: token, PIN: "1234-5678-9012"},
+		{Address: "gateway-1234-5678-9012.local:8443", Token: token, PIN: "1234-5678-9012"},
+		{Address: "192.168.1.40:8443", Token: token},
 	} {
 		if err := l.check(); err != nil {
 			t.Errorf("%+v was refused: %v", l, err)
@@ -197,8 +196,8 @@ func TestTheHubsCertificate(t *testing.T) {
 
 func TestAnotherHubsCertificateIsRefusedBeforeTheTokenIsSent(t *testing.T) {
 	hub := newFakeHub(t)
-	account := Local{Address: hub.address(), Token: plugin.NewSecret("tahoma-token"), PIN: "9999-9999-9999", roots: hub.ca}
-	b := startWith(t, hub, account, fast, token, kitchen)
+	account := Local{Address: hub.address(), Token: token, PIN: "9999-9999-9999", roots: hub.ca}
+	b := startWith(t, hub, account, fast, kitchen)
 	b.eventually("the refusal", func() bool {
 		return strings.Contains(b.status().Error, "has a certificate that is for "+hubName+", not gateway-9999-9999-9999.local: check the PIN")
 	})
@@ -222,7 +221,7 @@ func TestAnotherHubsCertificateIsRefusedBeforeTheTokenIsSent(t *testing.T) {
 func TestAHubNotSignedByOverkizIsRefused(t *testing.T) {
 	hub := newFakeHub(t)
 	// With no roots of its own, the plugin trusts only Overkiz's.
-	b := startWith(t, hub, Local{Address: hub.address(), Token: plugin.NewSecret("tahoma-token")}, fast, token)
+	b := startWith(t, hub, Local{Address: hub.address(), Token: token}, fast)
 	b.eventually("the refusal", func() bool { return strings.Contains(b.status().Error, "isn't signed by Overkiz's root CA") })
 }
 
@@ -257,8 +256,8 @@ func TestAnOutOfDateCertificateSaysToCheckTheClock(t *testing.T) {
 
 func TestSkippingTheCheckTrustsAnyHub(t *testing.T) {
 	hub := newFakeHub(t)
-	account := Local{Address: hub.address(), Token: plugin.NewSecret("tahoma-token"), SkipCertificateCheck: true}
-	b := startWith(t, hub, account, fast, token)
+	account := Local{Address: hub.address(), Token: token, SkipCertificateCheck: true}
+	b := startWith(t, hub, account, fast)
 	b.waitAvailability(kitchen, "online")
 }
 
@@ -281,8 +280,8 @@ func TestAHubFoundByItsLocalName(t *testing.T) {
 		return (&net.Dialer{}).DialContext(ctx, network, hub.address())
 	}
 	t.Cleanup(func() { dialHub = old })
-	account := Local{Address: net.JoinHostPort(hubName, port), Token: plugin.NewSecret("tahoma-token"), roots: hub.ca}
-	b := startWith(t, hub, account, fast, token, kitchen)
+	account := Local{Address: net.JoinHostPort(hubName, port), Token: token, roots: hub.ca}
+	b := startWith(t, hub, account, fast, kitchen)
 	b.waitAvailability(kitchen, "online")
 	if got, want := <-asked, account.Address; got != want {
 		t.Errorf("dialed %s, want %s", got, want)

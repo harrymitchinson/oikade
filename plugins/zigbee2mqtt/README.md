@@ -5,11 +5,11 @@ This plugin connects Zigbee devices through Zigbee2MQTT. It's a plugin your home
 ```go
 home.Plugin("zigbee", zigbee2mqtt.New(zigbee2mqtt.Config{
 	Broker:   "mqtt://oikade@broker.home:1883", // as the host reaches it
-	Password: oikade.Secret("broker"),       // leave out the user and this for none
+	Password: oikade.Var("BROKER_PASSWORD"),    // leave out the user and this for none
 }))
 ```
 
-`Broker` is the broker Zigbee2MQTT uses, as the host's machine reaches it (OIK-296). A broker with a password names the user in the URL, and the password is a [secret](../../docs/running-a-home.md#secrets), never in the URL: `oikade set secret/broker` sets it, and the plugin reads it each time it connects, so a new one needs no deploy. Until it's set, the plugin waits for it and says so in `oikade status`. A broker named in `.local`, such as `mqtt://broker.local:1883`, is found over mDNS over `mqtt://` or `mqtts://`, but over WebSockets only if the system's resolver finds it, such as from `/etc/hosts`. `BaseTopic` is for a Zigbee2MQTT whose `mqtt.base_topic` isn't the default, `zigbee2mqtt`.
+`Broker` is the broker Zigbee2MQTT uses, as the host's machine reaches it (OIK-296). A broker with a password names the user in the URL, and the password goes in your home's [`.env`](../../docs/running-a-home.md#your-values), as `BROKER_PASSWORD`, never in the URL, so it isn't in your code. A new one goes up with `oikade deploy`, which restarts the plugin. A broker named in `.local`, such as `mqtt://broker.local:1883`, is found over mDNS over `mqtt://` or `mqtts://`, but over WebSockets only if the system's resolver finds it, such as from `/etc/hosts`. `BaseTopic` is for a Zigbee2MQTT whose `mqtt.base_topic` isn't the default, `zigbee2mqtt`.
 
 Then check it with `oikade setup zigbee`, naming the plugin as your home does (OIK-276). On the host, the plugin checks that it reaches the broker, that Zigbee2MQTT is there under the base topic, and two of Zigbee2MQTT's settings, which it names with what to set if they're wrong:
 

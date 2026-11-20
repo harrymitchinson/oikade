@@ -7,15 +7,17 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	neturl "net/url"
 	"os"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	mochi "github.com/mochi-mqtt/server/v2"
+	"github.com/mochi-mqtt/server/v2/listeners"
+	"github.com/mochi-mqtt/server/v2/packets"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/logging"
@@ -117,8 +119,14 @@ func run(t *testing.T, url string, declared ...contractv1.DeclaredDevice) (stop 
 // link to Oikade is a socket, which outlives the broker.
 func runOn(t *testing.T, oikade, zigbee string, declared ...contractv1.DeclaredDevice) (stop func()) {
 	t.Helper()
+	return runWith(t, oikade, Config{Broker: zigbee, BaseTopic: base}, declared...)
+}
+
+// runWith runs the plugin with Oikade on one broker and its Config c.
+func runWith(t *testing.T, oikade string, c Config, declared ...contractv1.DeclaredDevice) (stop func()) {
+	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
-	h, err := factory(Config{Broker: zigbee, BaseTopic: base}, logging.Test(t))(plugin.Environment{Root: root}, declared)
+	h, err := factory(c, logging.Test(t))(plugin.Environment{Root: root}, declared)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +186,7 @@ func TestItNeedsABroker(t *testing.T) {
 	}
 }
 
-func TestABrokersPasswordIsASecretForAUserItNames(t *testing.T) {
+func TestABrokersPasswordIsOutOfItsURLForAUserItNames(t *testing.T) {
 	for _, c := range []struct {
 		name   string
 		config Config
@@ -187,7 +195,7 @@ func TestABrokersPasswordIsASecretForAUserItNames(t *testing.T) {
 		{"not a URL", Config{Broker: "mqtt://broker:port"}, "isn't a broker's URL"},
 		{"no scheme", Config{Broker: "localhost:1883"}, "isn't a broker's URL"},
 		{"a password in the URL", Config{Broker: "mqtt://oikade:hunter2@broker:1883"}, "has a password in it"},
-		{"no user for the password", Config{Broker: "mqtt://broker:1883", Password: plugin.NewSecret("broker")}, "mqtt://oikade@broker:1883"},
+		{"no user for the password", Config{Broker: "mqtt://broker:1883", Password: "hunter2"}, "mqtt://oikade@broker:1883"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			_, err := New(c.config)(plugin.Environment{Root: root}, nil)
@@ -201,68 +209,64 @@ func TestABrokersPasswordIsASecretForAUserItNames(t *testing.T) {
 	}
 }
 
-// A secret written by an editor or echo ends in a newline, which isn't part of the password.
-func TestTheBrokersPasswordLosesItsNewline(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv(contractv1.EnvSecretsDir, dir)
-	c := Config{Broker: "mqtt://oikade@broker:1883", Password: plugin.NewSecret("broker")}
-	if err := os.WriteFile(filepath.Join(dir, "broker"), []byte("sec ret:@/\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if got, err := c.password(); err != nil || got != "sec ret:@/" {
-		t.Errorf("read as %q, %v", got, err)
-	}
+// passwordHook lets in only the user oikade with its password, as a broker with a password does.
+type passwordHook struct {
+	mochi.HookBase
+	password string
 }
 
-// A password that isn't set yet is waited for, said in the plugin's status, rather than a plugin
-// that fails and is restarted until it is.
-func TestAPluginWaitsForItsBrokersPassword(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv(contractv1.EnvSecretsDir, dir)
-	url := mqtttest.StartBroker(t)
-	u, err := neturl.Parse(url)
-	if err != nil {
+func (h *passwordHook) ID() string { return "password" }
+
+func (h *passwordHook) Provides(b byte) bool {
+	return b == mochi.OnConnectAuthenticate || b == mochi.OnACLCheck
+}
+
+func (h *passwordHook) OnConnectAuthenticate(_ *mochi.Client, pk packets.Packet) bool {
+	return string(pk.Connect.Username) == "oikade" && string(pk.Connect.Password) == h.password
+}
+
+func (h *passwordHook) OnACLCheck(*mochi.Client, string, bool) bool { return true }
+
+// passwordBroker starts a broker with Zigbee2MQTT's devices on it, which lets in only the user
+// oikade with password, and returns its URL for that user.
+func passwordBroker(t *testing.T, password string) string {
+	t.Helper()
+	s := mochi.New(&mochi.Options{InlineClient: true, Logger: slog.New(slog.DiscardHandler)})
+	if err := s.AddHook(&passwordHook{password: password}, nil); err != nil {
 		t.Fatal(err)
 	}
-	u.User = neturl.User("oikade")
-	h := hear(t, url)
-	h.publish(t, base+"/bridge/devices", bridgeDevices(t), true)
-	handler, err := factory(Config{Broker: u.String(), Password: plugin.NewSecret("broker"), BaseTopic: base}, logging.Test(t))(plugin.Environment{Root: root}, nil)
+	ln := listeners.NewTCP(listeners.Config{ID: "zigbee", Address: "127.0.0.1:0"})
+	if err := s.AddListener(ln); err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = s.Serve() }()
+	t.Cleanup(func() { _ = s.Close() })
+	if err := s.Publish(base+"/bridge/devices", []byte(bridgeDevices(t)), true, 0); err != nil {
+		t.Fatal(err)
+	}
+	return "mqtt://oikade@" + ln.Address()
+}
+
+func TestThePluginLogsInWithItsBrokersPassword(t *testing.T) {
+	const password = "sec ret:@/"
+	zigbee := passwordBroker(t, password)
+	oikade := mqtttest.StartBroker(t)
+	h := hear(t, oikade)
+	// With the newline the environment can leave after it, which is no part of it.
+	runWith(t, oikade, Config{Broker: zigbee, Password: password + "\n", BaseTopic: base})
+	h.wait(t, "its devices", func(topics map[string]string) bool {
+		return len(reported(t, topics[root.Devices()]).Discovered) > 0
+	})
+
+	// Another password isn't let in.
+	handler, err := factory(Config{Broker: zigbee, Password: "not " + password, BaseTopic: base}, logging.Test(t))(plugin.Environment{Root: root}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	b := handler.(*bridge)
-	b.secretWait = 20 * time.Millisecond
-	ctx, cancel := context.WithCancel(t.Context())
-	p, err := plugin.Start(ctx, plugin.Options{
-		Environment: plugin.Environment{MQTTURL: url, Root: root}, OnSet: handler.Set, Logger: slog.New(slog.DiscardHandler),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	served := make(chan error, 1)
-	go func() { served <- handler.Serve(ctx, p) }()
-	t.Cleanup(func() {
-		cancel()
-		if err := <-served; err != nil {
-			t.Error(err)
-		}
-		_ = p.Close(context.Background()) //nolint:usetesting // t.Context() is done once cleanups run
-	})
-
-	h.wait(t, "the plugin saying it's waiting", func(topics map[string]string) bool {
-		return strings.Contains(topics[root.Status()], "oikade set secret/broker")
-	})
-	if err := os.WriteFile(filepath.Join(dir, "broker"), []byte("anything"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	h.wait(t, "its devices, once the password is set", func(topics map[string]string) bool {
-		return len(reported(t, topics[root.Devices()]).Discovered) > 0
-	})
-	select {
-	case err := <-served:
-		t.Fatalf("the plugin stopped: %v", err)
-	default:
+	b.connectTimeout = 200 * time.Millisecond
+	if err := b.Serve(t.Context(), nil); err == nil || !strings.Contains(err.Error(), "could not reach") {
+		t.Fatalf("with another password: %v", err)
 	}
 }
 

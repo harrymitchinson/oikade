@@ -48,7 +48,6 @@ func (s *apiServer) status() api.Response {
 	v, ok, busy := s.deploys.state()
 	if ok {
 		st.Home.Version = v.ID
-		st.Home.UnsetSecrets = s.secrets.unset(v.Manifest.Secrets)
 	}
 	st.Home.Deploying = busy
 	s.srv.mu.Lock()

@@ -120,7 +120,7 @@ A replay never reaches a device: your code runs in `simhome`, as in `oikade dev`
 
 The log keeps each change, write and rule run, and is bounded by age and size, oldest first. `oikade-host --event-log-age 336h --event-log-mib 64` are the defaults. Losing it costs nothing else.
 
-`oikade history` reads the same log, to say what the house did and why. `oikade history porch-light --since 03:00` shows the light's changes since 3am, each write with who made it, a rule, a Matter controller or `oikade set`, and when the light dropped off and came back. `oikade status porch-light` shows it now, why each value is what it is, and its last 10 events, and `oikade status --check` fails a CI job after a deploy if something a command fixes is wrong. `oikade list devices` says what's on record and how each is set up, as `list` does for rules, plugins, secrets, clients and contexts. [Running a home](docs/running-a-home.md#working-with-a-running-home) has the rest. Prometheus stays the place for longer than the log keeps.
+`oikade history` reads the same log, to say what the house did and why. `oikade history porch-light --since 03:00` shows the light's changes since 3am, each write with who made it, a rule, a Matter controller or `oikade set`, and when the light dropped off and came back. `oikade status porch-light` shows it now, why each value is what it is, and its last 10 events, and `oikade status --check` fails a CI job after a deploy if something a command fixes is wrong. `oikade list devices` says what's on record and how each is set up, as `list` does for rules, plugins, clients and contexts. [Running a home](docs/running-a-home.md#working-with-a-running-home) has the rest. Prometheus stays the place for longer than the log keeps.
 
 A decision also says what a tap in the Home app does, and holds limits and budgets. The pool pump below runs near freezing, whatever its switch says, then in swimming hours, then for a budget of minutes the water's temperature sets, and in spring's cheap hours:
 
@@ -164,7 +164,7 @@ To write a plugin in Go, use the [SDK](sdk/plugin) and the contract types in [`c
 - [Automations](docs/automations.md): decisions, flows' triggers, rooms, budgets, arbitration, and composing a home
 - [Writing flows](docs/writing-flows.md): automations as ordinary Go that survive a crash
 - [Devices](docs/devices.md): names, rooms, device types, capabilities and the Matter bridge
-- [Running a home](docs/running-a-home.md): deploying, the host, secrets, upgrades, the network API, backups and security
+- [Running a home](docs/running-a-home.md): deploying, your values, the host, upgrades, the network API, backups and security
 - [Metrics and logs](docs/metrics.md): Prometheus, the Grafana dashboard and logging
 - [Raspberry Pi](docs/deploy-raspberry-pi.md): a host on a Pi, from scratch
 - Plugins: [Zigbee2MQTT](plugins/zigbee2mqtt/README.md), [eWeLink LAN](plugins/ewelinklan/README.md), [Overkiz](plugins/overkiz/README.md) and [Toshiba Home AC Control](plugins/toshibaac/README.md)

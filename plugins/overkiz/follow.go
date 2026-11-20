@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
@@ -29,7 +28,7 @@ var _ reporter = (*plugin.Plugin)(nil)
 type link interface {
 	// session logs in, reports the devices and follows them until something fails. connected runs
 	// once they're reported.
-	session(ctx context.Context, credential string, connected func()) error
+	session(ctx context.Context, connected func()) error
 	// pause drops the session and leaves the devices online, while it logs in again.
 	pause()
 	// lost ends the session: every device is offline, and the app can't be seen.
@@ -38,11 +37,10 @@ type link interface {
 	absent(ctx context.Context)
 }
 
-// follower keeps a link's sessions going: it reads the secret, logs in, and after a failure says
-// why and waits as the failure asks.
+// follower keeps a link's sessions going: it logs in, and after a failure says why and waits as
+// the failure asks.
 type follower struct {
 	account Account
-	env     plugin.Environment
 	timing  timing
 	log     *slog.Logger
 	out     reporter
@@ -59,20 +57,8 @@ func (f *follower) follow(ctx context.Context, l link) {
 	// login doesn't reset.
 	wait, ended := f.timing.retry, f.timing.retry
 	for ctx.Err() == nil {
-		credential, ok, err := plugin.ReadSecret(f.env, f.account.secret())
-		switch {
-		case err != nil:
-			f.setProblem(ctx, fmt.Sprintf("could not read the secret %q: %v", f.account.secret(), err))
-			f.untilSecretChanges(ctx, "", f.timing.refused)
-			continue
-		case !ok || strings.TrimSpace(credential) == "":
-			f.setProblem(ctx, fmt.Sprintf("waiting for the secret %s", f.account.secret()))
-			f.untilSecretChanges(ctx, "", f.timing.refused)
-			continue
-		}
-		credential = strings.TrimSpace(credential)
 		var live time.Time
-		err = l.session(ctx, credential, func() { wait, live, f.noAccount = f.timing.retry, time.Now(), false })
+		err := l.session(ctx, func() { wait, live, f.noAccount = f.timing.retry, time.Now(), false })
 		if ctx.Err() != nil {
 			break
 		}
@@ -115,9 +101,12 @@ func (f *follower) follow(ctx context.Context, l link) {
 			f.setProblem(ctx, "")
 			sleep(ctx, f.timing.refused)
 		case classify(err) == refused:
-			f.log.Warn(f.name+" refused the credential", "err", err, "account", f.account.describe())
-			f.setProblem(ctx, fmt.Sprintf("%s refused the login (%v): check the secret %q", f.account.describe(), err, f.account.secret()))
-			f.untilSecretChanges(ctx, credential, f.timing.refused)
+			// Too many failed logins could lock the account. A new credential comes with a deploy,
+			// which starts the plugin again.
+			f.log.Warn(f.name+" refused the credential", "err", err, "account", f.account.describe(), "retry", f.timing.refused.String())
+			// The fix comes first, as a status shortens a long problem.
+			f.setProblem(ctx, fmt.Sprintf("%s refused the login: check %s (%v)", f.account.describe(), f.account.credentialField(), err))
+			f.backoff(ctx, f.timing.refused)
 		case classify(err) == limited:
 			f.log.Warn(f.name+" limited the plugin's requests", "err", err, "account", f.account.describe(), "retry", f.timing.limited.String())
 			f.setProblem(ctx, fmt.Sprintf("%s says there were too many requests: trying again in %s", f.account.describe(), f.timing.limited))
@@ -147,20 +136,6 @@ func (f *follower) setProblem(ctx context.Context, problem string) {
 	f.check(f.out.SetError(ctx, problem), "Could not report the plugin's problem", "")
 }
 
-// untilSecretChanges waits until the secret is other than was, or for at most most.
-func (f *follower) untilSecretChanges(ctx context.Context, was string, most time.Duration) {
-	deadline := time.Now().Add(most)
-	for time.Now().Before(deadline) {
-		if !sleep(ctx, f.timing.secret) {
-			return
-		}
-		now, _, _ := plugin.ReadSecret(f.env, f.account.secret())
-		if strings.TrimSpace(now) != was {
-			return
-		}
-	}
-}
-
 // backoff waits d after a failure.
 func (f *follower) backoff(ctx context.Context, d time.Duration) {
 	if f.timing.backoff != nil {
@@ -182,14 +157,12 @@ func reporting(err error) error {
 	return fmt.Errorf("%w: %w", errReport, err)
 }
 
-// sleep waits for d, and says false if ctx ended first.
-func sleep(ctx context.Context, d time.Duration) bool {
+// sleep waits for d, or until ctx ends.
+func sleep(ctx context.Context, d time.Duration) {
 	t := time.NewTimer(d)
 	defer t.Stop()
 	select {
 	case <-ctx.Done():
-		return false
 	case <-t.C:
-		return true
 	}
 }

@@ -131,21 +131,26 @@ func TestAnAccountOnBothCloudsServesBothAfterOneLogin(t *testing.T) {
 
 func TestARefusedPasswordIsOneProblemAndOneLogin(t *testing.T) {
 	cloud := newMagellanCloud(t)
-	b := startCloud(t, cloud, "wrong", cloudFast, towel)
+	w := newWaits()
+	timings := cloudFast
+	timings.backoff = w.backoff
+	b := startCloud(t, cloud, "wrong", timings, towel)
+	// Both clouds have been refused once each has waited.
+	for range 2 {
+		if d := w.next(t); d != time.Hour {
+			t.Fatalf("waited %s after a refused password, want refused's hour", d)
+		}
+	}
 	b.eventually("the refusal", func() bool { return strings.Contains(b.status().Error, "refused the login") })
 	if e := b.status().Error; strings.Count(e, "refused the login") != 1 {
 		t.Errorf("status error %q", e)
 	}
-	time.Sleep(10 * cloudFast.secret)
 	if n := cloud.count("/token"); n != 1 {
 		t.Errorf("%d logins at Atlantic with a refused password, want 1", n)
 	}
 	if d := b.devices().Devices; len(d) != 1 || d[0].Found {
 		t.Errorf("devices %+v", d)
 	}
-	b.secret(password)
-	b.waitState(towel, towelSays)
-	b.eventually("no problem", func() bool { return b.status().Error == "" })
 }
 
 func TestAnEndedTokenSignsInAgainWithTheTowelRadiatorOnline(t *testing.T) {

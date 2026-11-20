@@ -82,7 +82,7 @@ func forgettable(args []string) ([]string, error) {
 			if !slices.Contains(names, n.parts[0]) {
 				names = append(names, n.parts[0])
 			}
-		case n.kind == ident.Secret || n.kind == ident.Client:
+		case n.kind == ident.Client:
 			return nil, cli.UsageErrorf("oikade forget takes devices, and a %s is removed, not forgotten", n.kind).
 				WithHint("oikade remove %s removes it", n.ref)
 		case n.kind == ident.Plugin && len(n.parts) == 1:
@@ -209,7 +209,7 @@ func capital(s string) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
-// runRemove removes what the host owns outright, secrets and clients, which is gone for good.
+// runRemove removes what the host owns outright, clients, which are gone for good.
 func runRemove(ctx context.Context, args []string) error {
 	fs := newFlags(verbRemove)
 	target := addTarget(fs)
@@ -232,11 +232,7 @@ func runRemove(ctx context.Context, args []string) error {
 		return failed(err)
 	}
 	for _, n := range refs {
-		req := api.Request{Type: api.TypeSecretRemove, Secret: n.parts[0]}
-		if n.kind == ident.Client {
-			req = api.Request{Type: api.TypeClientRemove, Client: n.parts[0]}
-		}
-		resp, err := api.Call(ctx, t, req)
+		resp, err := api.Call(ctx, t, api.Request{Type: api.TypeClientRemove, Client: n.parts[0]})
 		if err == nil && resp.Error != "" {
 			err = errors.New(resp.Error)
 		}
@@ -264,29 +260,31 @@ type refsJSON struct {
 	Forgotten []api.Forgotten `json:"forgotten,omitempty"`
 }
 
-// removable is what remove's arguments name: secrets and clients, each by its ref. A device is
-// forgotten, so remove given one names forget, and a bare word could be either, so it needs its
-// kind.
+// removable is what remove's arguments name: clients, each by its ref. A device is forgotten, so
+// remove given one names forget, and a bare word could be either, so it needs its kind.
 func removable(args []string) ([]named, error) {
 	if len(args) == 0 {
-		return nil, cli.UsageErrorf("oikade remove takes the secrets and clients to remove, such as secret/api-key")
+		return nil, cli.UsageErrorf("oikade remove takes the clients to remove, such as client/old-laptop")
 	}
 	out := make([]named, 0, len(args))
 	for _, arg := range args {
 		if !strings.Contains(arg, "/") {
-			return nil, cli.UsageErrorf("oikade remove takes secret/NAME or client/NAME, not %s", arg).
-				WithHint("oikade remove secret/%s removes a secret, and oikade forget %s forgets a device", arg, arg)
+			return nil, cli.UsageErrorf("oikade remove takes client/NAME, not %s", arg).
+				WithHint("oikade remove client/%s removes a client, and oikade forget %s forgets a device", arg, arg)
+		}
+		if strings.HasPrefix(arg, "secret/") {
+			return nil, cli.UsageErrorf("oikade remove takes client/NAME, and a secret is one of your values now").
+				WithHint("%s", valuesHint)
 		}
 		kind, parts, err := ident.ParseRef(arg)
-		ours := strings.HasPrefix(arg, string(ident.Secret)+"/") || strings.HasPrefix(arg, string(ident.Client)+"/")
 		switch {
-		case err != nil && ours: // Of a kind remove takes, so what's wrong is its name.
+		case err != nil && strings.HasPrefix(arg, string(ident.Client)+"/"): // What's wrong is its name.
 			return nil, cli.UsageErrorf("%s", err)
 		case err == nil && kind == ident.Device && len(parts) == 1:
 			return nil, cli.UsageErrorf("oikade remove doesn't take devices: a device is forgotten, as its plugin may "+
 				"report it again").WithHint("oikade forget %s forgets it", arg)
-		case err != nil || (kind != ident.Secret && kind != ident.Client) || len(parts) != 1:
-			return nil, cli.UsageErrorf("oikade remove takes secret/NAME or client/NAME, not %s", arg)
+		case err != nil || kind != ident.Client || len(parts) != 1:
+			return nil, cli.UsageErrorf("oikade remove takes client/NAME, not %s", arg)
 		}
 		n := named{ref: ident.NewRef(kind, parts...).String(), kind: kind, parts: parts}
 		if !slices.ContainsFunc(out, func(o named) bool { return o.ref == n.ref }) {
@@ -296,61 +294,28 @@ func removable(args []string) ([]named, error) {
 	return out, nil
 }
 
-// onRecord checks that the host has every secret and client refs name, before remove changes
-// anything.
+// onRecord checks that the host has every client refs name, before remove changes anything.
 func onRecord(ctx context.Context, t api.Transport, refs []named) error {
-	has := map[string]bool{}
-	for _, kind := range []ident.Kind{ident.Secret, ident.Client} {
-		if !slices.ContainsFunc(refs, func(n named) bool { return n.kind == kind }) {
-			continue
-		}
-		req := api.Request{Type: api.TypeSecrets}
-		if kind == ident.Client {
-			req.Type = api.TypeClients
-		}
-		resp, err := call(ctx, t, req)
-		if err != nil {
-			return err
-		}
-		for _, s := range resp.Secrets {
-			has[s.Ref] = true
-		}
-		for _, c := range resp.Clients {
-			has[c.Ref] = true
-		}
+	resp, err := call(ctx, t, api.Request{Type: api.TypeClients})
+	if err != nil {
+		return err
 	}
 	var missing []string
-	kinds := map[ident.Kind]bool{}
 	for _, n := range refs {
-		if !has[n.ref] {
+		if !slices.ContainsFunc(resp.Clients, func(c api.Client) bool { return c.Ref == n.ref }) {
 			missing = append(missing, n.ref)
-			kinds[n.kind] = true
 		}
 	}
 	if len(missing) == 0 {
 		return nil
 	}
-	var lists []string
-	if kinds[ident.Secret] {
-		lists = append(lists, "oikade list secrets")
-	}
-	if kinds[ident.Client] {
-		lists = append(lists, "oikade list clients")
-	}
-	hint := andList(lists) + " lists what there is"
-	if len(lists) > 1 {
-		hint = andList(lists) + " list what there is"
-	}
-	return cli.Errorf("there's no %s, so nothing was removed", andList(missing)).WithHint("%s", hint)
+	return cli.Errorf("there's no %s, so nothing was removed", andList(missing)).
+		WithHint("oikade list clients lists what there is")
 }
 
 // removedMessage says what removing n did. cancelled says it was a client waiting for its login.
 func removedMessage(n named, cancelled bool) string {
-	switch {
-	case n.kind == ident.Secret:
-		return fmt.Sprintf("Removed %s. Your process and plugins find it gone when they next ask, so one that read "+
-			"it once has it until it restarts", n.ref)
-	case cancelled:
+	if cancelled {
 		return fmt.Sprintf("Cancelled %s's login: its code doesn't work now", n.ref)
 	}
 	return fmt.Sprintf("Removed %s: its token stopped working, and its streams ended. The context on its machine "+

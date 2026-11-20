@@ -12,6 +12,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/matter/im"
 	"github.com/harrymitchinson/oikade/internal/matter/nodetest"
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
+	"github.com/harrymitchinson/oikade/test/fixtures/simswitch/relays"
 )
 
 // These kill the host at a write that must survive, once it's on disk and before it's answered or
@@ -122,21 +123,21 @@ func TestKilledAsTheFabricsSaveKeepsThePairing(t *testing.T) {
 	}
 }
 
-func TestKilledAsASecretSavesKeepsIt(t *testing.T) {
+// A host killed once a setup's secret is on disk, before the setup hears, keeps it.
+func TestKilledAsASetupKeepsASecretKeepsIt(t *testing.T) {
 	t.Parallel()
 	r := faultRig(t)
-	r.launchAttached()
+	r.env = append(r.env, "OIKADE_TEST_PLUGIN_DOWN="+filepath.Join(r.dir, "plugin-down"))
+	r.launchedPlugins()
+	r.until("quiet to need its setup", func() bool { return pluginIn(r.status(), "quiet").NeedsSetup })
 	r.plan(fault.HostSecretSaved)
-	if err := r.setSecret("api-key"); err == nil {
-		t.Fatalf("the secret was answered. The log:\n%s", r.dump())
+	if _, stderr, err := r.setupQuiet(); err == nil {
+		t.Fatalf("the setup was answered: %s. The log:\n%s", stderr, r.dump())
 	}
 	r.died()
-	r.launchAttached()
-	if out := r.stdout(nil, "list", "secrets"); !strings.Contains(string(out), "api-key") {
-		t.Errorf("the secret is gone after the restart:\n%s", out)
-	}
-	if got, err := os.ReadFile(filepath.Join(r.dir, "secrets", "api-key")); err != nil || string(got) != secretValue {
-		t.Errorf("the secret's value after the restart is %q, %v", got, err)
+	r.launchedPlugins()
+	if got := r.keptSecret(relays.PairingSecret); got != "pairing-code-7c1f" {
+		t.Errorf("the secret after the restart is %q", got)
 	}
 }
 

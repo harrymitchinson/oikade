@@ -98,8 +98,6 @@ type Manifest struct {
 	Inventory []DeviceDeclaration `json:"inventory,omitempty"`
 	// Warnings are what oikade check warns of, which don't stop a deploy.
 	Warnings []string `json:"warnings,omitempty"`
-	// Secrets names the secrets the home's code uses, made with oikade.Secret as it was built.
-	Secrets []string `json:"secrets,omitempty"`
 	// Vars names the values the home's code uses, read with oikade.Var as it was built, which a
 	// version can't go ahead without.
 	Vars []string `json:"vars,omitempty"`

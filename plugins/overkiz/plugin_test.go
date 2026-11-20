@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -37,7 +35,7 @@ var root = contractv1.NewRoot("tahoma")
 // fast keeps the real timing's order, in less time.
 var fast = timing{
 	poll: 20 * time.Millisecond, busy: 5 * time.Millisecond, read: 20 * time.Millisecond, retry: 10 * time.Millisecond, retryMax: 40 * time.Millisecond,
-	limited: 50 * time.Millisecond, refused: time.Hour, secret: 10 * time.Millisecond,
+	limited: 50 * time.Millisecond, refused: time.Hour,
 	request: 2 * time.Second, set: 2 * time.Second, execution: time.Minute,
 }
 
@@ -67,13 +65,10 @@ func (l *logs) count(msg string) int {
 
 // bench is the plugin under a broker, with its topics as last published.
 type bench struct {
-	t       *testing.T
-	hub     *fakeHub
-	secrets string
-	logs    *logs
-	broker  string
-	// secretName is the account's secret.
-	secretName string
+	t      *testing.T
+	hub    *fakeHub
+	logs   *logs
+	broker string
 
 	mu     sync.Mutex
 	topics map[string]string
@@ -81,36 +76,33 @@ type bench struct {
 	plugin *plugin.Plugin
 }
 
-func start(t *testing.T, hub *fakeHub, secret string, declared ...string) *bench {
+// start starts the plugin on the fake hub, with the hub's token in its config.
+func start(t *testing.T, hub *fakeHub, declared ...string) *bench {
 	t.Helper()
-	return startWith(t, hub, Local{Address: hub.address(), Token: plugin.NewSecret("tahoma-token"), PIN: hubPIN, roots: hub.ca}, fast, secret, declared...)
+	// With the newline the environment can leave after it, which is no part of it.
+	return startWith(t, hub, Local{Address: hub.address(), Token: token + "\n", PIN: hubPIN, roots: hub.ca}, fast, declared...)
 }
 
 // cloudFast is fast, with the cloud's limit waits.
 var cloudFast = func() timing { t := fast; t.retryMax = 50 * time.Millisecond; return t }()
 
-// startCloud starts the plugin on the fake Cozytouch cloud, as Thermor's.
-func startCloud(t *testing.T, cloud *fakeHub, secret string, timings timing, declared ...string) *bench {
+// startCloud starts the plugin on the fake Cozytouch cloud, as Thermor's, with password as its
+// Password.
+func startCloud(t *testing.T, cloud *fakeHub, password string, timings timing, declared ...string) *bench {
 	t.Helper()
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = &tls.Config{RootCAs: cloud.roots()}
 	account := Cozytouch{
-		Brand: Thermor, Username: "someone@example.com", Password: plugin.NewSecret("cozytouch"),
+		Brand: Thermor, Username: "someone@example.com", Password: password,
 		atlanticAPI: cloud.server.URL, endpoint: cloud.server.URL + cloudAPI, transport: transport,
 	}
-	return startWith(t, cloud, account, timings, secret, declared...)
+	return startWith(t, cloud, account, timings, declared...)
 }
 
-func startWith(t *testing.T, hub *fakeHub, account Account, timings timing, secret string, declared ...string) *bench {
+func startWith(t *testing.T, hub *fakeHub, account Account, timings timing, declared ...string) *bench {
 	t.Helper()
 	broker := mqtttest.StartBroker(t)
-	b := &bench{
-		t: t, hub: hub, secrets: t.TempDir(), logs: &logs{}, broker: broker, topics: map[string]string{},
-		secretName: account.secret(),
-	}
-	if secret != "" {
-		b.secret(secret)
-	}
+	b := &bench{t: t, hub: hub, logs: &logs{}, broker: broker, topics: map[string]string{}}
 	listening, stopListening := context.WithCancel(t.Context())
 	t.Cleanup(stopListening)
 	bus, err := mqtt.Connect(listening, broker, "overkiz-test")
@@ -125,12 +117,12 @@ func startWith(t *testing.T, hub *fakeHub, account Account, timings timing, secr
 		t.Fatal(err)
 	}
 
-	env := plugin.Environment{MQTTURL: broker, Root: root, SecretsDir: b.secrets}
+	env := plugin.Environment{MQTTURL: broker, Root: root}
 	devices := make([]contractv1.DeclaredDevice, 0, len(declared))
 	for _, id := range declared {
 		devices = append(devices, contractv1.DeclaredDevice{ID: id, Name: id, DisplayName: id})
 	}
-	handler := newHandler(account, env, devices, timings, slog.New(slog.NewJSONHandler(b.logs, nil)))
+	handler := newHandler(account, devices, timings, slog.New(slog.NewJSONHandler(b.logs, nil)))
 	ctx, cancel := context.WithCancel(t.Context())
 	started, startCancel := context.WithTimeout(ctx, waitLimit)
 	defer startCancel()
@@ -151,13 +143,6 @@ func startWith(t *testing.T, hub *fakeHub, account Account, timings timing, secr
 		_ = b.plugin.Close(context.Background()) //nolint:usetesting // t.Context() is done once cleanups run
 	})
 	return b
-}
-
-func (b *bench) secret(value string) {
-	b.t.Helper()
-	if err := os.WriteFile(filepath.Join(b.secrets, b.secretName), []byte(value+"\n"), 0o600); err != nil {
-		b.t.Fatal(err)
-	}
 }
 
 func (b *bench) topic(name string) string {
@@ -235,7 +220,7 @@ func (b *bench) set(id string, payload string) {
 
 func TestTheHubsShuttersAreReportedByAStableID(t *testing.T) {
 	hub := newFakeHub(t)
-	b := start(t, hub, token, "io.99999999")
+	b := start(t, hub, "io.99999999")
 	b.waitState(kitchen, `{"position":0}`)
 	b.waitState(patio, `{"position":40}`)
 	b.waitAvailability(kitchen, "online")
@@ -269,7 +254,7 @@ func TestTheHubsShuttersAreReportedByAStableID(t *testing.T) {
 
 func TestASetIsAnExecutionAndReportsFollowTheShutter(t *testing.T) {
 	hub := newFakeHub(t)
-	b := start(t, hub, token)
+	b := start(t, hub)
 	b.waitState(kitchen, `{"position":0}`)
 	b.listening()
 
@@ -294,7 +279,7 @@ func TestASetIsAnExecutionAndReportsFollowTheShutter(t *testing.T) {
 
 func TestTheHubGoingAwayLeavesEveryDeviceOfflineUntilItsBack(t *testing.T) {
 	hub := newFakeHub(t)
-	b := start(t, hub, token)
+	b := start(t, hub)
 	b.waitAvailability(kitchen, "online")
 
 	hub.set(func(h *fakeHub) { h.down = true })
@@ -318,41 +303,44 @@ func TestTheHubGoingAwayLeavesEveryDeviceOfflineUntilItsBack(t *testing.T) {
 	}
 }
 
-func TestARefusedTokenWaitsForANewOne(t *testing.T) {
+// A refused token is tried again only after refused, an hour, since trying it over and over could
+// lock the account.
+func TestARefusedTokenIsTriedAgainHourly(t *testing.T) {
 	hub := newFakeHub(t)
-	b := start(t, hub, "not-the-token", kitchen)
-	b.eventually("the refusal", func() bool { return strings.Contains(b.status().Error, `check the secret "tahoma-token"`) })
+	w := newWaits()
+	timings := fast
+	timings.backoff = w.backoff
+	b := startWith(t, hub, Local{Address: hub.address(), Token: "not-the-token", PIN: hubPIN, roots: hub.ca}, timings, kitchen)
+	if d := w.next(t); d != time.Hour {
+		t.Fatalf("waited %s after a refused token, want refused's hour", d)
+	}
+	b.eventually("the refusal", func() bool {
+		e := b.status().Error
+		return strings.HasPrefix(e, "the TaHoma hub at "+hub.address()+" refused the login: check overkiz.Local's Token (") &&
+			strings.HasSuffix(e, ")")
+	})
 	if d := b.devices(); len(d.Devices) != 1 || d.Devices[0].Found {
 		t.Errorf("devices before a login: %+v", d)
 	}
-	// It doesn't try the same token again, which could lock the account.
+	if strings.Contains(b.status().Error+b.logs.String(), "not-the-token") {
+		t.Errorf("the token is in the status or the log:\n%s", b.logs.String())
+	}
 	tries := hub.count("/setup/devices")
-	time.Sleep(10 * fast.secret)
-	if n := hub.count("/setup/devices"); n != tries {
-		t.Errorf("tried a refused token %d more times", n-tries)
+	if tries != 1 {
+		t.Errorf("tried a refused token %d times before waiting, want once", tries)
 	}
-
-	b.secret(token)
-	b.waitState(kitchen, `{"position":0}`)
-	b.eventually("the problem to clear", func() bool { return b.status().Error == "" })
-}
-
-func TestNoTokenSaysHowToAddOne(t *testing.T) {
-	hub := newFakeHub(t)
-	b := start(t, hub, "")
-	b.eventually("the missing secret", func() bool {
-		return b.status().Error == "waiting for the secret tahoma-token"
-	})
-	if n := hub.count("/setup/devices"); n != 0 {
-		t.Errorf("asked the hub %d times with no token", n)
+	w.pass <- struct{}{}
+	if d := w.next(t); d != time.Hour {
+		t.Fatalf("waited %s after the token was refused again, want refused's hour", d)
 	}
-	b.secret(token)
-	b.waitState(kitchen, `{"position":0}`)
+	if n := hub.count("/setup/devices"); n != tries+1 {
+		t.Errorf("tried a refused token %d times after the hour, want once", n-tries)
+	}
 }
 
 func TestAForgottenListenerIsRegisteredAgain(t *testing.T) {
 	hub := newFakeHub(t)
-	b := start(t, hub, token)
+	b := start(t, hub)
 	b.waitState(kitchen, `{"position":0}`)
 	b.listening()
 	reads := hub.count("/setup/devices")
@@ -403,7 +391,7 @@ func TestTooManyRequestsBacksOff(t *testing.T) {
 	w := newWaits()
 	timings := fast
 	timings.limited, timings.backoff = time.Minute, w.backoff
-	b := startWith(t, hub, Local{Address: hub.address(), Token: plugin.NewSecret("tahoma-token"), PIN: hubPIN, roots: hub.ca}, timings, token)
+	b := startWith(t, hub, Local{Address: hub.address(), Token: token, PIN: hubPIN, roots: hub.ca}, timings)
 	b.waitAvailability(kitchen, "online")
 	hub.set(func(h *fakeHub) { h.limited = true })
 	if d := w.next(t); d != time.Minute {
@@ -423,7 +411,7 @@ func TestTooManyRequestsBacksOff(t *testing.T) {
 
 func TestAnAddedDeviceIsReadWithTheSetup(t *testing.T) {
 	hub := newFakeHub(t)
-	b := start(t, hub, token)
+	b := start(t, hub)
 	b.waitState(kitchen, `{"position":0}`)
 	b.listening()
 	hub.set(func(h *fakeHub) {
@@ -451,7 +439,7 @@ func TestAShutterThatCantSayWhereItIsLeavesTheRestWorking(t *testing.T) {
 	hub.set(func(h *fakeHub) {
 		h.setup[1]["states"] = []any{map[string]any{"name": "core:ClosureState", "type": 1, "value": -1}}
 	})
-	b := start(t, hub, token)
+	b := start(t, hub)
 	b.waitState(patio, `{"position":40}`)
 	b.waitAvailability(kitchen, "online")
 	if got := b.topic(root.State(kitchen)); got != `{}` {
@@ -468,7 +456,7 @@ func TestAShutterThatCantSayWhereItIsLeavesTheRestWorking(t *testing.T) {
 func TestADeviceListedAsNumberOneKeepsItsSubDevices(t *testing.T) {
 	hub := newFakeHub(t)
 	hub.set(func(h *fakeHub) { h.setup[3]["deviceURL"] = "io://1234-5678-9012/22222222#1" })
-	b := start(t, hub, token)
+	b := start(t, hub)
 	b.waitState(patio, `{"position":40}`)
 	b.listening()
 	// Its events name it with the #1.
@@ -481,7 +469,7 @@ func TestADeviceListedAsNumberOneKeepsItsSubDevices(t *testing.T) {
 
 func TestAFailedExecutionReadsTheDeviceAgain(t *testing.T) {
 	hub := newFakeHub(t)
-	b := start(t, hub, token)
+	b := start(t, hub)
 	b.waitState(kitchen, `{"position":0}`)
 	b.listening()
 	reads := hub.count("/setup/devices")
@@ -553,25 +541,33 @@ func TestAThermorAccountLogsInAndServesItsRadiator(t *testing.T) {
 	b.waitState(radiator, `{"on":true,"setpoint":19,"temperature":20.25}`)
 }
 
-func TestARefusedPasswordIsTheAccountsProblemUntilItChanges(t *testing.T) {
+// A refused password is the account's problem, and each cloud waits refused, an hour, before
+// trying it again, since too many failed logins could lock the account.
+func TestARefusedPasswordIsTheAccountsProblemForAnHour(t *testing.T) {
 	cloud := newFakeCloud(t)
-	b := startCloud(t, cloud, "wrong", cloudFast, radiator)
+	w := newWaits()
+	timings := cloudFast
+	timings.backoff = w.backoff
+	b := startCloud(t, cloud, "wrong", timings, radiator)
+	for _, part := range []string{"one cloud", "the other"} {
+		if d := w.next(t); d != time.Hour {
+			t.Fatalf("%s waited %s after a refused password, want refused's hour", part, d)
+		}
+	}
 	b.eventually("the refusal", func() bool {
 		e := b.status().Error
-		return strings.HasPrefix(e, "Thermor's Cozytouch cloud refused the login (") && strings.Contains(e, "Bad credentials") &&
-			strings.HasSuffix(e, `: check the secret "cozytouch"`)
+		return strings.HasPrefix(e, "Thermor's Cozytouch cloud refused the login: check overkiz.Cozytouch's Password (") &&
+			strings.Contains(e, "Bad credentials")
 	})
 	if d := b.devices(); len(d.Devices) != 1 || d.Devices[0].Found {
 		t.Errorf("devices with a refused password: %+v", d)
 	}
-	tries := cloud.count("/token")
-	time.Sleep(10 * cloudFast.secret)
-	if n := cloud.count("/token"); n != tries {
-		t.Errorf("tried a refused password %d more times, which could lock the account", n-tries)
+	if strings.Contains(b.status().Error+b.logs.String(), "wrong") {
+		t.Errorf("the password is in the status or the log:\n%s", b.logs.String())
 	}
-	b.secret(password)
-	b.waitAvailability(radiator, "online")
-	b.eventually("the problem to clear", func() bool { return b.status().Error == "" })
+	if n := cloud.count("/token"); n != 1 {
+		t.Errorf("tried a refused password %d times, want once", n)
+	}
 }
 
 func TestTheCloudDownLeavesTheRadiatorOfflineAndSaysWhy(t *testing.T) {
@@ -645,17 +641,20 @@ func TestASessionEndedAsItBeginsBacksOff(t *testing.T) {
 	b.waitAvailability(radiator, "online")
 }
 
-func TestCozytouchNeedsABrandAndAUsername(t *testing.T) {
+func TestAnAccountNeedsItsCredentialAndWhereItIs(t *testing.T) {
 	brands := "it's overkiz.Atlantic, overkiz.Thermor or overkiz.Sauter"
 	for _, tc := range []struct {
 		account Account
 		want    string
 	}{
-		{Cozytouch{Username: "someone@example.com", Password: plugin.NewSecret("cozytouch")}, `has Brand "": ` + brands},
-		{Cozytouch{Brand: "Atlantique", Username: "someone@example.com", Password: plugin.NewSecret("cozytouch")}, `has Brand "Atlantique": ` + brands},
-		{Cozytouch{Brand: Thermor, Password: plugin.NewSecret("cozytouch")}, "overkiz.Cozytouch has no Username"},
-		{Cozytouch{Brand: Thermor, Username: "someone@example.com"}, "overkiz.Cozytouch's Password isn't set"},
-		{Local{Token: plugin.NewSecret("tahoma-token")}, "overkiz.Local has no Address"},
+		{Cozytouch{Username: "someone@example.com", Password: password}, `has Brand "": ` + brands},
+		{Cozytouch{Brand: "Atlantique", Username: "someone@example.com", Password: password}, `has Brand "Atlantique": ` + brands},
+		{Cozytouch{Brand: Thermor, Password: password}, "overkiz.Cozytouch has no Username"},
+		{Cozytouch{Brand: Thermor, Username: "someone@example.com"}, "overkiz.Cozytouch has no Password"},
+		{Local{Token: token}, "overkiz.Local has no Address"},
+		{Local{Address: "192.168.1.40:8443", PIN: hubPIN}, "overkiz.Local has no Token"},
+		{Local{Address: "192.168.1.40:8443", PIN: hubPIN, Token: " \n"}, "overkiz.Local has no Token"},
+		{Cozytouch{Brand: Thermor, Username: "someone@example.com", Password: "\t"}, "overkiz.Cozytouch has no Password"},
 	} {
 		if _, err := New(tc.account)(plugin.Environment{}, nil); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%+v: got %v, want %q", tc.account, err, tc.want)
@@ -669,7 +668,7 @@ func TestAnotherRefusalFromAtlanticIsntTriedAgainSoon(t *testing.T) {
 	b := startCloud(t, cloud, password, cloudFast)
 	b.eventually("the refusal", func() bool { return strings.Contains(b.status().Error, "Atlantic refused the login: invalid_client") })
 	tries := cloud.count("/token")
-	time.Sleep(10 * cloudFast.secret)
+	time.Sleep(10 * cloudFast.retry)
 	if n := cloud.count("/token"); n != tries {
 		t.Errorf("tried %d more times", n-tries)
 	}

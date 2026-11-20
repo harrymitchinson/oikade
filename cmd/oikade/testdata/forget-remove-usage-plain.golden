@@ -7,11 +7,11 @@ Hint: oikade forget --help says more
 exit 2
 
 $ oikade forget secret/api-key
-Error: oikade forget takes devices, and a secret is removed, not forgotten
+Error: secret/api-key isn't a ref: a secret is one of your values now
 Usage:
   oikade forget DEVICE... [--allow-safety] [--json]
   oikade forget --plugin NAME [--allow-safety] [--json]
-Hint: oikade remove secret/api-key removes it
+Hint: your values, passwords included, go in .env beside go.mod: your code reads each with oikade.Var, and oikade deploy sends them
 exit 2
 
 $ oikade forget client/old-laptop
@@ -63,43 +63,50 @@ Hint: oikade forget --help says more
 exit 2
 
 $ oikade remove
-Error: oikade remove takes the secrets and clients to remove, such as secret/api-key
+Error: oikade remove takes the clients to remove, such as client/old-laptop
 Usage:
-  oikade remove REF... [--json]
+  oikade remove client/NAME... [--json]
 Hint: oikade remove --help says more
 exit 2
 
 $ oikade remove porch-light
-Error: oikade remove takes secret/NAME or client/NAME, not porch-light
+Error: oikade remove takes client/NAME, not porch-light
 Usage:
-  oikade remove REF... [--json]
-Hint: oikade remove secret/porch-light removes a secret, and oikade forget porch-light forgets a device
+  oikade remove client/NAME... [--json]
+Hint: oikade remove client/porch-light removes a client, and oikade forget porch-light forgets a device
 exit 2
 
 $ oikade remove device/porch-light
 Error: oikade remove doesn't take devices: a device is forgotten, as its plugin may report it again
 Usage:
-  oikade remove REF... [--json]
+  oikade remove client/NAME... [--json]
 Hint: oikade forget device/porch-light forgets it
 exit 2
 
 $ oikade remove plugin/relays
-Error: oikade remove takes secret/NAME or client/NAME, not plugin/relays
+Error: oikade remove takes client/NAME, not plugin/relays
 Usage:
-  oikade remove REF... [--json]
+  oikade remove client/NAME... [--json]
 Hint: oikade remove --help says more
 exit 2
 
 $ oikade remove client/Bad
 Error: "client/Bad" isn't a ref: "Bad" isn't a client name: use lowercase letters, digits and single dashes, starting with a letter, such as "bad"
 Usage:
-  oikade remove REF... [--json]
+  oikade remove client/NAME... [--json]
 Hint: oikade remove --help says more
+exit 2
+
+$ oikade remove secret/api-key
+Error: oikade remove takes client/NAME, and a secret is one of your values now
+Usage:
+  oikade remove client/NAME... [--json]
+Hint: your values, passwords included, go in .env beside go.mod: your code reads each with oikade.Var, and oikade deploy sends them
 exit 2
 
 $ oikade secret remove api-key
 Error: oikade has no secret command
-Hint: oikade set secret/NAME sets one, oikade list secrets lists them and oikade remove secret/NAME removes one
+Hint: your values, passwords included, go in .env beside go.mod: your code reads each with oikade.Var, and oikade deploy sends them
 exit 2
 
 $ oikade client revoke old-laptop
@@ -119,7 +126,7 @@ exit 2
 
 $ oikade rm
 Error: oikade has no rm command
-Hint: oikade remove REF removes a secret or a client, and oikade forget DEVICE forgets a device
+Hint: oikade remove client/NAME removes a client, and oikade forget DEVICE forgets a device
 exit 2
 
 $ oikade add

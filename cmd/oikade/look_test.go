@@ -110,7 +110,7 @@ func aStatus(now time.Time) *api.Status {
 				},
 			},
 			{
-				Name: "porch-light", Problem: "no LAN key: oikade set secret/1000ddeeff", Plugin: "ewelink-lan",
+				Name: "porch-light", Problem: "no LAN key: oikade setup ewelink-lan", Plugin: "ewelink-lan",
 				Capabilities: []api.Capability{{Name: "on"}},
 			},
 			{
@@ -130,7 +130,7 @@ func aStatus(now time.Time) *api.Status {
 		Plugins: []api.Plugin{
 			{Name: "ewelink-lan", Ref: "plugin/ewelink-lan", Devices: []string{"porch-light"}},
 			{
-				Name: "overkiz", Ref: "plugin/overkiz", Problem: "login refused: check secret/overkiz",
+				Name: "overkiz", Ref: "plugin/overkiz", Problem: "login refused: check overkiz.Local's Token",
 				Devices: []string{"study-blind"},
 			},
 		},

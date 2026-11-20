@@ -29,7 +29,7 @@ device/office-ac/on is true: case/office-ac/on/too-warm wants true, on for its M
 
 flow/morning  flow
 
-plugin/overkiz: login refused: check secret/overkiz
+plugin/overkiz: login refused: check overkiz.Local's Token
 NAME         VALUES                                     STATE
 study-blind  position 40%, target-position 40, moving…  went offline today 12:25
 

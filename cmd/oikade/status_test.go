@@ -46,7 +46,6 @@ func TestCheckFailsForWhatACommandFixes(t *testing.T) {
 		{"the bridge down", func(st *api.Status) { st.Matter.Serving = false }, nil, true},
 		{"a plugin's problem", func(st *api.Status) { st.Plugins[0].Problem = "login refused" }, nil, true},
 		{"a plugin that needs setup", func(st *api.Status) { st.Plugins[0].NeedsSetup = true }, nil, true},
-		{"a secret not set", func(st *api.Status) { st.Home.UnsetSecrets = []string{"opentherm"} }, nil, true},
 		{"a device's problem", func(st *api.Status) { st.Devices[1].Problem = "no LAN key" }, nil, true},
 		{"a device's plugin not imported", func(st *api.Status) { st.Devices[1].PluginNotImported = true }, nil, true},
 
@@ -120,10 +119,10 @@ func TestCheckPrintsTheSameAndExitsOne(t *testing.T) {
 func TestCheckSaysWhyWhereTheOutputDoesnt(t *testing.T) {
 	st := *aHealthyHome()
 	st.Home.Process = false
-	st.Home.UnsetSecrets = []string{"opentherm"}
+	st.Plugins = []api.Plugin{{Name: "opentherm", Ref: "plugin/opentherm", NeedsSetup: true}}
 	dir, _ := aHost(t, api.EventLog{}, nil, st)
 	_, errs, code := runOikade(t, cli.Plain, "status", "--check", "--json", "--data-dir", dir)
-	want := "Warning: automations down\nWarning: secret/opentherm isn't set\n"
+	want := "Warning: automations down\nWarning: plugin/opentherm: needs setup\n"
 	if code != 1 || errs != want {
 		t.Errorf("status --check --json exits %d:\n%s\nwant 1, and stderr:\n%s", code, errs, want)
 	}

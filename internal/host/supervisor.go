@@ -149,10 +149,10 @@ func (h *Host) runProcess(ctx context.Context, srv *server, socket, path string,
 }
 
 // processEnv is the environment of a process started from your binary: the host's, with the socket
-// it talks to the host on, and where to read the secrets and your values, which it writes now so that
-// the process gets them as they are.
+// it talks to the host on, where to read what plugins' setups kept, and your values, which it writes
+// now so that the process gets them as they are.
 func (h *Host) processEnv(socket string) ([]string, error) {
-	env := append(os.Environ(), wire.SocketEnv+"="+socket, contractv1.EnvSecretsDir+"="+h.SecretsDir)
+	env := append(os.Environ(), wire.SocketEnv+"="+socket, contractv1.EnvSecretsDir+"="+h.secretsDir)
 	if h.vars == nil {
 		return env, nil
 	}

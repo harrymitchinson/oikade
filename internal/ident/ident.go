@@ -37,7 +37,6 @@ const (
 	Case   Kind = "case"
 	Flow   Kind = "flow"
 	Plugin Kind = "plugin"
-	Secret Kind = "secret"
 	Client Kind = "client"
 )
 

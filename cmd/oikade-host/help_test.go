@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -57,6 +59,7 @@ func TestHostHelpAndUsage(t *testing.T) {
 		{"bad-flag-value", []string{"--settle", "soon"}, cli.ExitUsage},
 		{"usage-error", []string{"add", "device/porch-light"}, cli.ExitUsage},
 		{"client-add", []string{"client", "add", "laptop"}, cli.ExitUsage},
+		{"secrets-dir", []string{"--secrets-dir", "/etc/oikade/secrets"}, cli.ExitUsage},
 	} {
 		stdout, stderr, code := runHostCommand(t, tc.args...)
 		if code != tc.code {
@@ -88,6 +91,22 @@ func TestADataDirectoryTheHostMayNotWriteSaysHowToRunIt(t *testing.T) {
 	other := &fs.PathError{Op: "open", Path: "/etc/oikade/secrets/broker", Err: fs.ErrPermission}
 	if got := dataDirError(other, "/var/lib/oikade"); !errors.Is(got, other) || got != error(other) {
 		t.Errorf("got %v", got)
+	}
+}
+
+// Nothing sets the broker's password for the host, so a host without it stops and says where it goes.
+func TestAHostWithoutItsBrokerPasswordSaysWhereToPutIt(t *testing.T) {
+	dir := t.TempDir()
+	_, stderr, code := runHostCommand(t, "--data-dir", dir, "--outside-plugins", "kettle",
+		"--broker", "mqtt://oikade@127.0.0.1:1", "--broker-password-secret", "broker")
+	want := "Error: could not read the broker's password from " + filepath.Join(dir, "secrets", "broker") + "\n" +
+		"Hint: put the password in that file, readable only by the host's user, and start the host again\n"
+	if code != cli.ExitFailed || stderr != want {
+		t.Errorf("exit %d:\n%s", code, stderr)
+	}
+	// The directory is there for the file, as only the host's user can read it.
+	if info, err := os.Stat(filepath.Join(dir, "secrets")); err != nil || info.Mode().Perm() != 0o700 {
+		t.Errorf("the secrets directory: %v, %v", info, err)
 	}
 }
 

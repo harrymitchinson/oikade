@@ -655,7 +655,7 @@ func TestAHomeFullySetUpHasNothingLeftToSetUp(t *testing.T) {
 	c.r.sync()
 	st := c.r.status()
 	deployed := st.Home.Version != "" || st.Home.Process
-	if !deployed || len(troubled(st)) != 0 || len(st.Home.UnsetSecrets) != 0 {
+	if !deployed || len(troubled(st)) != 0 {
 		t.Errorf("status: %+v", st)
 	}
 	for _, d := range st.Devices {

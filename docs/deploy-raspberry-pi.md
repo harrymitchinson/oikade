@@ -26,11 +26,7 @@ On laptop, by 14:32, run:
 
 It copies itself to `/usr/local/bin/oikade-host`, makes the system user `oikade`, writes the unit `/etc/systemd/system/oikade.service`, starts it, and waits until the host answers. The unit keeps the host's data in `/var/lib/oikade` and gives it `/run/oikade`, in memory and only its user's, where it writes [your values](running-a-home.md#your-values) for the processes it starts. `--api-addr` is how your Mac reaches it (`:8443` unless you say), and `--client` who the login line is for (`laptop`). Change the unit with `sudo systemctl edit oikade`, whose drop-in `install` never touches. It writes the unit itself only on the first install, or when you give it `--api-addr`.
 
-That's all the unit says: the rest, such as where Zigbee2MQTT's broker is, is in your home's code and its `.env`, which `oikade deploy` brings. If the broker needs a password, it's a secret, `oikade.Secret("broker")` in the plugin's config. Set it from your Mac once you've logged in, below. The plugin tries again until it's set, and needs no restart:
-
-```sh
-oikade set secret/broker     # on your Mac
-```
+That's all the unit says: the rest, such as where Zigbee2MQTT's broker is, is in your home's code and its `.env`, which `oikade deploy` brings. If the broker needs a password, it's one of those values too, `Password: oikade.Var("BROKER_PASSWORD")` in the plugin's config, with `BROKER_PASSWORD=…` in `.env` on your Mac. A new one is a deploy, which starts the plugin again with it.
 
 `journalctl -u oikade -f` on the Pi is its log, and `http://pi:8080/metrics` its metrics.
 
@@ -56,7 +52,7 @@ rsync -a --rsync-path="sudo rsync" pi:/var/lib/oikade/ pi-backup/oikade/        
 
 The second part is Zigbee2MQTT's own data directory, wherever you keep it, which holds the network key and the database. It isn't Oikade's, and Oikade's backup doesn't have it. Losing it means pairing every Zigbee device again.
 
-The copy holds your secrets and the bridge's keys in the clear, so keep it private.
+The copy holds your values, what plugins' setups kept and the bridge's keys in the clear, so keep it private.
 
 **Restore to a new Pi.** Install `oikade-host` as above, and ignore its login line: it's for the empty host it starts, whose identity the restore replaces. Then stop it and put the copy in its place. The same address and subnet keep the Home app happy, and nothing needs pairing again:
 

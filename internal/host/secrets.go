@@ -3,69 +3,34 @@ package host
 import (
 	"errors"
 	"fmt"
-	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 	"github.com/harrymitchinson/oikade/internal/fault"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
-// DefaultSecretsDir is the secrets' directory inside the data directory, so a backup has them.
-const DefaultSecretsDir = "secrets"
+// SecretsDir is the secrets' directory inside the data directory, so a backup has them.
+const SecretsDir = "secrets"
 
-// secrets is a directory with one file per credential. Your process and plugins read the files, so
-// nothing here passes a value on, and nothing here logs one.
+// secrets is a directory with one file for each secret a plugin's setup keeps, such as a device's
+// key, which the plugin reads. Your values aren't here: they come with a deploy (vars.go). Nothing
+// here passes a value on, and nothing here logs one.
 type secrets struct {
 	dir string
 }
 
-func (s secrets) list() ([]api.Secret, error) {
-	entries, err := os.ReadDir(s.dir)
-	if err != nil {
-		return nil, err
-	}
-	var found []api.Secret
-	for _, e := range entries {
-		// A dot-named file is a set that a crash cut short.
-		if !contractv1.ValidSecretName(e.Name()) {
-			continue
-		}
-		info, err := os.Stat(filepath.Join(s.dir, e.Name()))
-		if err != nil {
-			return nil, err
-		}
-		if info.Mode().IsRegular() {
-			found = append(found, api.Secret{Name: e.Name(), Ref: ident.NewRef(ident.Secret, e.Name()).String(), Changed: info.ModTime().UTC()})
-		}
-	}
-	return found, nil
-}
-
-// unset are those of names that aren't set, in order. A file that can't be read for another reason
-// counts as set: the plugin that reads it says what's wrong.
-func (s secrets) unset(names []string) []string {
-	var out []string
-	for _, name := range names {
-		if !contractv1.ValidSecretName(name) {
-			continue
-		}
-		if _, err := os.Stat(filepath.Join(s.dir, name)); errors.Is(err, fs.ErrNotExist) {
-			out = append(out, name)
-		}
-	}
-	return out
-}
-
+// set keeps value as the secret name, on disk before it returns.
 func (s secrets) set(name, value string) error {
+	// The contract holds a setup to this too, so a name can't leave the directory.
+	if !contractv1.ValidSecretName(name) {
+		return fmt.Errorf("%q isn't a secret's name", name)
+	}
 	f, err := os.CreateTemp(s.dir, ".new-*")
 	if err != nil {
-		return writable(err)
+		return err
 	}
 	defer func() { _ = os.Remove(f.Name()) }()
 	// CreateTemp makes it 0600, so the value is never readable by anyone else, even for a moment.
@@ -86,57 +51,11 @@ func (s secrets) set(name, value string) error {
 	if err == nil {
 		fault.Hit(fault.HostSecretSaved)
 	}
-	return writable(err)
-}
-
-func (s secrets) remove(name string) error {
-	err := os.Remove(filepath.Join(s.dir, name))
-	if errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("no secret %s", name)
-	}
-	if err == nil {
-		// The removal is on disk only once the directory is.
-		err = syncDir(s.dir)
-	}
-	return writable(err)
-}
-
-// writable explains the error a mounted directory gives.
-func writable(err error) error {
-	if errors.Is(err, syscall.EROFS) || errors.Is(err, fs.ErrPermission) {
-		return errors.New("the host's secrets directory is read-only, so change them where it's mounted from")
-	}
 	return err
 }
 
-func (s *apiServer) secret(req api.Request) api.Response {
-	if req.Type == api.TypeSecrets {
-		found, err := s.secrets.list()
-		if err != nil {
-			return api.Response{Error: err.Error()}
-		}
-		return api.Response{Secrets: found}
-	}
-	// A plugin may name a secret after its own IDs, such as a device's key under the device's ID, so
-	// this takes any name the contract does. Your home's own follow ident's rule, which oikade check holds.
-	if !contractv1.ValidSecretName(req.Secret) {
-		return api.Response{Error: fmt.Sprintf("%q isn't a secret's name: use letters, digits, '.', '_' and '-'", req.Secret)}
-	}
-	var err error
-	if req.Type == api.TypeSecretSet {
-		err = s.secrets.set(req.Secret, req.SecretValue)
-	} else {
-		err = s.secrets.remove(req.Secret)
-	}
-	if err != nil {
-		return api.Response{Error: err.Error()}
-	}
-	s.log.Info("Changed secret", "name", req.Secret)
-	return api.Response{}
-}
-
-// WithBrokerPassword puts the password from secret name into a broker's URL. A password belongs in a
-// secret, because the flags end up in a unit file and in ps.
+// WithBrokerPassword puts the password from the file name in dir into a broker's URL. A password
+// belongs in a file, because the flags end up in a unit file and in ps.
 func WithBrokerPassword(broker, dir, name string) (string, error) {
 	u, err := url.Parse(broker)
 	if err != nil || u.User == nil || u.User.Username() == "" {
