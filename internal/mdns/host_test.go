@@ -322,6 +322,137 @@ func TestDialerKeepsWhatItFound(t *testing.T) {
 	expect(3)
 }
 
+// misses is an mDNS lookup that finds 127.0.0.1 until it's told to miss, as a host's responder
+// misses the odd query, and counts how often it's asked.
+type misses struct {
+	mu     sync.Mutex
+	asked  int
+	missed bool
+}
+
+func (m *misses) lookup(ctx context.Context, host string) ([]netip.Addr, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.asked++
+	if m.missed {
+		return nil, errors.New("nothing answered over mDNS")
+	}
+	return answers("127.0.0.1")(ctx, host)
+}
+
+func (m *misses) miss() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.missed = true
+}
+
+func (m *misses) expect(t *testing.T, asked int) {
+	t.Helper()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.asked != asked {
+		t.Errorf("asked %d times, want %d", m.asked, asked)
+	}
+}
+
+// missingDialer is a dialer whose mDNS lookups are m's, whose system resolver finds nothing, and
+// whose clock moves only when the test moves it.
+func missingDialer(m *misses) (*dialer, *time.Time) {
+	d := newDialer(m.lookup, failed("no such host"))
+	now := time.Now()
+	d.now = func() time.Time { return now }
+	return d, &now
+}
+
+func dialOnce(ctx context.Context, d *dialer, address string) error {
+	conn, err := d.DialContext(ctx, "tcp", address)
+	if err == nil {
+		_ = conn.Close()
+	}
+	return err
+}
+
+func TestDialerDialsWhatItFoundBeforeWhenALookupMisses(t *testing.T) {
+	address := net.JoinHostPort("hub.local", listenLoopback(t, "127.0.0.1:0"))
+	m := &misses{}
+	d, now := missingDialer(m)
+	if err := dialOnce(t.Context(), d, address); err != nil {
+		t.Fatal(err)
+	}
+	m.miss()
+	*now = now.Add(keepFor)
+	if err := dialOnce(t.Context(), d, address); err != nil {
+		t.Fatalf("a lookup that missed: %v", err)
+	}
+	m.expect(t, 2)
+	// It keeps them for another minute, rather than waiting on a lookup at every dial.
+	if err := dialOnce(t.Context(), d, address); err != nil {
+		t.Fatal(err)
+	}
+	m.expect(t, 2)
+	*now = now.Add(keepFor)
+	if err := dialOnce(t.Context(), d, address); err != nil {
+		t.Fatal(err)
+	}
+	m.expect(t, 3)
+}
+
+// A host that's really gone, or moved, is looked up afresh once what was found before doesn't answer.
+func TestDialerLooksAgainOnceWhatItFoundBeforeIsGone(t *testing.T) {
+	// Nothing accepts, but the kernel completes a connection to a listener anyway.
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, port, _ := net.SplitHostPort(l.Addr().String())
+	address := net.JoinHostPort("hub.local", port)
+	m := &misses{}
+	d, now := missingDialer(m)
+	if err := dialOnce(t.Context(), d, address); err != nil {
+		t.Fatal(err)
+	}
+	_ = l.Close()
+	m.miss()
+	*now = now.Add(keepFor)
+	err = dialOnce(t.Context(), d, address)
+	if err == nil {
+		t.Fatal("dialed a listener that's closed")
+	}
+	for _, want := range []string{"nothing answered over mDNS", "no such host", "the addresses found for it before", "127.0.0.1:" + port} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("%q doesn't say %q", err, want)
+		}
+	}
+	m.expect(t, 2)
+	err = dialOnce(t.Context(), d, address)
+	if err == nil || strings.Contains(err.Error(), "before") {
+		t.Errorf("got %v, want a lookup that finds nothing, with nothing kept to dial", err)
+	}
+	m.expect(t, 3)
+}
+
+// A dial given up on while it looks the host up says nothing about what was found before, so that's
+// kept for the next.
+func TestDialerKeepsWhatItFoundBeforeWhenADialIsGivenUp(t *testing.T) {
+	address := net.JoinHostPort("hub.local", listenLoopback(t, "127.0.0.1:0"))
+	m := &misses{}
+	d, now := missingDialer(m)
+	if err := dialOnce(t.Context(), d, address); err != nil {
+		t.Fatal(err)
+	}
+	m.miss()
+	*now = now.Add(keepFor)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := dialOnce(ctx, d, address); err == nil {
+		t.Fatal("dialed with a context that had ended")
+	}
+	if err := dialOnce(t.Context(), d, address); err != nil {
+		t.Fatalf("forgot what it found before: %v", err)
+	}
+	m.expect(t, 3)
+}
+
 // An address that never answers gets only its share of the time, so the next is still tried.
 func TestDialerSplitsTheTimeBetweenAddresses(t *testing.T) {
 	old := minPerAddress
