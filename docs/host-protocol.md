@@ -6,7 +6,7 @@ Nobody writes this protocol by hand. A home's `Run` speaks it, and the code is `
 
 ## Sessions
 
-The host starts your binary as `<binary> automations`, with the socket's path in `OIKADE_SOCKET`. A process has 5 seconds to send its `hello`:
+The host starts your binary as `<binary> automations`, with the socket's path in `OIKADE_SOCKET`, and your values' file in `OIKADE_VARS_FILE`: a JSON object of names to values, which `oikade.Var` reads, and which only the host's user can read. The host writes it before each process it starts from your binary, plugins' too, from the values the last deploy sent (OIK-365). A process has 5 seconds to send its `hello`:
 
 ```json
 {"type":"hello","version":7,"role":"automations","rules":["fan","leak-shutoff"]}
@@ -106,17 +106,17 @@ The host runs a binary as `<binary> check` before it stops anything. That loads 
 {"protocol":4,"rules":[{"name":"leak-shutoff","kind":"hold","safety":true,"latch":true}]}
 ```
 
-It also has `plugins`, the plugins the home imports, `control`, its device settings, and `secrets`, the names of the secrets its code made with `oikade.Secret` as it was built (OIK-297). The host checks those against its secrets directory, so a deploy, a rollback and `oikade status` name the ones that aren't set. A missing secret doesn't stop a deploy.
+It also has `plugins`, the plugins the home imports, `control`, its device settings, and `secrets`, the names of the secrets its code made with `oikade.Secret` as it was built (OIK-297). The host checks those against its secrets directory, so a deploy, a rollback and `oikade status` name the ones that aren't set. A missing secret doesn't stop a deploy. `vars` names the values its code read with `oikade.Var` as it was built (OIK-365), and a deploy or a rollback whose values lack one is refused. Check mode is given no values, so a `Var` is empty there.
 
-A failure, such as a secret whose name `oikade set secret/NAME` would refuse, or a `protocol` other than the host's, rejects the version.
+A failure, such as a secret whose name `oikade set secret/NAME` would refuse, a value's name that isn't an environment variable's, or a `protocol` other than the host's, rejects the version.
 
 ## Deploys
 
 `oikade deploy` and `oikade rollback` talk to the host through its [API](host-api.md), on `api.sock`, also in the data directory and also mode `0600`. A deploy goes in this order, and any failure leaves or brings back the last version:
 
-1. The command streams the binary to the host, which keeps it in `uploads` until it has all of it, then copies it to `versions/<id>` in the data directory. The ID comes from its contents, so deploying what's running changes nothing.
-2. It runs check mode, and compares the result with the running version. A Safety rule that's gone, or a rule that's gone and holds a Safety claim, refuses the deploy unless it says `allowSafety`. A rename counts, because a hold's latch lives under its name.
-3. It records the version as unconfirmed, along with every rule that has anything on record, sends the old process `SIGTERM`, kills it after 5 seconds if it's still there, and ends its session. It reads the claims again, because the old process could claim until it stopped, and a new finding brings the old version back unless it said `allowSafety`. Then it copies every flow run's journal, and only then does the new process start, so two never overlap. Waiting runs keep their journals and resume.
+1. The command streams your values and the binary to the host, which keeps the binary in `uploads` until it has all of it, then copies it to `versions/<id>` in the data directory. The ID comes from its contents, so deploying what's running with the same values changes nothing, and with others starts its processes again with them, through the same steps.
+2. It runs check mode, and compares the result with the running version. A version whose code uses a value the deploy lacks is refused. A Safety rule that's gone, or a rule that's gone and holds a Safety claim, refuses the deploy unless it says `allowSafety`. A rename counts, because a hold's latch lives under its name.
+3. It records the version as unconfirmed, with its values and the last ones to go back to in the same write, along with every rule that has anything on record, sends the old process `SIGTERM`, kills it after 5 seconds if it's still there, and ends its session. It reads the claims again, because the old process could claim until it stopped, and a new finding brings the old version back unless it said `allowSafety`. Then it copies every flow run's journal, and only then does the new process start, so two never overlap. Waiting runs keep their journals and resume.
 4. It waits for the new process to connect, then for the settle period, 5 seconds by default. Until the version is confirmed, the non-Safety claims a flow gives up when its run is dropped or fails stay in force: the host holds the release back. If the process goes away at any point before that's up, the last version comes back at once, and the command says why, with the journals as they were copied and the held claims never having ended.
 5. It confirms the version, keeps the five latest, ends the claims it held back, except any the flow has claimed again since, and ends what's left of rules the version doesn't have: their claims, Safety ones included, their saved state and the runs of flows it doesn't have, including one that's now another kind of rule with the same name, because nothing else would. The record says this is due, so a host that dies first does it when it starts.
 

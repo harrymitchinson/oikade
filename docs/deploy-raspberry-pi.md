@@ -24,9 +24,9 @@ On laptop, by 14:32, run:
   oikade login pi.home:8443 --pin sha256:9f2c… --code k7Qx…
 ```
 
-It copies itself to `/usr/local/bin/oikade-host`, makes the system user `oikade`, writes the unit `/etc/systemd/system/oikade.service`, starts it, and waits until the host answers. `--api-addr` is how your Mac reaches it (`:8443` unless you say), and `--client` who the login line is for (`laptop`). Change the unit with `sudo systemctl edit oikade`, whose drop-in `install` never touches. It writes the unit itself only on the first install, or when you give it `--api-addr`.
+It copies itself to `/usr/local/bin/oikade-host`, makes the system user `oikade`, writes the unit `/etc/systemd/system/oikade.service`, starts it, and waits until the host answers. The unit keeps the host's data in `/var/lib/oikade` and gives it `/run/oikade`, in memory and only its user's, where it writes [your values](running-a-home.md#your-values) for the processes it starts. `--api-addr` is how your Mac reaches it (`:8443` unless you say), and `--client` who the login line is for (`laptop`). Change the unit with `sudo systemctl edit oikade`, whose drop-in `install` never touches. It writes the unit itself only on the first install, or when you give it `--api-addr`.
 
-That's all the unit says: the rest, such as where Zigbee2MQTT's broker is, is in your home's code, which `oikade deploy` brings. If the broker needs a password, it's a secret, `oikade.Secret("broker")` in the plugin's config. Set it from your Mac once you've logged in, below. The plugin tries again until it's set, and needs no restart:
+That's all the unit says: the rest, such as where Zigbee2MQTT's broker is, is in your home's code and its `.env`, which `oikade deploy` brings. If the broker needs a password, it's a secret, `oikade.Secret("broker")` in the plugin's config. Set it from your Mac once you've logged in, below. The plugin tries again until it's set, and needs no restart:
 
 ```sh
 oikade set secret/broker     # on your Mac
