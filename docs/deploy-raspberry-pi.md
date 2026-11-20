@@ -29,7 +29,7 @@ It copies itself to `/usr/local/bin/oikade-host`, makes the system user `oikade`
 That's all the unit says: the rest, such as where Zigbee2MQTT's broker is, is in your home's code, which `oikade deploy` brings. If the broker needs a password, it's a secret, `oikade.Secret("broker")` in the plugin's config. Set it from your Mac once you've logged in, below. The plugin tries again until it's set, and needs no restart:
 
 ```sh
-oikade secret set broker     # on your Mac
+oikade set secret/broker     # on your Mac
 ```
 
 `journalctl -u oikade -f` on the Pi is its log, and `http://pi:8080/metrics` its metrics.
@@ -45,7 +45,7 @@ oikade init home && cd home
 oikade deploy
 ```
 
-The [README](../README.md#getting-started-in-go) has the rest, including the token its workflow deploys with. `oikade matter` shows the code to pair with the Home app.
+The [README](../README.md#getting-started-in-go) has the rest, including the token its workflow deploys with. `oikade status matter` shows the code to pair with the Home app.
 
 **Back up.** Your backup has two parts:
 
@@ -98,7 +98,7 @@ Then import [`config/grafana/oikade-home.json`](../config/grafana/oikade-home.js
 
 | Symptom | Check |
 |---|---|
-| Bridge doesn't appear in the Home app | `dns-sd -B _matterc._udp` from a Mac on the same network. If it's missing: has the 15-minute window passed (`oikade matter` says, and `oikade matter open` opens it again)? Is the Pi on the same subnet as the home hub? Does a firewall drop mDNS? |
+| Bridge doesn't appear in the Home app | `dns-sd -B _matterc._udp` from a Mac on the same network. If it's missing: has the 15-minute window passed (`oikade status matter` says, and `oikade pair matter` opens it again)? Is the Pi on the same subnet as the home hub? Does a firewall drop mDNS? |
 | "Accessory not found" or pairing fails | `journalctl -u oikade` on the Pi. Is IPv6 on for the Pi and the network? Is there a home hub? |
 | A capability is missing | Oikade doesn't map that expose yet, e.g. colour, colour temperature or multi-gang switches (`state_l2`). |
 | The Home app shows "No Response" | Does `oikade status` show the device offline? Is Zigbee2MQTT or the broker down? Is the host itself up? |

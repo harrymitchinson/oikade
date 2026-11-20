@@ -266,7 +266,8 @@ func runDev(ctx context.Context, args []string) error {
 // runInit starts a home in a directory that hasn't one.
 func runInit(ctx context.Context, args []string) error {
 	fs := newFlags("init")
-	name := fs.String("module", "home", "Your module's path.")
+	name := fs.String("module-path", "home", "Your module's path, such as github.com/you/home.")
+	renamed(fs, "module", "module-path", false) // --module is a directory everywhere else.
 	source := fs.String("source", "", "A checkout of Oikade to build against, rather than a published version.")
 	extra := cli.ParseFlags(fs, args)
 	if len(extra) > 1 {

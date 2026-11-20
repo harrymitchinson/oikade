@@ -22,7 +22,7 @@ func TestEmptyListsSayWhatWouldFillThem(t *testing.T) {
 	}{
 		{"secrets", func(stdout, stderr *bytes.Buffer, asJSON bool) error {
 			return printSecrets(cli.Plain(stdout, 0), cli.Plain(stderr, 0), nil, nil, asJSON, time.Now())
-		}, "No secrets. oikade secret set NAME adds one."},
+		}, "No secrets. oikade set secret/NAME adds one."},
 		{"clients", func(stdout, stderr *bytes.Buffer, asJSON bool) error {
 			return printClients(cli.Plain(stdout, 0), cli.Plain(stderr, 0), nil, asJSON, time.Now())
 		}, "No clients. oikade-host add client/NAME, on the host's machine, adds one."},
@@ -109,7 +109,7 @@ func TestStatusStartsWithWhatsLeftToSetUp(t *testing.T) {
 	printStatus(cli.Plain(&stdout, 0), cli.Plain(&stderr, 0), st, false, time.Now())
 	want := []string{
 		"No home deployed. Run oikade deploy from your home's module.",
-		"The Matter bridge has no controller. oikade matter says how to pair one.",
+		"The Matter bridge has no controller. oikade status matter says how to pair one.",
 		"Devices with a problem: attic-fan. Their STATE says what's wrong.",
 		"Devices whose plugin isn't imported: shed-relay. " +
 			"Import it in your home and run oikade deploy, or forget its devices with oikade forget --plugin NAME.",
@@ -153,7 +153,7 @@ func TestASecretNotSetSaysHowToSetIt(t *testing.T) {
 		Plugins: []api.Plugin{{Name: "cozytouch", Problem: "waiting for the secret cozytouch"}}}
 	got := setupGaps(st)
 	want := []string{
-		"Secret cozytouch isn't set: oikade secret set cozytouch", "Plugin cozytouch: waiting for the secret cozytouch",
+		"Secret cozytouch isn't set: oikade set secret/cozytouch", "Plugin cozytouch: waiting for the secret cozytouch",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("got %q", got)
@@ -165,13 +165,13 @@ func TestABridgeThatsDownSaysSoRatherThanUnpaired(t *testing.T) {
 	st := &api.Status{Home: api.Home{Version: "v3", Process: true},
 		Matter: &api.Matter{Problem: "port 5540 is taken", Fabrics: []api.Fabric{}}}
 	got := setupGaps(st)
-	want := []string{"The Matter bridge is down: port 5540 is taken. oikade matter says more."}
+	want := []string{"The Matter bridge is down: port 5540 is taken. oikade status matter says more."}
 	if !slices.Equal(got, want) {
 		t.Errorf("got %q", got)
 	}
 	st.Matter = &api.Matter{}
 	got = setupGaps(st)
-	if !slices.Equal(got, []string{"The Matter bridge is down. oikade matter says more."}) {
+	if !slices.Equal(got, []string{"The Matter bridge is down. oikade status matter says more."}) {
 		t.Errorf("with no problem: %q", got)
 	}
 }

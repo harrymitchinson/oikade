@@ -29,6 +29,16 @@ type target struct {
 	dataDir, context *string
 }
 
+// renamed keeps a flag that has a new name, so one typed from habit says it. A boolean takes no value.
+func renamed(fs *flag.FlagSet, from, to string, boolean bool) {
+	refuse := func(string) error { return fmt.Errorf("--%s is --%s now", from, to) }
+	if boolean {
+		fs.BoolFunc(from, "", refuse)
+		return
+	}
+	fs.Func(from, "", refuse)
+}
+
 // The flags that say which host a command is for.
 const (
 	flagDataDir = "data-dir"
@@ -286,35 +296,96 @@ func runSet(ctx context.Context, args []string) error {
 	target := addTarget(fs)
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
 	words := cli.Parse(fs, args)
+	if len(words) > 0 && strings.HasPrefix(words[0], string(ident.Secret)+"/") {
+		return setSecret(ctx, target, words, *asJSON)
+	}
 	var device, name string
 	var err error
 	switch {
-	case len(words) == 2 && strings.Contains(words[0], "/"):
+	case len(words) == 2:
 		if device, name, err = capabilityOf(words[0]); err != nil {
 			return err
 		}
-	case len(words) == 3:
-		if device, err = nameOf(ident.Device, words[0]); err != nil {
-			return err
-		}
-		name = words[1]
+	case len(words) == 3 && !strings.Contains(words[0], "/"):
+		return cli.UsageErrorf("oikade set takes a capability's ref and its value").
+			WithHint("oikade set device/%s/%s %s", words[0], words[1], words[2])
 	default:
-		return cli.UsageErrorf("oikade set takes a capability and its value")
+		return cli.UsageErrorf("oikade set takes a capability's ref and its value, or a secret's ref")
 	}
-	value, err := valueOf(device, name, words[len(words)-1])
+	value, err := valueOf(device, name, words[1])
 	if err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintf(os.Stderr, "Setting %s to %v\n", ident.CapabilityRef(device, name), value)
+	ref := ident.CapabilityRef(device, name)
+	_, _ = fmt.Fprintf(os.Stderr, "Setting %s to %v\n", ref, value)
 	resp, err := api.Call(ctx, target.transport(), api.Request{
 		Type: api.TypeSet, Device: device, Capability: name, Value: value,
 	})
 	if err != nil {
 		return err
 	}
-	// A value that hasn't answered, or that the host held back, isn't a change, so it gets no ✓.
-	changed := resp.Outcome != nil && stuck(name, resp.Outcome.Value, value)
-	return finished(resp, *asJSON, outcome(device, name, value, resp.Outcome), changed)
+	said := outcome(device, name, value, resp.Outcome)
+	if resp.Error == "" && resp.Outcome != nil && !stuck(name, resp.Outcome.Value, value) {
+		// Something holds it at another value, so the set didn't do what was asked.
+		resp.Error = said
+	}
+	if resp.Error != "" && resp.Outcome != nil {
+		// Held elsewhere, or by a Safety rule, which the host refused the set for: say what lets go.
+		if *asJSON {
+			_ = finished(resp, true, "", false)
+		}
+		return cli.Errorf("%s", resp.Error).WithHint("%s", heldHint(ref.String(), *resp.Outcome))
+	}
+	// A value that hasn't answered isn't a change, so it gets no ✓, and isn't a failure either.
+	return finished(resp, *asJSON, said, resp.Outcome != nil)
+}
+
+// heldHint says what lets go of a capability something holds at another value: pausing the rule
+// that holds it, its release for a Safety claim, which a pause keeps, or waiting out its limits.
+func heldHint(ref string, c api.Capability) string {
+	for _, claim := range c.Claims {
+		if !claim.Winner {
+			continue
+		}
+		if k, _, err := ident.ParseRef(claim.Source); err == nil && (k == ident.Case || k == ident.Flow) {
+			if claim.Level == "Safety" {
+				return fmt.Sprintf("a Safety claim ends only when its rule releases it, as a pause keeps it: "+
+					"oikade status %s says what it's waiting for", claim.Source)
+			}
+			return fmt.Sprintf("oikade pause %s lets go of it until you resume it", claim.Source)
+		}
+	}
+	if c.Limit != "" {
+		return fmt.Sprintf("its limits let go when they're done: oikade status %s says when", ref)
+	}
+	return fmt.Sprintf("oikade status %s says why", ref)
+}
+
+// setSecret sets a secret, whose value comes from stdin or a prompt. One given as an argument is
+// refused before anything is sent, as it's in the shell's history now.
+func setSecret(ctx context.Context, target target, words []string, asJSON bool) error {
+	// Before the name, so a value with a bad name is still told it's in the history.
+	if len(words) > 1 {
+		return cli.UsageErrorf("oikade set doesn't take a secret's value as an argument, so it sent nothing: the "+
+			"value is in your shell's history now").
+			WithHint("run oikade set %s alone, which asks for the value or reads it from stdin, and change the "+
+				"secret where it came from if it matters", words[0])
+	}
+	name, err := nameOf(ident.Secret, words[0])
+	if err != nil {
+		return err
+	}
+	ref := ident.NewRef(ident.Secret, name)
+	value, err := readSecret(os.Stdin)
+	if err != nil {
+		return err
+	}
+	resp, err := api.Call(ctx, target.transport(), api.Request{Type: api.TypeSecretSet, Secret: name, SecretValue: value})
+	if err != nil {
+		return err
+	}
+	return finished(resp, asJSON, fmt.Sprintf("Set %s. Your process and plugins read it when they next ask, "+
+		"so one that reads it once needs a restart", ref), true)
 }
 
 // outcome says what a set left the capability at, and why, rather than what it asked for.
@@ -449,7 +520,7 @@ func finished(resp api.Response, asJSON bool, message string, changed bool) erro
 			Ended     []string        `json:"ended,omitempty"`
 			Kept      []string        `json:"kept,omitempty"`
 		}{resp.Error == "", resp.Error, resp.Warning, resp.Forgotten, resp.Outcome, resp.Ended, resp.Kept}
-		if err := cli.PrintJSON(out); err != nil {
+		if err := printJSON(std.out, out); err != nil {
 			return err
 		}
 	} else {
@@ -473,7 +544,7 @@ func finished(resp api.Response, asJSON bool, message string, changed bool) erro
 
 // unsetSecret says a secret the home uses isn't set, and how to set it.
 func unsetSecret(name string) string {
-	return fmt.Sprintf("Secret %s isn't set: oikade secret set %s", name, name)
+	return fmt.Sprintf("Secret %s isn't set: oikade set secret/%s", name, name)
 }
 
 // printUnsetSecrets says which secrets the version now running uses that aren't set. It comes after

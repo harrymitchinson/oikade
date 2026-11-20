@@ -291,7 +291,7 @@ func home() *oikade.Home {
 	case "removed", "crash-removed", "crash-told":
 		claimMoment = "claim-moment-2"
 	case "badsecret":
-		// A name oikade secret set refuses fails the check.
+		// A name oikade set secret/NAME refuses fails the check.
 		_ = oikade.Secret("not/a-name")
 	}
 	plugins := strings.Contains(variant, "plugins")

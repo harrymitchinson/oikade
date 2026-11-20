@@ -45,7 +45,7 @@ func TestASecretNotSetSaysHowToSetIt(t *testing.T) {
 			if !errors.Is(err, ErrSecretNotSet) {
 				t.Fatalf("err = %v, want ErrSecretNotSet", err)
 			}
-			if want := "secret cozytouch isn't set: oikade secret set cozytouch"; err.Error() != want {
+			if want := "secret cozytouch isn't set: oikade set secret/cozytouch"; err.Error() != want {
 				t.Errorf("err = %q, want %q", err, want)
 			}
 		})

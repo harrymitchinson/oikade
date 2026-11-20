@@ -297,7 +297,7 @@ func printSecrets(out, stderr *cli.Printer, secrets []api.Secret, unset []string
 		return printJSON(out, all)
 	}
 	if len(all) == 0 {
-		stderr.Println("No secrets. oikade secret set NAME adds one.")
+		stderr.Println("No secrets. oikade set secret/NAME adds one.")
 		return nil
 	}
 	table := cli.Table{Columns: []cli.Column{{Header: nameHeader}, {Header: "CHANGED"}}}
@@ -310,7 +310,7 @@ func printSecrets(out, stderr *cli.Printer, secrets []api.Secret, unset []string
 	}
 	out.Table(table)
 	if len(all) > len(secrets) {
-		stderr.Hint("your home uses a secret that isn't set: oikade secret set NAME sets it")
+		stderr.Hint("your home uses a secret that isn't set: oikade set secret/NAME sets it")
 	}
 	return nil
 }

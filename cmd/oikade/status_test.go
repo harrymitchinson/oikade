@@ -205,17 +205,6 @@ func TestStatusJSONKeepsItsShape(t *testing.T) {
 	}
 }
 
-// oikade matter is oikade status matter.
-func TestMatterIsStatusMatter(t *testing.T) {
-	dir, _ := aHost(t, api.EventLog{}, nil, *aHealthyHome())
-	out, errs, code := runOikade(t, cli.Plain, "matter", "--data-dir", dir)
-	status, statusErrs, statusCode := runOikade(t, cli.Plain, "status", "matter", "--data-dir", dir)
-	same := out == status && errs == statusErrs
-	if code != 0 || statusCode != 0 || !same || !strings.HasPrefix(out, "Matter bridge: serving") {
-		t.Errorf("matter exits %d:\n%s%s\nstatus matter exits %d:\n%s%s", code, out, errs, statusCode, status, statusErrs)
-	}
-}
-
 // A device's view says since when it's offline, and ends with its last events, at most ten, without
 // the home's own.
 func TestADevicesViewEndsWithItsLastEvents(t *testing.T) {

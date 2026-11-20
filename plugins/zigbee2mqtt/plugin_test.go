@@ -251,7 +251,7 @@ func TestAPluginWaitsForItsBrokersPassword(t *testing.T) {
 	})
 
 	h.wait(t, "the plugin saying it's waiting", func(topics map[string]string) bool {
-		return strings.Contains(topics[root.Status()], "oikade secret set broker")
+		return strings.Contains(topics[root.Status()], "oikade set secret/broker")
 	})
 	if err := os.WriteFile(filepath.Join(dir, "broker"), []byte("anything"), 0o600); err != nil {
 		t.Fatal(err)

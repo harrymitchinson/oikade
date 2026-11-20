@@ -55,7 +55,7 @@ func matterFlag(port uint16) string { return "--matter-port=" + strconv.Itoa(int
 
 // serveMatter launches the host with launch, which passes on the Matter flag it's given, and waits
 // for its bridge to serve. If something took the port first, it stops the host and launches it
-// again on another. It returns the port the bridge serves on, as oikade matter says.
+// again on another. It returns the port the bridge serves on, as oikade status matter says.
 func (r *rig) serveMatter(port uint16, launch func(flag string)) uint16 {
 	r.t.Helper()
 	for range 5 {
@@ -216,27 +216,27 @@ func TestAControllerPairsWithTheHostAndDrivesADevice(t *testing.T) {
 	}
 }
 
-// Once the bridge is paired, oikade matter open opens a window with a code of its own, and a second
+// Once the bridge is paired, oikade pair matter opens a window with a code of its own, and a second
 // controller pairs with it.
 func TestOikadeMatterOpenPairsASecondController(t *testing.T) {
 	t.Parallel()
 	c := commissioned(t)
-	if out := string(c.r.stdout(nil, "matter")); !strings.Contains(out, "run oikade matter open") {
-		t.Errorf("oikade matter once paired:\n%s", out)
+	if out := string(c.r.stdout(nil, "status", "matter")); !strings.Contains(out, "run oikade pair matter") {
+		t.Errorf("oikade status matter once paired:\n%s", out)
 	}
-	out := string(c.r.stdout(nil, "matter", "open", "--for", "3m"))
+	out := string(c.r.stdout(nil, "pair", "matter", "--for", "3m"))
 	if !strings.Contains(out, "Opened the Matter bridge's window until") ||
 		!strings.Contains(out, "pair nothing once it closes") || strings.Contains(out, "█") {
-		t.Errorf("oikade matter open:\n%s", out)
+		t.Errorf("oikade pair matter:\n%s", out)
 	}
 	before := time.Now()
 	var w api.MatterWindow
-	if err := json.Unmarshal(c.r.stdout(nil, "matter", "open", "--json"), &w); err != nil {
+	if err := json.Unmarshal(c.r.stdout(nil, "pair", "matter", "--json"), &w); err != nil {
 		t.Fatal(err)
 	}
 	if !w.Fresh || w.Passcode == c.r.matter().Passcode || !strings.HasPrefix(w.QRCode, "MT:") || len(w.ManualCode) != 11 ||
 		w.Expires.Before(before.Add(14*time.Minute)) || w.Expires.After(time.Now().Add(15*time.Minute)) {
-		t.Fatalf("oikade matter open --json: %+v", w)
+		t.Fatalf("oikade pair matter --json: %+v", w)
 	}
 	if m := c.r.matter(); !m.Window {
 		t.Errorf("no window: %+v", m)
@@ -390,9 +390,9 @@ func TestATakenPortLeavesTheHomeRunning(t *testing.T) {
 	}
 	r.change("leak-sensor", "open", true)
 	r.waitFor(func(l line) bool { return l.is(wrote, "device", "valve", "value", false) })
-	out := string(r.stdout(nil, "matter"))
+	out := string(r.stdout(nil, "status", "matter"))
 	if !strings.Contains(out, "down") || strings.Contains(out, "window") {
-		t.Errorf("oikade matter says: %s", out)
+		t.Errorf("oikade status matter says: %s", out)
 	}
 }
 
@@ -407,7 +407,7 @@ func TestAnInterfaceThatIsntThereLeavesTheHomeRunning(t *testing.T) {
 func TestMatterOffIsSaid(t *testing.T) {
 	t.Parallel()
 	r := start(t)
-	if stderr, err := r.oikade(nil, "matter"); err == nil || !strings.Contains(stderr, "Matter turned off") {
+	if stderr, err := r.oikade(nil, "status", "matter"); err == nil || !strings.Contains(stderr, "Matter turned off") {
 		t.Errorf("%v: %s", err, stderr)
 	}
 }
@@ -450,8 +450,8 @@ func TestUnreadableMatterStateLeavesTheHomeRunning(t *testing.T) {
 			if m := r.matter(); m.Serving || m.Problem == "" || len(m.Fabrics) != 0 {
 				t.Errorf("oikade status matter --json says %+v", m)
 			}
-			if out := string(r.stdout(nil, "matter")); !strings.Contains(out, "down: ") {
-				t.Errorf("oikade matter says: %s", out)
+			if out := string(r.stdout(nil, "status", "matter")); !strings.Contains(out, "down: ") {
+				t.Errorf("oikade status matter says: %s", out)
 			}
 			if r.count("Matter bridge stopped") != 1 {
 				t.Errorf("the log doesn't say. The log:\n%s", r.dump())
@@ -481,7 +481,7 @@ func TestAnUnreadableClaimRecordHoldsItsDevice(t *testing.T) {
 	r.launch(matterFlag(port))
 	r.waitFor(func(l line) bool { return l.is(attached) })
 
-	stderr, err := r.oikade(nil, "set", "valve", "on", "off")
+	stderr, err := r.oikade(nil, "set", "device/valve/on", "off")
 	if err == nil || !strings.Contains(stderr, "unreadable") {
 		t.Errorf("a person's write: %v: %s", err, stderr)
 	}

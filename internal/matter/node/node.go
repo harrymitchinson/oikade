@@ -555,7 +555,7 @@ func (n *Node) closeWindow() {
 	}
 	n.advertising.Info("Stopped advertising commissionable service")
 	if n.table.Count() == 0 {
-		n.commissioning.Info("Closed the commissioning window while on no fabric: oikade matter open opens it again")
+		n.commissioning.Info("Closed the commissioning window while on no fabric: oikade pair matter opens it again")
 	}
 }
 

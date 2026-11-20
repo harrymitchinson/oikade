@@ -56,7 +56,7 @@ func TestHelpAndUsage(t *testing.T) {
 		{"unknown-command-bogus", []string{"help", "bogus"}, cli.ExitUsage},
 		{"unknown-flag", []string{"deploy", "--bogus"}, cli.ExitUsage},
 		{"flag-needs-a-value", []string{"replay", "--since"}, cli.ExitUsage},
-		{"bad-flag-value", []string{"matter", "open", "--for", "soon"}, cli.ExitUsage},
+		{"bad-flag-value", []string{"pair", "matter", "--for", "soon"}, cli.ExitUsage},
 		{"usage-error", []string{"set", "desk-plug"}, cli.ExitUsage},
 	} {
 		for name, printer := range printers {

@@ -3,7 +3,7 @@ Home f113018 · automations connected 8 min ago
 [1mNAME[0m         [1mVALUES[0m                     [1mSTATE[0m
 hall-lamp    on false
 office-ac    mode cool, on true, setp…  [2mnot in your code[0m
-porch-light                             no LAN key: oikade secret set 1000ddeeff
+porch-light                             no LAN key: oikade set secret/1000ddeeff
 study-blind  position 40%, target-pos…  went offline today 12:25
 
 case/office-ac/on/too-warm  case  active since 13:52

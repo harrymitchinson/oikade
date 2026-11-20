@@ -62,8 +62,10 @@ func HelpFlags(fs *flag.FlagSet, c Command, stdout, stderr *Printer, exit func(i
 var (
 	undefinedFlag = regexp.MustCompile(`^flag provided but not defined: -+(.+)$`)
 	noValue       = regexp.MustCompile(`^flag needs an argument: -+(.+)$`)
-	badBool       = regexp.MustCompile(`^invalid boolean value "(.*)" for -+(\S+): .*$`)
+	badBool       = regexp.MustCompile(`^invalid boolean value "(.*)" for -+(\S+): (.*)$`)
 	badValue      = regexp.MustCompile(`^invalid value "(.*)" for flag -+(\S+): (.*)$`)
+	// refusedBool is a boolean flag given alone whose Set failed, as a flag that's gone does.
+	refusedBool = regexp.MustCompile(`^invalid boolean flag (\S+): (.*)$`)
 )
 
 // FlagError is what the flag package says of a bad flag of c's fs, in the user's words.
@@ -75,7 +77,14 @@ func FlagError(c Command, fs *flag.FlagSet, message string) string {
 		return fmt.Sprintf("--%s needs a value", m[1])
 	}
 	if m := badBool.FindStringSubmatch(message); m != nil {
+		// A flag's own refusal, as a flag that's gone gives, says more than its kind.
+		if m[3] != "parse error" && !strings.Contains(m[3], "invalid syntax") {
+			return m[3]
+		}
 		return fmt.Sprintf("--%s is true or false, not %q", m[2], m[1])
+	}
+	if m := refusedBool.FindStringSubmatch(message); m != nil {
+		return m[2]
 	}
 	if m := badValue.FindStringSubmatch(message); m != nil {
 		if m[3] != "parse error" && !strings.Contains(m[3], "invalid syntax") && !strings.Contains(m[3], "out of range") {

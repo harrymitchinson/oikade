@@ -108,7 +108,7 @@ The host runs a binary as `<binary> check` before it stops anything. That loads 
 
 It also has `plugins`, the plugins the home imports, `control`, its device settings, and `secrets`, the names of the secrets its code made with `oikade.Secret` as it was built (OIK-297). The host checks those against its secrets directory, so a deploy, a rollback and `oikade status` name the ones that aren't set. A missing secret doesn't stop a deploy.
 
-A failure, such as a secret whose name `oikade secret set` would refuse, or a `protocol` other than the host's, rejects the version.
+A failure, such as a secret whose name `oikade set secret/NAME` would refuse, or a `protocol` other than the host's, rejects the version.
 
 ## Deploys
 

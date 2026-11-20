@@ -3,9 +3,9 @@ package main
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/cli"
@@ -14,35 +14,42 @@ import (
 	"github.com/harrymitchinson/oikade/internal/qr"
 )
 
-// defaultWindow is how long oikade matter open keeps the window open: the longest Matter allows.
-const defaultWindow = 15 * time.Minute
+// defaultWindow is how long oikade pair matter keeps the window open: the longest Matter allows, and
+// minWindow the shortest.
+const (
+	defaultWindow = 15 * time.Minute
+	minWindow     = 3 * time.Minute
+)
 
-func runMatter(ctx context.Context, args []string) error {
-	fs := newFlags("matter")
+// runPair opens the Matter bridge's window, so a controller can pair with it. The bridge is the one
+// thing a controller pairs with, as it brings your devices with it.
+func runPair(ctx context.Context, args []string) error {
+	fs := newFlags("pair")
 	target := addTarget(fs)
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
-	window := fs.Duration("for", defaultWindow, "How long open keeps the window open: 3m to 15m.")
+	window := fs.Duration("for", defaultWindow, "How long the window stays open: 3m to 15m.")
 	words := cli.Parse(fs, args)
-	forSet := false
-	fs.Visit(func(f *flag.Flag) { forSet = forSet || f.Name == "for" })
-	var req api.Request
-	switch {
-	case len(words) == 0 && forSet:
-		return errors.New("--for is how long oikade matter open keeps the window open, and needs open")
-	case len(words) == 0:
-		// What the bridge is doing is a status like any other's.
-		return status(ctx, target.transport(), []named{{ref: string(ident.Matter), kind: ident.Matter}},
-			statusOptions{json: *asJSON})
-	case len(words) == 1 && words[0] == "open":
-		// Under a second would round to 0, which the host takes as the longest.
-		if *window < time.Second {
-			return fmt.Errorf("--for is 3m to 15m, not %v", *window)
-		}
-		req = api.Request{Type: api.TypeMatterOpen, WindowSeconds: int(window.Seconds())}
-		_, _ = fmt.Fprintln(os.Stderr, "Opening the Matter bridge's window")
-	default:
-		return cli.UsageErrorf("oikade matter takes nothing, or open")
+	if len(words) != 1 {
+		return cli.UsageErrorf("oikade pair takes matter, the Matter bridge, whose window it opens")
 	}
+	refs, err := refsOf(words)
+	if err != nil {
+		return err
+	}
+	if refs[0].kind != ident.Matter {
+		return cli.UsageErrorf("oikade pair takes matter, not %s", refs[0].ref).
+			WithHint("a controller pairs with the Matter bridge, which brings your devices: oikade pair matter")
+	}
+	if *window < minWindow || *window > defaultWindow {
+		// 20m, as it was typed, rather than Go's 20m0s.
+		typed := window.String()
+		if minutes, ok := strings.CutSuffix(typed, "m0s"); ok {
+			typed = minutes + "m"
+		}
+		return cli.UsageErrorf("--for is 3m to 15m, not %s", typed)
+	}
+	req := api.Request{Type: api.TypeMatterOpen, WindowSeconds: int(window.Seconds())}
+	_, _ = fmt.Fprintln(os.Stderr, "Opening the Matter bridge's window")
 	resp, err := api.Call(ctx, target.transport(), req)
 	if err != nil {
 		return err
@@ -83,11 +90,11 @@ func printMatter(out *cli.Printer, m *api.Matter, drawQR bool) {
 		out.Println("Ready to pair: scan it with the Home app, or the camera of any controller.")
 	case m.Window:
 		out.Println("Ready to pair, with the code that opened the window, not these:",
-			"oikade matter open replaces it with a new one.")
+			"oikade pair matter replaces it with a new one.")
 	case len(m.Fabrics) == 0:
-		out.Println("Not ready to pair: the window has closed. oikade matter open opens it again.")
+		out.Println("Not ready to pair: the window has closed. oikade pair matter opens it again.")
 	default:
-		out.Println("To add another controller, run oikade matter open,",
+		out.Println("To add another controller, run oikade pair matter,",
 			"or share the bridge from one that's paired.")
 	}
 	if len(m.Fabrics) > 0 {

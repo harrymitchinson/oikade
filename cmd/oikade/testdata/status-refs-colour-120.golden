@@ -34,7 +34,7 @@ flow/morning  flow
 study-blind  study  position 40%, target-position 40, moving false  went offline today 12:25
 
 Matter bridge: serving on UDP port 5540
-To add another controller, run oikade matter open, or share the bridge from one that's paired.
+To add another controller, run oikade pair matter, or share the bridge from one that's paired.
 
 [1mPaired controllers[0m
   fabric 1: Home, vendor 0x0000

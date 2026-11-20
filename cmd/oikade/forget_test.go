@@ -101,3 +101,23 @@ func TestRemoveJSONSaysItFailed(t *testing.T) {
 		t.Errorf("exit %d: %s", code, out)
 	}
 }
+
+// set takes a capability's ref or a secret's, pair takes matter, and the forms they replaced name
+// them. Each is a command typed wrong, which exits 2 before anything reaches a host: a secret's value
+// given as an argument most of all, as it's in the shell's history.
+func TestSetAndPairNameWhatTheyTake(t *testing.T) {
+	var b bytes.Buffer
+	for _, args := range []string{
+		"set secret/api-key hunter2", "set desk-plug on true", "set device/desk-plug/on", "set secret/a/b",
+		"pair", "pair device/desk-plug", "pair matter --for 0s", "secret set api-key", "matter", "matter open",
+		"open", "deploy --allow-safety-removal", "rollback --allow-safety-removal=true", "init --module example.com/home",
+		"set secret/My_Key hunter2", "pair matter --for 1m", "pair matter --for 20m",
+	} {
+		_, errs, code := runOikade(t, cli.Plain, strings.Fields(args)...)
+		_, _ = fmt.Fprintf(&b, "$ oikade %s\n%sexit %d\n\n", args, errs, code)
+		if code != 2 {
+			t.Errorf("oikade %s exits %d", args, code)
+		}
+	}
+	testkit.Golden(t, "set-pair-usage-plain", b.Bytes())
+}

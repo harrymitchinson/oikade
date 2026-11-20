@@ -30,7 +30,7 @@ Point Prometheus at it, and import [`config/grafana/oikade-home.json`](../config
 | `oikade_device_control_level{device,capability}` | The level that wins an arbitrated capability: 0 default, 1 Normal, 2 Override, 3 Safety |
 | `oikade_rule_events_dropped_total` | Capability changes the rule engine dropped because it fell behind |
 | `oikade_api_auth_failures_total` | Calls to the network API refused for want of a valid token |
-| `oikade_matter_serving` | 1 while the Matter bridge serves controllers, 0 while it can't. `oikade matter` says why |
+| `oikade_matter_serving` | 1 while the Matter bridge serves controllers, 0 while it can't. `oikade status matter` says why |
 | `oikade_matter_fabrics` | Fabrics the bridge is paired on, one for each controller's home |
 | `oikade_matter_sessions` | CASE sessions that paired controllers hold |
 | `oikade_matter_subscriptions` | Subscriptions that controllers hold |

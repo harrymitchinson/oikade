@@ -31,8 +31,13 @@ func TestACommandTakesARefOrABareName(t *testing.T) {
 }
 
 func TestSetWithoutAValueSaysHowToUseIt(t *testing.T) {
-	err := runSet(t.Context(), []string{"desk-plug", "on"})
+	err := runSet(t.Context(), []string{"device/desk-plug/on"})
 	if err == nil || !strings.HasPrefix(err.Error(), "oikade set takes a capability") {
+		t.Errorf("err = %v", err)
+	}
+	// A device and a capability by name aren't a ref.
+	err = runSet(t.Context(), []string{"desk-plug", "on"})
+	if err == nil || !strings.Contains(err.Error(), "give one as device/DEVICE/CAPABILITY") {
 		t.Errorf("err = %v", err)
 	}
 }

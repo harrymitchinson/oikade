@@ -164,7 +164,7 @@ func TestTheWindowsLinesSayTheirPartAndTimeout(t *testing.T) {
 		"Opened commissioning window":                                                           {"part": "commissioning", "timeout": DefaultWindowTimeout.String()},
 		"Advertised commissionable service":                                                     {"part": "mdns"},
 		"Stopped advertising commissionable service":                                            {"part": "mdns"},
-		"Closed the commissioning window while on no fabric: oikade matter open opens it again": {"part": "commissioning"},
+		"Closed the commissioning window while on no fabric: oikade pair matter opens it again": {"part": "commissioning"},
 	} {
 		line := log.line(t, msg)
 		if line == nil {

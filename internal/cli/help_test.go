@@ -51,23 +51,23 @@ func TestHelpNamesFlagValuesAndDefaults(t *testing.T) {
 	fs := flag.NewFlagSet("deploy", flag.ContinueOnError)
 	fs.String("data-dir", "/var/lib/oikade", "The host's data directory.")
 	fs.String("module", ".", "Your home's module.")
-	fs.Bool("allow-safety-removal", false, "Go ahead.")
+	fs.Bool("allow-safety", false, "Go ahead.")
 	fs.Duration("event-log-age", 336*time.Hour, "How long the log keeps events.")
 	fs.Duration("settle", 10*time.Minute, "How long a version must stay up.")
 	fs.String("gone", "", "Gone.")
 	var b bytes.Buffer
 	Plain(&b, 80).CommandHelp(Command{
-		Name: "oikade deploy", Summary: "Deploy.", Usage: []string{"oikade deploy [--module DIR] [--allow-safety-removal]"},
+		Name: "oikade deploy", Summary: "Deploy.", Usage: []string{"oikade deploy [--module DIR] [--allow-safety]"},
 		Values: map[string]string{"data-dir": "DIR"}, Hide: []string{"gone"},
 	}, fs)
 	want := `oikade deploy: Deploy.
 
 Usage:
-  oikade deploy [--module DIR] [--allow-safety-removal]
+  oikade deploy [--module DIR] [--allow-safety]
 
 Flags:
   --module DIR              Your home's module. (default .)
-  --allow-safety-removal    Go ahead.
+  --allow-safety            Go ahead.
   --data-dir DIR            The host's data directory. (default /var/lib/oikade)
   --event-log-age DURATION  How long the log keeps events. (default 336h)
   --settle DURATION         How long a version must stay up. (default 10m)

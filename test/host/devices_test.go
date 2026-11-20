@@ -59,7 +59,7 @@ func TestAPairedDeviceIsUsableAtOnce(t *testing.T) {
 	if d.ID != "hall-lamp" || d.Endpoint < registry.FirstEndpoint {
 		t.Errorf("got %+v", d)
 	}
-	r.stdout(nil, "set", "hall-lamp", "on", "on")
+	r.stdout(nil, "set", "device/hall-lamp/on", "on")
 	r.wrote("hall-lamp", true)
 	if !strings.Contains(string(r.stdout(nil, "list", "devices")), "hall-lamp") {
 		t.Error("the table left it out")
@@ -77,7 +77,7 @@ func TestAForgottenDeviceComesBackOnItsOwnEndpoint(t *testing.T) {
 		!strings.Contains(said, "It comes back when its driver next reports it") {
 		t.Errorf("forget said:\n%s", said)
 	}
-	if _, err := r.oikade(nil, "set", "shed-lamp", "on", "on"); err == nil {
+	if _, err := r.oikade(nil, "set", "device/shed-lamp/on", "on"); err == nil {
 		t.Error("set a removed device")
 	}
 	if strings.Contains(string(r.stdout(nil, "list", "devices")), "shed-lamp") {

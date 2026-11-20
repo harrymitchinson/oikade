@@ -359,13 +359,13 @@ func TestRenamedSafetyHoldIsRefusedUntilAllowed(t *testing.T) {
 	if err == nil {
 		t.Fatalf("the deploy went ahead. The log:\n%s", r.dump())
 	}
-	if !strings.Contains(stderr, `"valve on leak-shutoff"`) || !strings.Contains(stderr, "--allow-safety-removal") {
+	if !strings.Contains(stderr, `"valve on leak-shutoff"`) || !strings.Contains(stderr, "--allow-safety") {
 		t.Fatalf("got %q", stderr)
 	}
 	if r.pid() != pid || r.count(stopping) != 0 {
 		t.Fatalf("the process changed. The log:\n%s", r.dump())
 	}
-	r.mustDeploy("renamed", "--allow-safety-removal")
+	r.mustDeploy("renamed", "--allow-safety")
 	if r.count(ended, "rule", "case/valve/on/leak-shutoff", "highest", "Safety") != 1 {
 		t.Fatalf("the claim stayed. The log:\n%s", r.dump())
 	}
@@ -984,7 +984,7 @@ func TestDeployWorksWhenTheRunningBinaryHasGone(t *testing.T) {
 	if err == nil || !strings.Contains(stderr, "nothing to go back to") {
 		t.Fatalf("got %v, %s", err, stderr)
 	}
-	r.mustDeploy("tail", "--allow-safety-removal")
+	r.mustDeploy("tail", "--allow-safety")
 	stderr, err = r.oikade(nil, "rollback")
 	if err == nil || !strings.Contains(stderr, "no earlier version") {
 		t.Fatalf("got %v, %s", err, stderr)

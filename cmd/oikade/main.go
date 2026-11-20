@@ -37,7 +37,8 @@ func runDeploy(ctx context.Context, args []string) error {
 	target := addTarget(fs)
 	module := fs.String("module", ".", "Your home's module, to check and build.")
 	binary := fs.String("binary", "", "A binary already built for the host, skipping the source checks.")
-	allow := fs.Bool("allow-safety-removal", false, "Go ahead even though a Safety rule would go.")
+	allow := fs.Bool("allow-safety", false, "Go ahead even though a Safety rule would go, and end its claims.")
+	renamed(fs, "allow-safety-removal", "allow-safety", true)
 	_ = fs.Parse(args)
 	if *binary == "" {
 		if err := requireHome(*module); err != nil {
@@ -112,7 +113,8 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 func runRollback(ctx context.Context, args []string) error {
 	fs := newFlags("rollback")
 	target := addTarget(fs)
-	allow := fs.Bool("allow-safety-removal", false, "Go ahead even though a Safety rule would go.")
+	allow := fs.Bool("allow-safety", false, "Go ahead even though a Safety rule would go, and end its claims.")
+	renamed(fs, "allow-safety-removal", "allow-safety", true)
 	_ = fs.Parse(args)
 	resp, err := api.Call(ctx, target.transport(), api.Request{Type: api.TypeRollback, AllowSafetyRemoval: *allow})
 	if err != nil {
@@ -148,7 +150,7 @@ func report(stdout *cli.Printer, resp api.Response, done string) error {
 		fmt.Fprintln(os.Stderr, "-", f)
 	}
 	if len(resp.Findings) > 0 {
-		fmt.Fprintln(os.Stderr, "Pass --allow-safety-removal to end those rules' claims and go ahead.")
+		fmt.Fprintln(os.Stderr, "Pass --allow-safety to end those rules' claims and go ahead.")
 	}
 	if resp.Restored {
 		fmt.Fprintln(os.Stderr, "Still running version", resp.Version)

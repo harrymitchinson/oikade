@@ -48,7 +48,7 @@ const (
 	matterWriteTimeout = 5 * time.Second
 	// matterRetry is how soon a bridge that couldn't start, or take a device, tries again.
 	matterRetry = time.Minute
-	// matterOpenTimeout bounds oikade matter open's wait for its window to be advertised.
+	// matterOpenTimeout bounds oikade pair matter's wait for its window to be advertised.
 	matterOpenTimeout = 10 * time.Second
 )
 
@@ -452,7 +452,7 @@ func (w *matterWrites) Set(ctx context.Context, dev ident.ID, name string, value
 	return nil
 }
 
-// matter answers oikade matter.
+// matter answers oikade status matter.
 func (s *apiServer) matter() api.Response {
 	m := s.bridge
 	if m == nil {
@@ -481,7 +481,7 @@ func (s *apiServer) matter() api.Response {
 	return api.Response{Matter: out}
 }
 
-// matterOpen answers oikade matter open: it opens the bridge's commissioning window, with its own code
+// matterOpen answers oikade pair matter: it opens the bridge's commissioning window, with its own code
 // while nothing is paired, and a code made for the window once something is.
 func (s *apiServer) matterOpen(req api.Request) api.Response {
 	m := s.bridge
@@ -491,7 +491,7 @@ func (s *apiServer) matterOpen(req api.Request) api.Response {
 	case !m.working():
 		return api.Response{Error: "the Matter bridge is down: " + m.broken.Error()}
 	case !m.serving.Load():
-		return api.Response{Error: "the Matter bridge is down, so it can't pair: oikade matter says why"}
+		return api.Response{Error: "the Matter bridge is down, so it can't pair: oikade status matter says why"}
 	}
 	timeout := node.DefaultWindowTimeout
 	if req.WindowSeconds != 0 {

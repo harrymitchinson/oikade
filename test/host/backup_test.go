@@ -21,7 +21,7 @@ const secretValue = "correct-horse-battery-staple"
 // setSecret sets a secret as a script does, with its value on stdin.
 func (r *rig) setSecret(name string) error {
 	r.t.Helper()
-	cmd := exec.Command(ctlBin, "secret", "set", "--data-dir", r.dir, name)
+	cmd := exec.Command(ctlBin, "set", "--data-dir", r.dir, "secret/"+name)
 	cmd.Stdin = strings.NewReader(secretValue + "\n")
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
@@ -29,7 +29,7 @@ func (r *rig) setSecret(name string) error {
 		return &exec.ExitError{Stderr: out.Bytes()}
 	}
 	if strings.Contains(out.String(), secretValue) {
-		r.t.Errorf("oikade secret set printed the value: %s", out.String())
+		r.t.Errorf("oikade set secret/NAME printed the value: %s", out.String())
 	}
 	return nil
 }
@@ -196,7 +196,7 @@ func TestASecretsNameCantLeaveTheDirectory(t *testing.T) {
 	}
 }
 
-// oikade secret set needs a running host, so a host can't refuse to start for want of a secret.
+// oikade set secret/NAME needs a running host, so a host can't refuse to start for want of a secret.
 func TestAHostStartsBeforeItsBrokerPasswordIsSet(t *testing.T) {
 	t.Parallel()
 	r := start(t, "--outside-plugins", "kettle",
@@ -219,7 +219,7 @@ func TestADeployNamesTheSecretsThatArentSet(t *testing.T) {
 		t.Fatalf("%v: %s", err, stderr)
 	}
 	r.awaitDeployed()
-	notSet := "Secret fixture-secret isn't set: oikade secret set fixture-secret"
+	notSet := "Secret fixture-secret isn't set: oikade set secret/fixture-secret"
 	if !strings.Contains(stderr, notSet) {
 		t.Errorf("the deploy said:\n%s", stderr)
 	}
