@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"strconv"
@@ -42,7 +40,7 @@ var root = contractv1.NewRoot("toshiba")
 // allows one of 1 s only 1 s, so a ping can come too late.
 var fast = timing{
 	reload: time.Hour, keepAlive: 2 * time.Second, retry: 10 * time.Millisecond, retryMax: 40 * time.Millisecond,
-	limited: 50 * time.Millisecond, refused: time.Hour, secret: 10 * time.Millisecond, request: 2 * time.Second, set: 2 * time.Second, intent: time.Minute,
+	limited: 50 * time.Millisecond, refused: time.Hour, request: 2 * time.Second, set: 2 * time.Second, intent: time.Minute,
 }
 
 // home is an account with a heating bedroom and a study that's off, in two groups.
@@ -80,7 +78,6 @@ func (l *logs) count(msg string) int {
 type bench struct {
 	t       *testing.T
 	cloud   *fakeCloud
-	secrets string
 	logs    *logs
 	broker  string
 	handler *bridge
@@ -91,15 +88,13 @@ type bench struct {
 	topics map[string][]string
 }
 
-func start(t *testing.T, cloud *fakeCloud, secret string, timings timing, declared ...string) *bench {
+// start runs the plugin on cloud's account, logging in with pass.
+func start(t *testing.T, cloud *fakeCloud, pass string, timings timing, declared ...string) *bench {
 	t.Helper()
 	broker := mqtttest.StartBroker(t)
 	b := &bench{
-		t: t, cloud: cloud, secrets: t.TempDir(), logs: &logs{}, broker: broker,
+		t: t, cloud: cloud, logs: &logs{}, broker: broker,
 		topics: map[string][]string{}, waits: make(chan time.Duration, 100),
-	}
-	if secret != "" {
-		b.secret(secret)
 	}
 	timings.backoff = func(ctx context.Context, d time.Duration) {
 		select {
@@ -122,12 +117,14 @@ func start(t *testing.T, cloud *fakeCloud, secret string, timings timing, declar
 		t.Fatal(err)
 	}
 
-	env := plugin.Environment{MQTTURL: broker, Root: root, SecretsDir: b.secrets}
+	env := plugin.Environment{MQTTURL: broker, Root: root}
 	devices := make([]contractv1.DeclaredDevice, 0, len(declared))
 	for _, id := range declared {
 		devices = append(devices, contractv1.DeclaredDevice{ID: id, Name: id, DisplayName: id})
 	}
-	handler, err := newBridge(cloud.config(), env, devices, timings, slog.New(slog.NewJSONHandler(b.logs, nil)))
+	c := cloud.config()
+	c.Password = pass
+	handler, err := newBridge(c, devices, timings, slog.New(slog.NewJSONHandler(b.logs, nil)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,13 +149,6 @@ func start(t *testing.T, cloud *fakeCloud, secret string, timings timing, declar
 		_ = p.Close(context.Background()) //nolint:usetesting // t.Context() is done once cleanups run
 	})
 	return b
-}
-
-func (b *bench) secret(value string) {
-	b.t.Helper()
-	if err := os.WriteFile(filepath.Join(b.secrets, "toshiba"), []byte(value+"\n"), 0o600); err != nil {
-		b.t.Fatal(err)
-	}
 }
 
 // topic is a topic's last value.
@@ -355,34 +345,31 @@ func TestTheHubDroppingTheConnectionLogsInAgain(t *testing.T) {
 	b.waitState(study, `{"mode":"cool","on":true,"setpoint":20,"temperature":23}`)
 }
 
-func TestARefusedPasswordWaitsForANewOne(t *testing.T) {
+func TestARefusedPasswordWaitsAnHourBeforeTryingAgain(t *testing.T) {
 	cloud := newFakeCloud(t)
 	cloud.set(home)
-	b := start(t, cloud, "not the password", fast, bedroom)
-	b.waitProblem(`check the secret "toshiba"`)
+	const wrong = "not the password"
+	b := start(t, cloud, wrong, fast, bedroom)
+	b.waitProblem("check toshibaac.Config's Password, which is tried again in 1h0m0s")
 	if d := b.devices(); len(d.Devices) != 1 || d.Devices[0].Found {
 		t.Errorf("devices before a login: %+v", d)
 	}
-	// It doesn't try the same password again, which could lock the account.
-	time.Sleep(10 * fast.secret)
-	if n := cloud.count(); n != 1 {
-		t.Errorf("tried the refused password %d times", n)
+	// It doesn't try the same password again soon, which could lock the account.
+	select {
+	case d := <-b.waits:
+		if d != fast.refused {
+			t.Errorf("waited %s after a refused password, not %s", d, fast.refused)
+		}
+	case <-time.After(waitLimit):
+		t.Fatal("no wait")
 	}
-	b.secret(password)
+	if s := b.status().Error + b.logs.String(); strings.Contains(s, wrong) {
+		t.Errorf("the password is in the status or the log: %s", s)
+	}
+	// The account's password is changed to the plugin's, so the next try logs in.
+	cloud.set(func(c *fakeCloud) { c.password = wrong })
 	b.waitAvailability(bedroom, "online")
 	b.eventually("the problem to clear", func() bool { return b.status().Error == "" })
-}
-
-func TestNoSecretWaitsForOne(t *testing.T) {
-	cloud := newFakeCloud(t)
-	cloud.set(home)
-	b := start(t, cloud, "", fast)
-	b.waitProblem("waiting for the secret toshiba")
-	if n := cloud.count(); n != 0 {
-		t.Errorf("logged in %d times without a password", n)
-	}
-	b.secret(password)
-	b.waitAvailability(bedroom, "online")
 }
 
 // TestTooManyRequestsWaitsLonger is the firewall's 403 and the login's 429, when neither says how
@@ -612,21 +599,25 @@ func TestAWriteWhileTheCloudIsDownFailsAtOnce(t *testing.T) {
 }
 
 func TestNewChecksTheConfig(t *testing.T) {
-	for _, c := range []Config{
-		{Password: plugin.NewSecret("toshiba")},
-		{Username: username},
-		{Username: username, Password: plugin.NewSecret("toshiba"), OutdoorUnits: [][]string{{bedroom, study}, {study}}},
-		{Username: username, Password: plugin.NewSecret("toshiba"), OutdoorUnits: [][]string{{bedroom, bedroom}}},
-		{Username: username, Password: plugin.NewSecret("toshiba"), OutdoorUnits: [][]string{{bedroom}}},
-		{Username: username, Password: plugin.NewSecret("toshiba"), OutdoorUnits: [][]string{{bedroom, ""}}},
+	for _, c := range []struct {
+		config Config
+		says   string
+	}{
+		{Config{Password: password}, "toshibaac.Config has no Username"},
+		// As oikade.Var gives for a value the host doesn't have.
+		{Config{Username: username}, "toshibaac.Config has no Password"},
+		{Config{Username: username, Password: password, OutdoorUnits: [][]string{{bedroom, study}, {study}}}, "a list of 1 units"},
+		{Config{Username: username, Password: password, OutdoorUnits: [][]string{{bedroom, bedroom}}}, "twice"},
+		{Config{Username: username, Password: password, OutdoorUnits: [][]string{{bedroom}}}, "a list of 1 units"},
+		{Config{Username: username, Password: password, OutdoorUnits: [][]string{{bedroom, ""}}}, "isn't a unit's ID"},
 		// The same unit, as the app writes it.
-		{Username: username, Password: plugin.NewSecret("toshiba"), OutdoorUnits: [][]string{{bedroom, bedroomUnique}}},
+		{Config{Username: username, Password: password, OutdoorUnits: [][]string{{bedroom, bedroomUnique}}}, "twice"},
 	} {
-		if _, err := New(c)(plugin.Environment{}, nil); err == nil {
-			t.Errorf("%+v: no error", c)
+		if _, err := New(c.config)(plugin.Environment{}, nil); err == nil || !strings.Contains(err.Error(), c.says) {
+			t.Errorf("%+v: %v, want %q", c.config, err, c.says)
 		}
 	}
-	if _, err := New(Config{Username: username, Password: plugin.NewSecret("toshiba")})(plugin.Environment{}, nil); err != nil {
+	if _, err := New(Config{Username: username, Password: password})(plugin.Environment{}, nil); err != nil {
 		t.Error(err)
 	}
 }

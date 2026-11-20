@@ -25,8 +25,8 @@ import (
 type Config struct {
 	// Username is the account's username in the app, usually an email address.
 	Username string
-	// Password is the account's password, such as oikade.Secret("toshiba").
-	Password plugin.Secret
+	// Password is the account's password, such as oikade.Var("TOSHIBA_PASSWORD").
+	Password string
 	// OutdoorUnits are the indoor units that share an outdoor unit, one list for each, by the IDs
 	// the plugin reports them as. Units on one outdoor unit can't heat and cool at once, so a
 	// write that would run one in a mode that clashes with another's is refused. The cloud
@@ -79,10 +79,9 @@ type timing struct {
 	// limited is the longest wait after being told there were too many requests, and the wait when
 	// the cloud doesn't say how long.
 	limited time.Duration
-	// refused is how long to wait before trying a refused password again, unless it changes.
+	// refused is how long to wait before trying a refused password again, since too many failed
+	// logins could lock the account.
 	refused time.Duration
-	// secret is how often the secret is read while waiting for it to change.
-	secret time.Duration
 	// request bounds one request, and set a write, which must answer within the host's Matter
 	// write timeout (5s).
 	request, set time.Duration
@@ -98,7 +97,7 @@ type timing struct {
 
 var cloudTiming = timing{
 	reload: 30 * time.Minute, keepAlive: time.Minute, retry: 30 * time.Second, retryMax: 5 * time.Minute,
-	limited: 10 * time.Minute, refused: time.Hour, secret: 5 * time.Second, request: 15 * time.Second,
+	limited: 10 * time.Minute, refused: time.Hour, request: 15 * time.Second,
 	set: 4 * time.Second, renew: 5 * time.Minute, intent: time.Minute,
 }
 
@@ -107,15 +106,15 @@ var capabilities = []string{contractv1.Mode, contractv1.On, contractv1.Setpoint,
 
 // New returns the plugin's Factory, for home.Plugin.
 func New(c Config) plugin.Factory {
-	return func(env plugin.Environment, declared []contractv1.DeclaredDevice) (plugin.Handler, error) {
+	return func(_ plugin.Environment, declared []contractv1.DeclaredDevice) (plugin.Handler, error) {
 		switch {
 		case c.Username == "":
 			return nil, errors.New("toshibaac.Config has no Username")
-		case c.Password.Name() == "":
-			return nil, errors.New("toshibaac.Config's Password isn't set: pass it an oikade.Secret")
+		case c.Password == "":
+			return nil, errors.New("toshibaac.Config has no Password")
 		}
 		log := slog.New(slog.NewJSONHandler(os.Stderr, nil)).With("logger", "toshibaac")
-		return newBridge(c, env, declared, cloudTiming, log)
+		return newBridge(c, declared, cloudTiming, log)
 	}
 }
 
@@ -141,7 +140,6 @@ type device struct {
 // bridge is the plugin.
 type bridge struct {
 	config   Config
-	env      plugin.Environment
 	declared []string
 	timing   timing
 	log      *slog.Logger
@@ -167,7 +165,7 @@ type bridge struct {
 
 var _ plugin.Handler = (*bridge)(nil)
 
-func newBridge(c Config, env plugin.Environment, declared []contractv1.DeclaredDevice, t timing, log *slog.Logger) (*bridge, error) {
+func newBridge(c Config, declared []contractv1.DeclaredDevice, t timing, log *slog.Logger) (*bridge, error) {
 	groups, outdoor, err := c.outdoorUnits()
 	if err != nil {
 		return nil, err
@@ -177,7 +175,7 @@ func newBridge(c Config, env plugin.Environment, declared []contractv1.DeclaredD
 		ids = append(ids, d.ID)
 	}
 	return &bridge{
-		config: c, env: env, declared: ids, timing: t, log: log,
+		config: c, declared: ids, timing: t, log: log,
 		devices: map[string]*device{}, byUnique: map[string]*device{}, unknownModes: map[byte]bool{},
 		outdoorUnits: groups, outdoor: outdoor,
 	}, nil
@@ -201,25 +199,12 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 	if err := b.publishDevices(ctx); err != nil {
 		return err
 	}
-	secret := b.config.Password.Name()
 	wait := b.timing.retry
 	// limit is the last wait for a limit, until a session connects.
 	var limit time.Duration
 	for ctx.Err() == nil {
-		password, ok, err := plugin.ReadSecret(b.env, secret)
-		switch {
-		case err != nil:
-			b.setProblem(ctx, fmt.Sprintf("could not read the secret %q: %v", secret, err))
-			b.untilSecretChanges(ctx, "", b.timing.refused)
-			continue
-		case !ok || strings.TrimSpace(password) == "":
-			b.setProblem(ctx, "waiting for the secret "+secret)
-			b.untilSecretChanges(ctx, "", b.timing.refused)
-			continue
-		}
-		password = strings.TrimSpace(password)
 		var live time.Time
-		err = b.session(ctx, password, func() { live = time.Now() })
+		err := b.session(ctx, func() { live = time.Now() })
 		if ctx.Err() != nil {
 			break
 		}
@@ -246,9 +231,10 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 			b.backoff(ctx, wait)
 			wait = min(2*wait, b.timing.retryMax)
 		case errors.Is(err, errRefused):
-			b.log.Warn("Toshiba's cloud refused the login", "err", err)
-			b.setProblem(ctx, fmt.Sprintf("Toshiba's cloud refused the login (%v): check the secret %q", err, secret))
-			b.untilSecretChanges(ctx, password, b.timing.refused)
+			// The password is the same until a deploy restarts the plugin, which tries a new one at once.
+			b.log.Warn("Toshiba's cloud refused the login", "err", err, "retry", b.timing.refused.String())
+			b.setProblem(ctx, fmt.Sprintf("Toshiba's cloud refused the login (%v): check toshibaac.Config's Password, which is tried again in %s", err, b.timing.refused))
+			b.backoff(ctx, b.timing.refused)
 		case errors.Is(err, errLimited):
 			limit = b.limitWait(err, limit)
 			b.log.Warn("Toshiba's cloud limited the plugin's requests", "err", err, "retry", limit.String())
@@ -279,11 +265,11 @@ func (b *bridge) limitWait(err error, last time.Duration) time.Duration {
 
 // session logs in, lists the units, connects to the hub and follows it until something fails or
 // the tokens run out. connected runs once the units are reported.
-func (b *bridge) session(ctx context.Context, password string, connected func()) error {
+func (b *bridge) session(ctx context.Context, connected func()) error {
 	httpc := &http.Client{Transport: b.config.transport, Timeout: b.timing.request}
 	defer httpc.CloseIdleConnections()
 	base := cmp.Or(b.config.api, apiBase)
-	a, err := login(ctx, httpc, base, b.config.deviceID(), b.config.Username, password)
+	a, err := login(ctx, httpc, base, b.config.deviceID(), b.config.Username, b.config.Password)
 	if err != nil {
 		return err
 	}
@@ -637,20 +623,6 @@ func (b *bridge) setProblem(ctx context.Context, problem string) {
 	b.check(b.plugin.SetError(ctx, problem), "Could not report the plugin's problem", "")
 }
 
-// untilSecretChanges waits until the secret is other than was, or for at most most.
-func (b *bridge) untilSecretChanges(ctx context.Context, was string, most time.Duration) {
-	deadline := time.Now().Add(most)
-	for time.Now().Before(deadline) {
-		if !sleep(ctx, b.timing.secret) {
-			return
-		}
-		now, _, _ := plugin.ReadSecret(b.env, b.config.Password.Name())
-		if strings.TrimSpace(now) != was {
-			return
-		}
-	}
-}
-
 // errReport is a report the SDK refused or couldn't publish: the plugin's fault, or the host's
 // connection, not the cloud's.
 var errReport = errors.New("could not report to Oikade")
@@ -672,15 +644,13 @@ func (b *bridge) backoff(ctx context.Context, d time.Duration) {
 	sleep(ctx, d)
 }
 
-// sleep waits for d, and says false if ctx ended first.
-func sleep(ctx context.Context, d time.Duration) bool {
+// sleep waits for d, or until ctx ends.
+func sleep(ctx context.Context, d time.Duration) {
 	t := time.NewTimer(d)
 	defer t.Stop()
 	select {
 	case <-ctx.Done():
-		return false
 	case <-t.C:
-		return true
 	}
 }
 

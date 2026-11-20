@@ -4,16 +4,16 @@ This plugin connects Toshiba air conditioners with a WiFi module, through Toshib
 
 ```go
 home.Plugin("toshiba", toshibaac.New(toshibaac.Config{
-	Username: "someone@example.com", Password: oikade.Secret("toshiba"),
+	Username: oikade.Var("TOSHIBA_USER"), Password: oikade.Var("TOSHIBA_PASSWORD"),
 }))
 ```
 
 ## Setting it up
 
 1. **Add your units in Toshiba's Home AC Control app**, if they aren't there already. The plugin sees what the app's account sees.
-2. **Use the app's account:** `Username` is its username, usually your email address, and its password is a secret. Run `oikade set secret/toshiba`, and paste it. It's read at each login, so a new password needs no deploy.
+2. **Use the app's account:** `Username` is its username, usually your email address, and `Password` its password. Put both in your home's [`.env`](../../docs/running-a-home.md#your-values), as `TOSHIBA_USER` and `TOSHIBA_PASSWORD`, so neither is in your code.
 
-A refused password shows in `oikade status`, and the plugin waits for the secret to change, or an hour, rather than trying again, since too many failed logins could lock the account.
+A refused password shows in `oikade status`, and the plugin waits an hour before trying it again, since too many failed logins could lock the account. A new password goes up with `oikade deploy`, which restarts the plugin, so it's tried at once.
 
 **The units' WiFi modules work only through Toshiba's cloud.** They listen for nothing on your network, so the plugin can't reach them locally. While the internet or Toshiba's cloud is down, every unit is offline, `oikade status` says why, a write fails at once, and a unit keeps its own remote and its own timers.
 
@@ -46,7 +46,7 @@ Indoor units on one outdoor unit, a multi-split, can't heat and cool at once. To
 
 ```go
 home.Plugin("toshiba", toshibaac.New(toshibaac.Config{
-	Username: "someone@example.com", Password: oikade.Secret("toshiba"),
+	Username: oikade.Var("TOSHIBA_USER"), Password: oikade.Var("TOSHIBA_PASSWORD"),
 	OutdoorUnits: [][]string{{"a1b2c3d4e5f6", "0a0b0c0d0e0f"}},
 }))
 ```
