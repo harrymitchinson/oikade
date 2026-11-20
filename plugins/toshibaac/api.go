@@ -9,6 +9,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
 )
 
 // The Home AC Control app's API, as KaSroka/Toshiba-AC-control has it, with the headers
@@ -36,7 +40,7 @@ var (
 	// errRefused is a username or password the cloud refused: trying again soon could lock the account.
 	errRefused = errors.New("refused the login")
 	// errLimited is the cloud saying there were too many requests: its firewall answers 403, and its
-	// login 429.
+	// login 429. Its statusError says how long the cloud asked the plugin to wait, if it did.
 	errLimited = errors.New("says there were too many requests")
 	// errRenew is a session that has to start again: a token that ran out.
 	errRenew = errors.New("the session ended")
@@ -140,6 +144,9 @@ func (a *api) state(ctx context.Context, id string) (string, error) {
 type statusError struct {
 	path string
 	code int
+	// wait is how long the answer asked the plugin to wait before trying again, if asked.
+	wait  time.Duration
+	asked bool
 }
 
 func (e *statusError) Error() string { return fmt.Sprintf("HTTP %d from %s", e.code, e.path) }
@@ -179,12 +186,13 @@ func (a *api) call(ctx context.Context, method, path string, query url.Values, b
 	}
 	switch {
 	case resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests:
-		return fmt.Errorf("%w: %w", errLimited, &statusError{path, resp.StatusCode})
+		wait, asked := askedWait(resp.Header, raw, time.Now())
+		return fmt.Errorf("%w: %w", errLimited, &statusError{path: path, code: resp.StatusCode, wait: wait, asked: asked})
 	case resp.StatusCode == http.StatusUnauthorized && a.authorization != "":
 		// The access token ran out: logging in again gets another.
-		return fmt.Errorf("%w: %w", errRenew, &statusError{path, resp.StatusCode})
+		return fmt.Errorf("%w: %w", errRenew, &statusError{path: path, code: resp.StatusCode})
 	case resp.StatusCode != http.StatusOK:
-		return &statusError{path, resp.StatusCode}
+		return &statusError{path: path, code: resp.StatusCode}
 	}
 	var envelope answer
 	if err := json.Unmarshal(raw, &envelope); err != nil {
@@ -200,4 +208,28 @@ func (a *api) call(ctx context.Context, method, path string, query url.Values, b
 		return fmt.Errorf("an answer from %s with a ResObj the plugin can't read: %w", path, err)
 	}
 	return nil
+}
+
+// tryAgain is the wait a 429's body says, as the login's did in OIK-327:
+// {"message":"Too many requests. Try again in 60 seconds."}.
+var tryAgain = regexp.MustCompile(`(?i)try again in (\d+) seconds?`)
+
+// askedWait is how long an answer asks the plugin to wait before trying again: its Retry-After, in
+// seconds or as a date, or else the "Try again in 60 seconds" in its body. asked is false if it says
+// neither.
+func askedWait(h http.Header, body []byte, now time.Time) (wait time.Duration, asked bool) {
+	if v := strings.TrimSpace(h.Get("Retry-After")); v != "" {
+		if s, err := strconv.ParseUint(v, 10, 32); err == nil {
+			return time.Duration(s) * time.Second, true
+		}
+		if t, err := http.ParseTime(v); err == nil {
+			return max(t.Sub(now), 0), true
+		}
+	}
+	if m := tryAgain.FindSubmatch(body); m != nil {
+		if s, err := strconv.ParseUint(string(m[1]), 10, 32); err == nil {
+			return time.Duration(s) * time.Second, true
+		}
+	}
+	return 0, false
 }

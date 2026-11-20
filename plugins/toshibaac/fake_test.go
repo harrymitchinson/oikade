@@ -53,8 +53,10 @@ type fakeCloud struct {
 	logins   int
 	// down answers every request with 503, and refuseHub refuses the hub's logins.
 	down, refuseHub bool
-	// limited answers every request with this status, such as 403 or 429, and 0 answers them.
-	limited int
+	// limited answers every request with this status, such as 403 or 429, and 0 answers them. Its
+	// answer has the header Retry-After retryAfter, if it isn't empty, and the body limitedBody.
+	limited                 int
+	retryAfter, limitedBody string
 	// bodies are the last body posted to each path.
 	bodies map[string]map[string]string
 	// connects are the hub's logins, as username and client ID.
@@ -107,7 +109,11 @@ func (c *fakeCloud) serve(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		return
 	case c.limited != 0:
+		if c.retryAfter != "" {
+			w.Header().Set("Retry-After", c.retryAfter)
+		}
 		w.WriteHeader(c.limited)
+		_, _ = io.WriteString(w, c.limitedBody)
 		return
 	case r.Header.Get("Device-ID") == "":
 		// As the real cloud has answered a login without one since 2026-07.
