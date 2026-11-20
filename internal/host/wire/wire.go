@@ -38,6 +38,10 @@ const (
 	// VarsEnv names the file of your values, a JSON object of names to values, to a process the host
 	// starts from your binary. Only the host's user can read it.
 	VarsEnv = "OIKADE_VARS_FILE"
+	// VarsFromEnvironment, set to 1, lets the environment win over the file for any name, as it does
+	// for the values a deploy sends. oikade sets it when it runs your home on your machine, for its
+	// check and oikade dev, and the host never does.
+	VarsFromEnvironment = "OIKADE_VARS_FROM_ENVIRONMENT"
 )
 
 // Type is a message's type.

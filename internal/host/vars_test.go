@@ -201,6 +201,35 @@ func TestTheValuesGoInTheRuntimeDirectoryIfThereIsOne(t *testing.T) {
 	}
 }
 
+// A host killed as it wrote a file of values, or as a check ran with one, leaves it: the next one
+// removes it, from either directory.
+func TestTheValuesAHostLeftAreRemoved(t *testing.T) {
+	data, runtime := t.TempDir(), t.TempDir()
+	left := make([]string, 0, 4)
+	for _, dir := range []string{data, runtime} {
+		for _, name := range []string{".vars-123", ".check-vars-456"} {
+			left = append(left, filepath.Join(dir, name))
+		}
+	}
+	kept := filepath.Join(runtime, varsFileName)
+	for _, path := range append(left, kept) {
+		if err := os.WriteFile(path, []byte(`{"A":"b"}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := varsDir(runtime, data); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range left {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("%s stayed: %v", path, err)
+		}
+	}
+	if _, err := os.Stat(kept); err != nil {
+		t.Errorf("the processes' file went: %v", err)
+	}
+}
+
 func TestChangedVarsNamesWhatWasAddedChangedAndRemoved(t *testing.T) {
 	before := map[string]string{"KEPT": "1", "CHANGED": "a", "REMOVED": "x", "EMPTIED": "y"}
 	after := map[string]string{"KEPT": "1", "CHANGED": "b", "ADDED": "z", "EMPTIED": ""}

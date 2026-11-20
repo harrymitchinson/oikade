@@ -186,6 +186,23 @@ func TestInitLeavesTheDirectoryAsItFoundIt(t *testing.T) {
 	}
 }
 
+// An init that can't add .env to the .gitignore leaves the directory as it found it too.
+func TestInitThatCantIgnoreYourValuesLeavesNothing(t *testing.T) {
+	t.Parallel()
+	bin := oikade(t)
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, ".gitignore"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, bin, dir, "", "init", "--source", repo(t))
+	if err == nil || !strings.Contains(out, "Error: couldn't add .env to the .gitignore in .") {
+		t.Fatalf("got %v:\n%s", err, out)
+	}
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 1 {
+		t.Errorf("left behind %v, %v", entries, err)
+	}
+}
+
 // A home with a mistake in it fails oikade check, which says what the mistake is.
 func TestCheckFailsOn(t *testing.T) {
 	t.Parallel()

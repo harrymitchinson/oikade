@@ -75,7 +75,7 @@ Deploying the running version with values that changed starts your automations a
 
 The host keeps your values as it keeps secrets: never in a binary, a log, an answer or `--json`, which name them only. It keeps them in its store with the version they came with, so a crash during a deploy leaves a version and the values that go with it. Before each process it starts from your binary, it writes them to a file only its user can read, and names it to the process: in its runtime directory, `/run/oikade`, which is in memory, or in the data directory where there's none, as in Docker. Your code reads them as the home is built, so call `oikade.Var` in a plugin's config or a package-level `var`: that declares the name, so a deploy knows of it, and one called in a rule as it runs is too late for that. The host's check of a version has the values it would run with, the deploy's.
 
-`oikade check` and `oikade dev` give your code your values too, from `.env` and the environment, or the file `--env-file` names, so what your code builds from them, such as a plugin's config, is as it will be on the host. `oikade dev` doesn't run plugins, so nothing logs in. A value your code uses that nothing gives is empty there, and only a warning, so a pull request passes without `.env`:
+`oikade check` and `oikade dev` give your code your values too, from `.env` and the environment, or the file `--env-file` names, so what your code builds from them, such as a plugin's config, is as it will be on the host, and `oikade types` gives it `.env`'s. `oikade dev` doesn't run plugins, so nothing logs in. A value your code uses that nothing gives is empty there, and only a warning, so a pull request passes without `.env`:
 
 ```console
 $ oikade check

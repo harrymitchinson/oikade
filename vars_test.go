@@ -79,3 +79,24 @@ func TestVarDeclaresItsNameInTheManifest(t *testing.T) {
 		t.Errorf("the manifest's vars are %q", m.Vars)
 	}
 }
+
+// Run by oikade on your machine, the environment wins over the file for any name, as it does for a
+// deploy's values. Run by the host, it never does.
+func TestOnYourMachineTheEnvironmentWins(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "vars.json")
+	if err := os.WriteFile(path, []byte(`{"TOSHIBA_USER":"from-the-file","TAHOMA_PIN":"1234"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TOSHIBA_USER", "from-the-environment")
+	t.Setenv("COZYTOUCH_USER", "only-in-the-environment")
+	for wins, want := range map[bool][2]string{
+		true:  {"from-the-environment", "only-in-the-environment"},
+		false: {"from-the-file", ""},
+	} {
+		v := valuesIn(path)
+		v.environment = func() bool { return wins }
+		if got := [2]string{v.get("TOSHIBA_USER"), v.get("COZYTOUCH_USER")}; got != want || v.get("TAHOMA_PIN") != "1234" {
+			t.Errorf("with the environment winning %v, got %q", wins, got)
+		}
+	}
+}

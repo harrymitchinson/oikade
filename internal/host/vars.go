@@ -49,13 +49,32 @@ type varsFile struct {
 }
 
 // varsDir is where the file goes: the runtime directory, which systemd keeps in memory, or the data
-// directory if there's none. A copy left in the data directory by a host that had none is removed.
+// directory if there's none. A copy left in the data directory by a host that had none is removed,
+// and so is any file of values a host killed as it wrote one, or as a check ran, left in either.
 func varsDir(runtimeDir, dataDir string) (string, error) {
+	var left []string
+	for _, dir := range []string{runtimeDir, dataDir} {
+		if dir == "" {
+			continue
+		}
+		for _, pattern := range []string{".vars-*", ".check-vars-*"} {
+			found, err := filepath.Glob(filepath.Join(dir, pattern))
+			if err != nil {
+				return "", err
+			}
+			left = append(left, found...)
+		}
+	}
+	if runtimeDir != "" {
+		left = append(left, filepath.Join(dataDir, varsFileName))
+	}
+	for _, path := range left {
+		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return "", fmt.Errorf("removing the values left by the last host: %w", err)
+		}
+	}
 	if runtimeDir == "" {
 		return dataDir, nil
-	}
-	if err := os.Remove(filepath.Join(dataDir, varsFileName)); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return "", fmt.Errorf("removing the values left in the data directory: %w", err)
 	}
 	return runtimeDir, nil
 }

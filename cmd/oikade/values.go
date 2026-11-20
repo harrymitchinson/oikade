@@ -106,8 +106,10 @@ func (v values) warnMissing(p *cli.Printer, missing []string, then string) {
 	}
 }
 
-// valuesFile writes values where a home run here reads them, as the host's file is, and returns the
-// environment that names it to the process and how to remove it.
+// valuesFile writes the file's values where a home run here reads them, as the host's file is, and
+// returns the environment that names it to the process, with the environment winning for any name, as
+// it does for a deploy's values, and how to remove it. So the home has what a deploy would send it
+// with one run, though only its run says which names its code uses.
 func valuesFile(set map[string]string) (env []string, remove func(), err error) {
 	if set == nil {
 		set = map[string]string{}
@@ -119,7 +121,8 @@ func valuesFile(set map[string]string) (env []string, remove func(), err error) 
 	// CreateTemp makes it 0600, so no one else can read it.
 	f, err := os.CreateTemp("", "oikade-values-*.json")
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, cli.Wrap(err, "couldn't write your values for your home").
+			WithHint("set TMPDIR to a directory you can write to")
 	}
 	remove = func() { _ = os.Remove(f.Name()) }
 	_, err = f.Write(raw)
@@ -128,14 +131,14 @@ func valuesFile(set map[string]string) (env []string, remove func(), err error) 
 	}
 	if err != nil {
 		remove()
-		return nil, nil, fmt.Errorf("writing your values for your home: %w", err)
+		return nil, nil, cli.Wrap(err, "couldn't write your values for your home").
+			WithHint("set TMPDIR to a directory you can write to")
 	}
-	return []string{wire.VarsEnv + "=" + f.Name()}, remove, nil
+	return []string{wire.VarsEnv + "=" + f.Name(), wire.VarsFromEnvironment + "=1"}, remove, nil
 }
 
-// homeValues runs your home's check, the binary at path, with your values, and returns what it says
-// and the values, with the names its code uses that nothing gives. The check learns the names as it
-// runs, so one that only the environment gives means running it again, with that.
+// homeValues runs your home's check, the binary at path, with your values as a deploy would send
+// them, and returns what it says and the values, with the names its code uses that nothing gives.
 func homeValues(ctx context.Context, module, path, envFile string, lookup func(string) (string, bool)) (
 	wire.Manifest, values, []string, error,
 ) {
@@ -145,16 +148,11 @@ func homeValues(ctx context.Context, module, path, envFile string, lookup func(s
 	}
 	m, err := checkWith(ctx, path, given.set)
 	if err != nil {
-		return wire.Manifest{}, values{}, nil, err
+		return wire.Manifest{}, given, nil, err
 	}
 	all, missing, err := collectValues(module, envFile, m.Vars, lookup)
 	if err != nil {
 		return wire.Manifest{}, values{}, nil, err
-	}
-	if len(all.set) > len(given.set) {
-		if m, err = checkWith(ctx, path, all.set); err != nil {
-			return wire.Manifest{}, values{}, nil, err
-		}
 	}
 	return m, all, missing, nil
 }

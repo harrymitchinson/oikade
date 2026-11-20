@@ -128,14 +128,18 @@ func runCheck(ctx context.Context, args []string) error {
 	return nil
 }
 
-// homeManifest builds a home and asks it what it is, as a deploy does.
+// homeManifest builds a home and asks it what it is, with your values, as a deploy does.
 func homeManifest(ctx context.Context, module string) (wire.Manifest, error) {
 	path, done, err := buildHome(ctx, module)
 	if err != nil {
 		return wire.Manifest{}, err
 	}
 	defer done()
-	return manifestOf(ctx, path)
+	m, _, _, err := homeValues(ctx, module, path, "", os.LookupEnv)
+	if err != nil {
+		return wire.Manifest{}, here(err)
+	}
+	return m, sameProtocol(m)
 }
 
 // notHere is a home's check that couldn't run on this machine, or whose answer this oikade can't
@@ -311,12 +315,16 @@ func runDev(ctx context.Context, args []string) error {
 		return err
 	}
 	// Your code gets your values, as it does on the host, so what it builds from them, such as a
-	// plugin's config, is as it will be there.
+	// plugin's config, is as it will be there. Its check says which it uses that nothing gives: one
+	// that can't run here, or be read, says nothing, and dev runs the home itself.
 	_, vals, missing, err := homeValues(ctx, *module, path, *envFile, os.LookupEnv)
-	if err != nil {
-		return here(err)
+	switch {
+	case cantRunHere(err):
+	case err != nil:
+		return err
+	default:
+		vals.warnMissing(std.err, missing, `oikade.Var gives "" for `+them(missing)+" here")
 	}
-	vals.warnMissing(std.err, missing, `oikade.Var gives "" for `+them(missing)+" here")
 	env, remove, err := valuesFile(vals.set)
 	if err != nil {
 		return err
@@ -363,13 +371,8 @@ func runInit(ctx context.Context, args []string) error {
 			return err
 		}
 	}
-	if *source != "" {
-		err = moduleFromSource(dir, *name, *source)
-	} else {
-		err = moduleFromRelease(ctx, os.Stderr, dir, *name)
-	}
-	if err != nil {
-		// So that the same command can be run again.
+	// So that the same command can be run again.
+	undo := func(err error) error {
 		for _, path := range written {
 			_ = os.Remove(filepath.Join(dir, path))
 		}
@@ -378,10 +381,18 @@ func runInit(ctx context.Context, args []string) error {
 		_ = os.Remove(filepath.Join(dir, ".github"))
 		return err
 	}
+	if *source != "" {
+		err = moduleFromSource(dir, *name, *source)
+	} else {
+		err = moduleFromRelease(ctx, os.Stderr, dir, *name)
+	}
+	if err != nil {
+		return undo(err)
+	}
 	// Your values stay out of Git, in a .gitignore that's there already or a new one.
 	ignored, err := ignoreValues(dir)
 	if err != nil {
-		return err
+		return undo(cli.Wrap(err, "couldn't add .env to the .gitignore in %s", dir))
 	}
 	if ignored {
 		written = append(written, ".gitignore")
