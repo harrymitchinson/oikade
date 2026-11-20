@@ -2,7 +2,7 @@
 // A home imports it, and its Config says where the broker is:
 //
 //	home.Plugin("zigbee", zigbee2mqtt.New(zigbee2mqtt.Config{
-//		Broker: "mqtt://oikade@broker:1883", Password: oikade.Secret("broker"),
+//		Broker: "mqtt://oikade@broker:1883", Password: oikade.Var("BROKER_PASSWORD"),
 //	}))
 //
 // Oikade starts no Zigbee2MQTT, writes none of its configuration and holds none of its keys. Every
