@@ -31,7 +31,7 @@ flow/morning  flow
 
 [1mplugin/overkiz[0m: login refused: check secret/overkiz
 [1mNAME[0m         [1mROOM[0m   [1mVALUES[0m                                          [1mSTATE[0m
-study-blind  study  position 40%, target-position 40, moving false  offline
+study-blind  study  position 40%, target-position 40, moving false  went offline today 12:25
 
 Matter bridge: serving on UDP port 5540
 To add another controller, run oikade matter open, or share the bridge from one that's paired.

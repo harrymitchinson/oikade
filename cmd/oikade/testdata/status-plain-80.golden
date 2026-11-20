@@ -4,7 +4,7 @@ NAME         VALUES                     STATE
 hall-lamp    on false
 office-ac    mode cool, on true, setp…  not in your code
 porch-light                             no LAN key: oikade secret set 1000ddeeff
-study-blind  position 40%, target-pos…  offline
+study-blind  position 40%, target-pos…  went offline today 12:25
 
 case/office-ac/on/too-warm  case  active since 13:52
 flow/morning  flow

@@ -239,10 +239,24 @@ func TestStoreSaysSinceWhenADeviceIsOffline(t *testing.T) {
 	key := driver.InstanceKey{Driver: driver.Plugin, Name: "ewelink"}
 	fan := ident.ID{Name: "loft-fan"}
 	s.SetDevices(key, map[ident.ID]Meta{fan: {Instance: key}})
+	// Offline when the host first hears of it, it can't say since when.
+	s.Availability(fan, false)
+	if snap, _ := s.Get(fan); !snap.OfflineSince.IsZero() {
+		t.Errorf("offline from the start, it's offline since %v", snap.OfflineSince)
+	}
+	s.Availability(fan, true)
 	before := time.Now()
 	s.Availability(fan, false)
 	snap, _ := s.Get(fan)
 	went := snap.OfflineSince
+	// One that has reported something was there to go, even if it never said it was online.
+	heater := ident.ID{Name: "hall-heater"}
+	s.SetDevices(key, map[ident.ID]Meta{fan: {Instance: key}, heater: {Instance: key}})
+	s.Seen(heater, time.Now())
+	s.Availability(heater, false)
+	if snap, _ := s.Get(heater); snap.OfflineSince.IsZero() {
+		t.Error("a device seen and then offline isn't offline since a time")
+	}
 	if went.Before(before) || went.After(time.Now()) {
 		t.Fatalf("offline since %v, want between %v and now", went, before)
 	}

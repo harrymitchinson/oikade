@@ -62,7 +62,13 @@ func status(ctx context.Context, t api.Transport, refs []named, o statusOptions)
 		events := func(ref string) ([]api.Event, error) { return lastEvents(ctx, t, ref, now) }
 		printNamed(std.out, std.err, st, refs, events, o.wide, now)
 	}
-	if o.check && len(trouble(st, refs)) > 0 {
+	if wrong := trouble(st, refs); o.check && len(wrong) > 0 {
+		// The text says what's wrong, and JSON is for scripts, so stderr says it for a person.
+		if o.json {
+			for _, line := range wrong {
+				std.err.Warn("%s", line)
+			}
+		}
 		return cli.Silent()
 	}
 	return nil
@@ -260,7 +266,7 @@ func narrowed(st *api.Status, refs []named) *api.Status {
 func trouble(st *api.Status, refs []named) []string {
 	var out []string
 	add := func(format string, a ...any) { out = append(out, fmt.Sprintf(format, a...)) }
-	down := st.Home.Version != "" && !st.Home.Process && !st.Home.Deploying
+	down := automationsDown(st.Home)
 	devices := func(d api.Device, offline bool) {
 		switch {
 		case d.PluginNotImported:
@@ -370,7 +376,7 @@ func printStatus(out, stderr *cli.Printer, st *api.Status, wide bool, now time.T
 		}
 	}
 	if len(st.Devices) > 0 {
-		dropped, decided := printDeviceLines(out, st.Devices, wide)
+		dropped, decided := printDeviceLines(out, st.Devices, wide, now)
 		if len(dropped) > 0 {
 			stderr.Hint("--wide shows %s", andList(dropped))
 		}
@@ -418,12 +424,12 @@ func printNamed(out, stderr *cli.Printer, st *api.Status, refs []named, events f
 			printLastEvents(out, stderr, n.ref, events, now)
 		case ident.Room:
 			out.Println(out.Bold(n.ref))
-			more, _ := printDeviceLines(out, inRoom(st, n.parts), wide)
+			more, _ := printDeviceLines(out, inRoom(st, n.parts), wide, now)
 			dropped = append(dropped, more...)
 		case ident.Case, ident.Flow:
 			printRule(out, st, n.ref, now)
 		case ident.Plugin:
-			more := printPlugin(out, st, n.parts[0], wide)
+			more := printPlugin(out, st, n.parts[0], wide, now)
 			dropped = append(dropped, more...)
 		case ident.Matter:
 			printMatter(out, st.Matter, out.Terminal)
@@ -465,6 +471,9 @@ func printRule(out *cli.Printer, st *api.Status, ref string, now time.Time) {
 	}
 	r := st.Rules[i]
 	out.Println(ruleLine(r, now))
+	if automationsDown(st.Home) {
+		out.Println("Your automations are down: the host's log says why, and oikade tail shows when they come back.")
+	}
 	if r.Device == "" || r.Capability == "" {
 		return
 	}
@@ -483,7 +492,7 @@ func printRule(out *cli.Printer, st *api.Status, ref string, now time.Time) {
 
 // printPlugin prints a plugin's ref and what's wrong with it, then its devices a line each, and
 // returns the columns that didn't fit.
-func printPlugin(out *cli.Printer, st *api.Status, name string, wide bool) []string {
+func printPlugin(out *cli.Printer, st *api.Status, name string, wide bool, now time.Time) []string {
 	p := st.Plugins[slices.IndexFunc(st.Plugins, func(p api.Plugin) bool { return p.Name == name })]
 	var state []string
 	if p.NeedsSetup {
@@ -507,7 +516,7 @@ func printPlugin(out *cli.Printer, st *api.Status, name string, wide bool) []str
 		out.Println(out.Dim("It reports no device on record."))
 		return nil
 	}
-	dropped, _ := printDeviceLines(out, devices, wide)
+	dropped, _ := printDeviceLines(out, devices, wide, now)
 	return dropped
 }
 
@@ -524,6 +533,10 @@ func ruleLine(r api.Rule, now time.Time) string {
 	line = append(line, holdState(r, now)...)
 	return strings.Join(line, "  ")
 }
+
+// automationsDown is a home deployed whose automations aren't connected, and not for a deploy, which
+// restarts them.
+func automationsDown(h api.Home) bool { return h.Version != "" && !h.Process && !h.Deploying }
 
 // undeclaredOf names the devices your home's code doesn't declare.
 func undeclaredOf(devices []api.Device) []string {
@@ -585,7 +598,9 @@ func homeLine(st *api.Status, now time.Time) (line string, down bool) {
 // printDeviceLines prints a device a line: its name, room, values and what's wrong with it. It
 // returns the columns that didn't fit, and a device with a decided value, for the hint that says
 // where to read why.
-func printDeviceLines(out *cli.Printer, devices []api.Device, wide bool) (dropped []string, decided string) {
+func printDeviceLines(out *cli.Printer, devices []api.Device, wide bool, now time.Time) (
+	dropped []string, decided string,
+) {
 	table := cli.Table{
 		Columns: []cli.Column{
 			{Header: nameHeader},
@@ -606,7 +621,7 @@ func printDeviceLines(out *cli.Printer, devices []api.Device, wide bool) (droppe
 				decided = d.Name
 			}
 		}
-		table.Rows = append(table.Rows, []string{d.Name, d.Room, strings.Join(values, ", "), deviceState(d)})
+		table.Rows = append(table.Rows, []string{d.Name, d.Room, strings.Join(values, ", "), stateOf(d, offline(d, now))})
 	}
 	return out.Table(table), decided
 }
@@ -618,11 +633,7 @@ func printDevice(out *cli.Printer, d api.Device, now time.Time) {
 	if d.Room != "" {
 		head += " in " + d.Room
 	}
-	offline := "offline"
-	if d.OfflineSince != nil {
-		offline = "went offline " + cli.Ago(*d.OfflineSince, now)
-	}
-	if state := stateOf(d, offline); state == notInYourCode {
+	if state := stateOf(d, offline(d, now)); state == notInYourCode {
 		head += out.Dim(": " + state)
 	} else if state != "" {
 		head += ": " + state
@@ -643,19 +654,28 @@ func printDevice(out *cli.Printer, d api.Device, now time.Time) {
 // deviceState is what's wrong with a device, if anything, and whether your home's code declares it.
 func deviceState(d api.Device) string { return stateOf(d, "offline") }
 
-// stateOf is deviceState, saying a device is offline as offline does.
-func stateOf(d api.Device, offline string) string {
+// offline says a device is offline, and when it went if the host saw it go, such as "went offline 8
+// min ago".
+func offline(d api.Device, now time.Time) string {
+	if d.OfflineSince == nil {
+		return "offline"
+	}
+	return "went offline " + cli.Ago(*d.OfflineSince, now)
+}
+
+// stateOf is deviceState, saying a device is offline as down does.
+func stateOf(d api.Device, down string) string {
 	var state []string
 	if d.PluginNotImported {
 		state = append(state, notImported)
 	}
 	// Offline comes first, and the driver's problem may say why, as oikade devices has it (OIK-340).
-	down := d.Online != nil && !*d.Online && !d.PluginNotImported
+	off := d.Online != nil && !*d.Online && !d.PluginNotImported
 	switch {
-	case down && d.Problem != "":
-		state = append(state, offline+": "+d.Problem)
-	case down:
-		state = append(state, offline)
+	case off && d.Problem != "":
+		state = append(state, down+": "+d.Problem)
+	case off:
+		state = append(state, down)
 	case d.Problem != "":
 		state = append(state, d.Problem)
 	}

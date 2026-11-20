@@ -115,6 +115,24 @@ func TestCheckPrintsTheSameAndExitsOne(t *testing.T) {
 	}
 }
 
+// With --json, which a person doesn't read, stderr says why --check failed. A rule's view says when
+// your automations are down, which fails --check of it.
+func TestCheckSaysWhyWhereTheOutputDoesnt(t *testing.T) {
+	st := *aHealthyHome()
+	st.Home.Process = false
+	st.Home.UnsetSecrets = []string{"opentherm"}
+	dir, _ := aHost(t, api.EventLog{}, nil, st)
+	_, errs, code := runOikade(t, cli.Plain, "status", "--check", "--json", "--data-dir", dir)
+	want := "Warning: automations down\nWarning: secret/opentherm isn't set\n"
+	if code != 1 || errs != want {
+		t.Errorf("status --check --json exits %d:\n%s\nwant 1, and stderr:\n%s", code, errs, want)
+	}
+	out, _, code := runOikade(t, cli.Plain, "status", "--check", "flow/morning", "--data-dir", dir)
+	if code != 1 || !strings.Contains(out, "\nYour automations are down: ") {
+		t.Errorf("status --check flow/morning exits %d:\n%s", code, out)
+	}
+}
+
 // A ref that names nothing fails the command, even beside one that names something.
 func TestStatusOfARefThatNamesNothingFails(t *testing.T) {
 	st := *aHealthyHome()

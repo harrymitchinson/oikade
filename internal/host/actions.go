@@ -120,8 +120,12 @@ func (s *apiServer) status() api.Response {
 		slices.Sort(pl.Devices)
 		st.Plugins = append(st.Plugins, *pl)
 	}
-	if resp := s.matter(); resp.Matter != nil {
+	switch resp := s.matter(); {
+	case resp.Matter != nil:
 		st.Matter = resp.Matter
+	case s.bridge != nil:
+		// A bridge that can't say its codes is down for status, rather than turned off.
+		st.Matter = &api.Matter{Problem: resp.Error, Fabrics: []api.Fabric{}}
 	}
 
 	paused, err := s.srv.paused.Names()

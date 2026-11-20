@@ -30,8 +30,8 @@ device/office-ac/on is true: case/office-ac/on/too-warm wants true, on for its M
 flow/morning  flow
 
 plugin/overkiz: login refused: check secret/overkiz
-NAME         ROOM   VALUES                                          STATE
-study-blind  study  position 40%, target-position 40, moving false  offline
+NAME         VALUES                                     STATE
+study-blind  position 40%, target-position 40, moving…  went offline today 12:25
 
 Matter bridge: serving on UDP port 5540
 To add another controller, run oikade matter open, or share the bridge from one that's paired.
@@ -39,4 +39,5 @@ To add another controller, run oikade matter open, or share the bridge from one 
 Paired controllers
   fabric 1: Home, vendor 0x0000
 --- stderr
+Hint: --wide shows ROOM
 office-ac isn't in your code: oikade devices shows how to declare it

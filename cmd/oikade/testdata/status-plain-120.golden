@@ -4,7 +4,7 @@ NAME         ROOM   VALUES                                                    ST
 hall-lamp    hall   on false
 office-ac           mode cool, on true, setpoint 21.5°C, temperature 24.25°C  not in your code
 porch-light                                                                   no LAN key: oikade secret set 1000ddeeff
-study-blind  study  position 40%, target-position 40, moving false            offline
+study-blind  study  position 40%, target-position 40, moving false            went offline today 12:25
 
 case/office-ac/on/too-warm  case  active since 13:52
 flow/morning  flow

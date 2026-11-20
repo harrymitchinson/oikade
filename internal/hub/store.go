@@ -50,7 +50,9 @@ type Snapshot struct {
 	Changes    map[string]uint64
 	// Online is nil until the driver reports availability.
 	Online *bool
-	// OfflineSince is when it went offline, while it's offline: when the host first heard it was.
+	// OfflineSince is when it went offline, while it's offline, if the host heard it go: it was online,
+	// or had reported something. One offline when the host first heard of it has none, as the host
+	// can't say since when.
 	OfflineSince time.Time
 	LastSeen     time.Time
 }
@@ -360,7 +362,7 @@ func (s *Store) Availability(dev ident.ID, online bool) {
 		switch {
 		case online:
 			e.OfflineSince = time.Time{}
-		case e.OfflineSince.IsZero():
+		case was != nil && *was, was == nil && (len(e.Values) > 0 || !e.LastSeen.IsZero()):
 			e.OfflineSince = time.Now()
 		}
 	}) {
