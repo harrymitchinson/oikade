@@ -23,11 +23,11 @@ A `GET` takes no body. A `POST` takes a JSON object, and every field is optional
 | `POST /v1/setup/reply` | `plugin`, `session`, `seq`, `answer` | |
 | `POST /v1/secrets/set` | `secret`, `secretValue` | |
 | `POST /v1/secrets/remove` | `secret` | |
-| `POST /v1/devices/remove` | `device`, or `plugin` for every device of that plugin, and `allowSafety` | `removed`, `needsAllowSafety` |
-| `GET /v1/clients` | | `clients`, never their tokens |
+| `POST /v1/devices/forget` | `devices`, by name, or `plugin` for every device of that plugin, and `allowSafety`. Every device is checked before any is forgotten | `forgotten`, each with its `device`, `ref`, `plugin`, the claims it `ended` by their sources' refs, `offMatter` if it left the bridge, `comesBack` if its driver's next report brings it back, as a simulated device's does, and `unimported` if your home doesn't import its plugin; `needsAllowSafety`; `warning` |
+| `GET /v1/clients` | | `clients`, never their tokens, with those waiting for their login, each with `expires`, when its code runs out |
 | `POST /v1/clients/add` | `client` | `code`, `expires`, `pin` and `address`. Only on the socket. |
 | `POST /v1/clients/add` with `token: true` | `client` | `token`, shown only once, and `pin` |
-| `POST /v1/clients/revoke` | `client` | |
+| `POST /v1/clients/remove` | `client` | `cancelled` if it was waiting for its login, which cancels its code |
 | `POST /v1/login` | `code` | `token`, shown only once, and `client` |
 
 A call has 5 seconds to send its body, except a deploy, which may send its binary for as long as it keeps sending: up to 30 seconds with nothing, and 1 GiB in all. The host keeps the upload in `uploads` in its data directory until the deploy has copied it, and an upload that's cut off, or a host that stops during one, leaves nothing there and deploys nothing. Secret values go only in a body, and never in a path or a log.

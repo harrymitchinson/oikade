@@ -17,7 +17,7 @@ const helpWidth = 80
 
 // Command is what a command's help says of it.
 type Command struct {
-	// Name is how it's run, without its arguments: "oikade deploy", "oikade-host client add".
+	// Name is how it's run, without its arguments: "oikade deploy", "oikade-host add".
 	Name string
 	// Summary is what it does, in a line, for the list of commands.
 	Summary string
@@ -32,7 +32,7 @@ type Command struct {
 	Values map[string]string
 	// Hide is flags that aren't listed, such as gone ones kept to say where they went.
 	Hide []string
-	// Commands are the binary's others, listed after the flags, as oikade-host's help lists client add.
+	// Commands are the binary's others, listed after the flags, as oikade-host's help lists add.
 	Commands []Command
 }
 

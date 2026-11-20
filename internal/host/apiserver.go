@@ -118,7 +118,7 @@ func (s *apiServer) authenticated(next http.Handler) http.Handler {
 			s.log.Info("Refused API request without a valid token", "remote", r.RemoteAddr, "path", r.URL.Path)
 			w.Header().Set("WWW-Authenticate", `Bearer realm="oikade"`)
 			respond(s.log, w, http.StatusUnauthorized, api.Response{
-				Error: "the host needs a valid token for this: ask for one with oikade-host client add on the host's machine",
+				Error: "the host needs a valid token for this: oikade-host add client/NAME, on the host's machine, makes one",
 			})
 			return
 		}
@@ -137,8 +137,8 @@ func (s *apiServer) authenticated(next http.Handler) http.Handler {
 	})
 }
 
-// errRevoked ends a revoked client's calls.
-var errRevoked = errors.New("the client was revoked")
+// errRevoked ends the calls of a client that was removed.
+var errRevoked = errors.New("the client was removed")
 
 func (s *apiServer) serveWith(l net.Listener, handler http.Handler) {
 	server := &http.Server{
@@ -382,7 +382,7 @@ func (s *apiServer) tail(w http.ResponseWriter, r *http.Request) {
 func (s *apiServer) answer(c caller, req api.Request) api.Response {
 	s.log.Info("Received API request", "type", req.Type, "client", c.name)
 	switch req.Type {
-	case api.TypeClients, api.TypeClientAdd, api.TypeClientRevoke, api.TypeLogin:
+	case api.TypeClients, api.TypeClientAdd, api.TypeClientRemove, api.TypeLogin:
 		return s.client(c, req)
 	case api.TypeInfo:
 		return api.Response{GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, HostVersion: s.version}
@@ -406,14 +406,14 @@ func (s *apiServer) answer(c caller, req api.Request) api.Response {
 		return s.setupReply(s.ctx, req)
 	case api.TypeSecrets, api.TypeSecretSet, api.TypeSecretRemove:
 		return s.secret(req)
-	case api.TypeDevices, api.TypeDeviceRemove:
+	case api.TypeDevices, api.TypeForget:
 		return s.device(req)
 	}
 	return api.Response{Error: fmt.Sprintf("unknown request %q", req.Type)}
 }
 
 // client manages the network API's clients. Adding one works only on the socket, so a stolen token
-// can't make more. Revoking works from anywhere, so a lost laptop can be cut off from another.
+// can't make more. Removing works from anywhere, so a lost laptop can be cut off from another.
 func (s *apiServer) client(c caller, req api.Request) api.Response {
 	if s.clients == nil {
 		return api.Response{Error: "the host has no network API clients: start it with --api-addr, and its log says why if it was"}
@@ -453,12 +453,17 @@ func (s *apiServer) client(c caller, req api.Request) api.Response {
 		}
 		s.log.Info("Added API client", "name", name, "by", "login")
 		return api.Response{Token: token, Client: name}
-	case api.TypeClientRevoke:
-		if err := s.clients.revoke(req.Client); err != nil {
+	case api.TypeClientRemove:
+		cancelled, err := s.clients.remove(req.Client)
+		if err != nil {
 			return api.Response{Error: err.Error()}
 		}
-		s.log.Info("Revoked API client", "name", req.Client, "client", c.name)
-		return api.Response{}
+		if cancelled {
+			s.log.Info("Cancelled API login code", "name", req.Client, "client", c.name)
+		} else {
+			s.log.Info("Removed API client", "name", req.Client, "client", c.name)
+		}
+		return api.Response{Cancelled: cancelled}
 	}
 	return api.Response{Error: "unknown client request"}
 }

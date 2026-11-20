@@ -167,17 +167,27 @@ var groups = []group{
 	}},
 	{"Devices and pairing", []cli.Command{
 		{
-			Name:    "oikade devices",
-			Summary: "Remove a device from the host, or every device of a plugin.",
+			Name:    "oikade forget",
+			Summary: "Forget devices a plugin reports, or every device of a plugin.",
 			Usage: []string{
-				"oikade devices remove DEVICE [--allow-safety] [--json]",
-				"oikade devices remove --plugin NAME [--allow-safety] [--json]",
+				"oikade forget DEVICE... [--allow-safety] [--json]",
+				"oikade forget --plugin NAME [--allow-safety] [--json]",
 			},
-			About: "A device's name, room and type are your home's code's: home.Device declares them. A removed " +
-				"device keeps its Matter endpoint, so hardware that comes back is the same device. oikade list devices " +
-				"lists them.",
-			Example: []string{"oikade devices remove --plugin zigbee2mqtt"},
-			Hide:    []string{"all", "wide"},
+			About: "It ends their claims and takes them off the Matter bridge, and says what becomes of them: a " +
+				"plugin's device stays forgotten while the plugin lists it, and comes back if it leaves the list and " +
+				"returns, as a device re-paired in its app does. A forgotten device keeps its Matter endpoint, so " +
+				"hardware that comes back is the same device. A device your home's code declares is refused: delete " +
+				"its declaration and deploy first. Secrets and clients are removed, with oikade remove.",
+			Example: []string{"oikade forget porch-light", "oikade forget --plugin zigbee2mqtt"},
+		},
+		{
+			Name:    "oikade remove",
+			Summary: "Remove secrets and clients from the host, for good.",
+			Usage:   []string{"oikade remove REF... [--json]"},
+			About: "REF is a secret's, secret/NAME, or a client's, client/NAME. It checks every one is there before it " +
+				"removes any. A client's token stops working at once, and a client waiting for its login has its " +
+				"code cancelled. Devices are forgotten, with oikade forget.",
+			Example: []string{"oikade remove client/old-laptop", "oikade remove secret/weather-api-key"},
 		},
 		{
 			Name:    "oikade setup",
@@ -198,25 +208,15 @@ var groups = []group{
 			Name:    "oikade login",
 			Summary: "Trust a host's network API, and use it from now on.",
 			Usage:   []string{"oikade login ADDRESS --pin PIN [--code CODE] [--context NAME]"},
-			About:   "oikade-host client add, on the host's machine, prints the line to run.",
+			About:   "oikade-host add client/NAME, on the host's machine, prints the line to run.",
 			Example: []string{"oikade login pi.home:8443 --pin sha256:9f2c… --code k7Qx…"},
 		},
 		{
-			Name:    "oikade client",
-			Summary: "Revoke a client of the host's network API.",
-			Usage:   []string{"oikade client revoke NAME [--json]"},
-			About:   "To add one, run oikade-host client add NAME on the host's machine. oikade list clients lists them.",
-			Example: []string{"oikade client revoke old-laptop"},
-		},
-		{
 			Name:    "oikade secret",
-			Summary: "Set or remove the secrets your home and its plugins read.",
-			Usage: []string{
-				"oikade secret set NAME [--json]",
-				"oikade secret remove NAME [--json]",
-			},
+			Summary: "Set a secret your home and its plugins read.",
+			Usage:   []string{"oikade secret set NAME [--json]"},
 			About: "set takes the value from stdin, or asks for it, and never from an argument, which ps would show. " +
-				"oikade list secrets lists them.",
+				"oikade list secrets lists them, and oikade remove secret/NAME removes one.",
 			Example: []string{"oikade secret set weather-api-key"},
 		},
 		{
@@ -240,10 +240,10 @@ func runners() map[string]func(ctx context.Context, args []string) error {
 		"init": runInit, "check": runCheck, "test": runTest, "dev": runDev, "replay": runReplay, "types": runTypes,
 		"deploy": runDeploy, "rollback": runRollback,
 		verbList: runList, "status": runStatus, "history": runHistory, "tail": runTail, "set": runSet,
-		"pause":   func(ctx context.Context, args []string) error { return runPause(ctx, args, true) },
-		"resume":  func(ctx context.Context, args []string) error { return runPause(ctx, args, false) },
-		"devices": runDevices, "setup": runSetup, "matter": runMatter,
-		"login": runLogin, "client": runClient, "secret": runSecret, "backup": runBackup, "version": runVersion,
+		"pause":  func(ctx context.Context, args []string) error { return runPause(ctx, args, true) },
+		"resume": func(ctx context.Context, args []string) error { return runPause(ctx, args, false) },
+		"forget": runForget, verbRemove: runRemove, "setup": runSetup, "matter": runMatter,
+		"login": runLogin, "secret": runSecret, "backup": runBackup, "version": runVersion,
 	}
 }
 
@@ -353,7 +353,12 @@ func newFlags(word string) *flag.FlagSet {
 // instead names the command to use for a word from another tool, or from before, that oikade has
 // no command for, or none that does that any more.
 var instead = map[string]string{
-	"devices": "oikade list devices lists them",
+	"devices": "oikade list devices lists them, and oikade forget DEVICE forgets one",
+	"client":  "oikade list clients lists them, and oikade remove client/NAME removes one",
+	"revoke":  "oikade remove client/NAME removes a client, and its token stops working",
+	"rm":      "oikade remove REF removes a secret or a client, and oikade forget DEVICE forgets a device",
+	"delete":  "oikade remove REF removes a secret or a client, and oikade forget DEVICE forgets a device",
+	"add":     "oikade-host add client/NAME, on the host's machine, adds a client",
 	"logs":    "oikade history shows what your home did, and oikade tail follows it",
 	"events":  "oikade history shows what your home did, and oikade tail follows it",
 	"ls":      "oikade list KIND lists " + orList(listKinds),

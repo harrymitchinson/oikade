@@ -447,7 +447,7 @@ func TestOikadeHostHasOnlyItsOwnCommands(t *testing.T) {
 	}
 	for _, help := range []string{"help", "-h", "--help"} {
 		if out, err := run(t, bin, dir, "", help); err != nil || !strings.HasPrefix(out, "oikade-host: Run the host") ||
-			!strings.Contains(out, "--data-dir DIR") || !strings.Contains(out, "client add") {
+			!strings.Contains(out, "--data-dir DIR") || !strings.Contains(out, "  add ") {
 			t.Errorf("oikade-host %s: %v: %s", help, err, out)
 		}
 	}
@@ -455,7 +455,7 @@ func TestOikadeHostHasOnlyItsOwnCommands(t *testing.T) {
 		t.Errorf("oikade-host --version: %v: %q", err, out)
 	}
 	// A command after a flag is refused, rather than ignored while a host starts on the directory.
-	out, err := run(t, bin, dir, "", "--data-dir", dir, "client", "add", "laptop")
+	out, err := run(t, bin, dir, "", "--data-dir", dir, "add", "client/laptop")
 	if err == nil || !strings.Contains(out, "comes first") {
 		t.Errorf("oikade-host with a command after a flag: %v: %s", err, out)
 	}
@@ -489,14 +489,19 @@ func TestOikadeHostHasOnlyItsOwnCommands(t *testing.T) {
 		}
 	}
 	// Adding a client needs the host's socket, so with no host there it says so rather than pass.
-	out, err = run(t, bin, dir, "", "client", "add", "laptop", "--data-dir", dir)
+	out, err = run(t, bin, dir, "", "add", "client/laptop", "--data-dir", dir)
 	if err == nil {
-		t.Errorf("oikade-host client add with no host: %s", out)
+		t.Errorf("oikade-host add with no host: %s", out)
 	}
 	cli := oikade(t)
-	out, err = run(t, cli, dir, "", "client", "add", "laptop")
-	if err == nil || !strings.Contains(out, "oikade-host client add") {
-		t.Errorf("oikade client add should point at oikade-host: %v: %s", err, out)
+	out, err = run(t, cli, dir, "", "add", "client/laptop")
+	if err == nil || !strings.Contains(out, "oikade-host add client/NAME") {
+		t.Errorf("oikade add should point at oikade-host: %v: %s", err, out)
+	}
+	// client add is add now, and says so.
+	out, err = run(t, bin, dir, "", "client", "add", "laptop")
+	if err == nil || !strings.Contains(out, "oikade-host add client/NAME") {
+		t.Errorf("oikade-host client add should name add: %v: %s", err, out)
 	}
 }
 

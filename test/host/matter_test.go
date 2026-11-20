@@ -311,7 +311,7 @@ func TestANewDeviceAppearsOnTheBridgeAndGoes(t *testing.T) {
 	})
 	c.reaches("hall-lamp")
 
-	c.r.stdout(nil, "devices", "remove", "hall-lamp")
+	c.r.stdout(nil, "forget", "hall-lamp")
 	c.r.until("the device to leave the bridge", func() bool {
 		_, ok := c.read(endpoint, clusters.IDOnOff, 0)
 		return !ok
@@ -492,7 +492,7 @@ func TestAnUnreadableClaimRecordHoldsItsDevice(t *testing.T) {
 	if n := r.count(wrote, "device", "valve", "value", false); n != 0 {
 		t.Errorf("the valve was written %d times", n)
 	}
-	stderr, err = r.oikade(nil, "devices", "remove", "valve")
+	stderr, err = r.oikade(nil, "forget", "valve")
 	if err == nil || !strings.Contains(stderr, "--allow-safety") {
 		t.Errorf("removing it: %v: %s", err, stderr)
 	}
@@ -505,7 +505,7 @@ func TestAnUnreadableClaimRecordHoldsItsDevice(t *testing.T) {
 
 	r.launch(matterFlag(port))
 	r.waitFor(func(l line) bool { return l.is(attached) })
-	r.stdout(nil, "devices", "remove", "valve", "--allow-safety")
+	r.stdout(nil, "forget", "valve", "--allow-safety")
 	r.stop()
 	s = r.openStore()
 	defer func() { _ = s.Close() }()

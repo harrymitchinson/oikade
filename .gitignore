@@ -6,6 +6,9 @@
 *.dylib
 bin/*
 dist/
+# What go build ./cmd/... leaves at the root.
+/oikade
+/oikade-host
 
 # Test binary, built with `go test -c`
 *.test

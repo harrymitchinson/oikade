@@ -36,7 +36,7 @@ oikade secret set broker     # on your Mac
 
 If that Pi runs a firewall, open Matter's port, mDNS and the API: `sudo ufw allow 5540/udp`, `sudo ufw allow 5353/udp` and `sudo ufw allow 8443/tcp`. `install` prints that line if ufw is on, and leaves the firewall to you.
 
-**Log in from your Mac.** Run the `oikade login` line `install` printed on your Mac within 10 minutes. From then on, `oikade status` on your Mac answers from the Pi. For another machine, or once the code has expired, run `sudo oikade-host client add NAME` on the Pi for a new line.
+**Log in from your Mac.** Run the `oikade login` line `install` printed on your Mac within 10 minutes. From then on, `oikade status` on your Mac answers from the Pi. For another machine, or once the code has expired, run `sudo oikade-host add client/NAME` on the Pi for a new line.
 
 **Your home.** Start a repo and deploy it:
 

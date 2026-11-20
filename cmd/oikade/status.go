@@ -750,7 +750,8 @@ func setupGaps(st *api.Status) []string {
 	}
 	if len(unimported) > 0 {
 		gaps = append(gaps, fmt.Sprintf("Devices whose plugin isn't imported: %s. "+
-			"Import it in your home and run oikade deploy, or remove the device with oikade devices remove.", names(unimported)))
+			"Import it in your home and run oikade deploy, or forget its devices with oikade forget --plugin NAME.",
+			names(unimported)))
 	}
 	return gaps
 }

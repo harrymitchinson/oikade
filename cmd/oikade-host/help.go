@@ -22,25 +22,29 @@ var (
 
 // The commands, by the words after oikade-host that run them.
 const (
-	hostCommand      = ""
-	clientAddCommand = "client add"
-	installCommand   = "install"
-	versionCommand   = "version"
-	// clientWord is client add's first word, which alone means client add.
-	clientWord = "client"
+	hostCommand    = ""
+	addCommand     = "add"
+	installCommand = "install"
+	versionCommand = "version"
 	// helpWord is help, which help alone or help help means the host's.
 	helpWord = "help"
 )
 
+// instead names the command to use for a word from before.
+var instead = map[string]string{
+	"client": "oikade-host add client/NAME adds a client, and oikade list clients lists them",
+}
+
 // others are oikade-host's commands besides running the host.
 var others = []cli.Command{
 	{
-		Name:    "oikade-host client add",
-		Summary: "Print a code for oikade login, or a token for CI, from the host running here.",
-		Usage:   []string{"oikade-host client add NAME [--token] [--data-dir DIR] [--json]"},
-		About: "It goes only over the host's socket, so a stolen token can't make more clients. " +
-			"oikade list clients lists them, and oikade client revoke revokes one.",
-		Example: []string{"sudo oikade-host client add laptop"},
+		Name:    "oikade-host add",
+		Summary: "Add a client of the host's network API: a code for oikade login, or a token for CI.",
+		Usage:   []string{"oikade-host add client/NAME [--token] [--data-dir DIR] [--json]"},
+		About: "It goes only over the host's socket, so a stolen token can't make more clients. Without --token, it " +
+			"adds nothing yet: the client is added once oikade login uses its code, and until then oikade list " +
+			"clients shows it waiting. oikade remove client/NAME removes one, or cancels its code.",
+		Example: []string{"sudo oikade-host add client/laptop"},
 	},
 	{
 		Name:    "oikade-host install",
@@ -106,19 +110,13 @@ func dispatch(ctx context.Context, args []string, debug bool) int {
 	case len(args) == 1 && args[0] == "--version":
 		words, rest = versionCommand, nil
 	case len(args) > 0 && args[0] == helpWord:
-		// help, help client add and help install are those commands' --help.
+		// help, help add and help install are those commands' --help.
 		words, rest = strings.Join(args[1:], " "), []string{"--help"}
 		if words == helpWord {
 			words = hostCommand
 		}
-		if words == clientWord {
-			words = clientAddCommand
-		}
 	case len(args) > 0 && !strings.HasPrefix(args[0], "-"):
 		words, rest = args[0], args[1:]
-		if words == clientWord {
-			words = clientAddCommand
-		}
 	}
 	c, ok := find(words)
 	if !ok {
@@ -128,8 +126,8 @@ func dispatch(ctx context.Context, args []string, debug bool) int {
 	switch words {
 	case hostCommand:
 		err = runHost(ctx, rest)
-	case clientAddCommand:
-		err = runClient(ctx, rest)
+	case addCommand:
+		err = runAdd(ctx, rest)
 	case installCommand:
 		err = runInstall(ctx, rest)
 	case versionCommand:
@@ -155,8 +153,12 @@ func runVersion(args []string) error {
 
 // unknown says there's no command words, and names the one it's likely a slip for.
 func unknown(words string) error {
+	first, _, _ := strings.Cut(strings.TrimSpace(words), " ")
+	if use, ok := instead[first]; ok {
+		return cli.UsageErrorf("oikade-host has no %s command", words).WithHint("%s", use)
+	}
 	hint := "oikade-host help lists them, and everything else, from deploy to status, is oikade"
-	if slip := cli.Closest(words, []string{clientWord, installCommand, versionCommand, helpWord}); slip != "" {
+	if slip := cli.Closest(words, []string{addCommand, installCommand, versionCommand, helpWord}); slip != "" {
 		hint = fmt.Sprintf("did you mean %s? oikade-host help lists them", slip)
 	}
 	return cli.UsageErrorf("unknown command %s", words).WithHint("%s", hint)

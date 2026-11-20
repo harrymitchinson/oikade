@@ -74,7 +74,7 @@ func runHost(ctx context.Context, args []string) error {
 	_ = fs.Parse(args)
 	if fs.NArg() > 0 {
 		// A command after a flag would otherwise start a second host on the data directory.
-		return cli.UsageErrorf("%q isn't a flag: a command such as client add comes first, before any flags", fs.Arg(0))
+		return cli.UsageErrorf("%q isn't a flag: a command such as add comes first, before any flags", fs.Arg(0))
 	}
 	if *matterPort > math.MaxUint16 {
 		return cli.UsageErrorf("--matter-port %d isn't a UDP port", *matterPort)
@@ -167,23 +167,27 @@ var removed = map[string]string{
 	"matter-name": "the bridge's name is MatterName in your home's oikade.Options now: set it there and deploy",
 }
 
-// runClient trusts a new client of the network API. It goes only over the socket, so a stolen token
-// can't make more of them. oikade lists and revokes them.
-func runClient(ctx context.Context, args []string) error {
-	fs := newFlags(clientAddCommand)
+// runAdd trusts a new client of the network API. It goes only over the socket, so a stolen token
+// can't make more of them. oikade lists and removes them.
+func runAdd(ctx context.Context, args []string) error {
+	fs := newFlags(addCommand)
 	dataDir := fs.String("data-dir", cli.DefaultDataDir, "The host's data directory.")
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
 	token := fs.Bool("token", false,
 		"Print a token for the client to send, such as CI, rather than a code to log in with.")
 	words := cli.Parse(fs, args)
-	switch {
-	case len(words) == 0 || words[0] != "add":
-		return cli.UsageErrorf("oikade-host client only adds one").
-			WithHint("oikade list clients lists them, and oikade client revoke revokes one, from anywhere")
-	case len(words) != 2:
-		return cli.UsageErrorf("oikade-host client add takes the client's name")
+	if len(words) != 1 {
+		return cli.UsageErrorf("oikade-host add takes one client, as client/NAME")
 	}
-	name := words[1]
+	// A client is all it adds, so a bare word is one's name.
+	name := words[0]
+	if strings.Contains(name, "/") {
+		kind, parts, err := ident.ParseRef(name)
+		if err != nil || kind != ident.Client || len(parts) != 1 {
+			return cli.UsageErrorf("oikade-host add takes a client, as client/NAME, not %s", name)
+		}
+		name = parts[0]
+	}
 	resp, err := api.Call(ctx, api.Local{DataDir: *dataDir},
 		api.Request{Type: api.TypeClientAdd, Client: name, Token: *token})
 	if err != nil {
@@ -215,7 +219,7 @@ func runClient(ctx context.Context, args []string) error {
 	return nil
 }
 
-// login is a new client's code, as client add --json and install --json print it.
+// login is a new client's code, as add --json and install --json print it.
 type login struct {
 	Name    string    `json:"name"`
 	Code    string    `json:"code"`
@@ -231,7 +235,9 @@ func newLogin(name string, resp api.Response) login {
 func printLogin(name string, resp api.Response) {
 	fmt.Printf("On %s, by %s, run:\n  oikade login %s --pin %s --code %s\n",
 		name, resp.Expires.Local().Format(time.TimeOnly), resp.Address, resp.Pin, resp.Code)
-	fmt.Println("The code works once. If the host's name doesn't reach it from there, use its address.")
+	fmt.Printf("The code works once. %s is added once it's used, and oikade remove %s cancels it. If the host's "+
+		"name doesn't reach it from there, use its address.\n", ident.NewRef(ident.Client, name),
+		ident.NewRef(ident.Client, name))
 }
 
 // runInstall installs this binary as the host under systemd, or upgrades the one there (OIK-277).

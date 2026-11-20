@@ -72,17 +72,17 @@ The image holds only `oikade-host`, for linux/arm64 and linux/amd64, and runs it
 ```sh
 docker run -d --name oikade --restart unless-stopped --stop-timeout 15 --network host \
   -v oikade:/var/lib/oikade ghcr.io/harrymitchinson/oikade:<version> --api-addr :8443
-docker exec oikade oikade-host client add laptop
+docker exec oikade oikade-host add client/laptop
 ```
 
-`--stop-timeout 15`, before the image, is Docker's: it gives the host longer than its own 10 seconds to stop before Docker kills it. The flags after the image are `oikade-host`'s. `client add` prints the `oikade login` line to run on your laptop, and from then on you use the container from there, over the [network API](#the-network-api). To upgrade, run `oikade backup`, then replace the container on the same volume.
+`--stop-timeout 15`, before the image, is Docker's: it gives the host longer than its own 10 seconds to stop before Docker kills it. The flags after the image are `oikade-host`'s. `add` prints the `oikade login` line to run on your laptop, and from then on you use the container from there, over the [network API](#the-network-api). To upgrade, run `oikade backup`, then replace the container on the same volume.
 
 ### Secrets
 
 ```sh
 oikade secret set api-key         # asks for the value, or reads it from stdin
 oikade list secrets               # each with when it changed, and those your home uses that aren't set
-oikade secret remove api-key
+oikade remove secret/api-key
 ```
 
 Values are never in logs or `--json`, and never on a command line, where `ps` and your shell's history would keep them. Each secret is a file in `secrets` in the data directory, readable only by the host's user, so a backup has them.
@@ -163,7 +163,7 @@ Several refs show them together. A deploy, and your automations connecting or go
 
 A pause is state, like tapping a light: it's in the store, needs no Git and lasts through deploys and restarts until `oikade resume`. A paused rule stops at once: a flow doesn't start, a flow's run in progress ends, and a case stops working out whether it applies and leaves its device as it is. Its claims end, except a safety line's, which end only with a release, so a pause can't reopen a valve. Times that pass during a pause aren't caught up. Pausing a safety line stops that protection, so it needs `--allow-safety`. So does pausing a rule holding a Safety claim, and anything while no process is connected and no deployed version says what it is. A Safety claim made by a flow you paused stays until something releases it, because the run that would have is gone. A rule deleted by a deploy loses its pause. `oikade pause` names the claims it ended, and the Safety ones it kept. It takes the rule's [ref](devices.md#refs), as a claim's `source` in `oikade status --json` gives it, and a rule's name on its own, or a case's three words, are refused with the ref to use.
 
-`--json` on `list`, `status`, `history`, `tail`, `replay`, `set`, `pause`, `resume`, `devices remove`, `matter` and `setup` prints JSON whose fields stay stable for scripts. `list`'s is an array, each thing with its `ref`, and `[]` when there's none.
+`--json` on `list`, `status`, `history`, `tail`, `replay`, `set`, `pause`, `resume`, `forget`, `remove`, `matter` and `setup` prints JSON whose fields stay stable for scripts. `list`'s is an array, each thing with its `ref`, and `[]` when there's none.
 
 From another machine, these and `deploy` and `rollback` go over the [network API](#the-network-api), once you've logged in.
 
@@ -174,7 +174,7 @@ From another machine, these and `deploy` and `rollback` go over the [network API
 To use it from your laptop, on the host's machine run:
 
 ```sh
-sudo -u oikade oikade-host client add laptop
+sudo -u oikade oikade-host add client/laptop
 ```
 
 It prints a line to run on the laptop within 10 minutes:
@@ -183,22 +183,22 @@ It prints a line to run on the laptop within 10 minutes:
 oikade login pi.home:8443 --pin sha256:9f2c… --code k7Qx…
 ```
 
-The pin is in the line, so the laptop trusts nothing it hasn't been told. It checks the pin before it sends the code, and the code works once. The login saves the host as a context in `~/.config/oikade/config.json`, with mode 0600, and makes it current. From then on `oikade status`, `deploy` and the rest go to it. `--context NAME` picks another, and `--data-dir` means the host on this machine. `oikade-host client add` always means the host on its own machine, through the socket, so it has no `--context`. A config file others can read is refused.
+The pin is in the line, so the laptop trusts nothing it hasn't been told. It checks the pin before it sends the code, and the code works once. The login saves the host as a context in `~/.config/oikade/config.json`, with mode 0600, and makes it current. From then on `oikade status`, `deploy` and the rest go to it. `--context NAME` picks another, and `--data-dir` means the host on this machine. `oikade-host add` always means the host on its own machine, through the socket, so it has no `--context`. A config file others can read is refused.
 
 CI has no one to type a code, so give it a token instead:
 
 ```sh
-sudo -u oikade oikade-host client add ci --token     # on the host's machine: prints a token and the pin
+sudo -u oikade oikade-host add client/ci --token     # on the host's machine: prints a token and the pin
 ```
 
 Keep the token in a CI secret as `OIKADE_TOKEN`, then run `oikade login ADDRESS --pin PIN` with it set. That saves a context with no token in it, and `OIKADE_TOKEN` supplies one whenever that context is used. A context with a token of its own never sends `OIKADE_TOKEN`, so a token meant for one host doesn't reach another.
 
 ```sh
-oikade list clients              # who has a token, and when each last used it
-oikade client revoke laptop      # its token stops working at once
+oikade list clients              # who has a token, when each last used it, and who's waiting to log in
+oikade remove client/laptop      # its token stops working at once
 ```
 
-`client add` works only on the host's machine, through the socket, so a stolen token can't make more of them. `revoke` works over the network API too, so any client can cut off a lost one, and it ends that client's open streams. It works while the listener is down, so a token can't come back when the port frees. The token is shown once, and the store keeps only its hash. Every token can do everything: a deploy runs code as the host's user, so **a token is as good as a login on the host.** It keeps a stranger on your network out. It isn't for the open internet, so reach the host over your own VPN. The host logs which client made each call.
+`oikade-host add` works only on the host's machine, through the socket, so a stolen token can't make more of them. Without `--token` it adds nothing until `oikade login` uses its code: until then `oikade list clients` shows the client waiting, with when its code runs out, and `oikade remove client/NAME` cancels the code. `remove` works over the network API too, so any client can cut off a lost one, and it ends that client's open streams. It works while the listener is down, so a token can't come back when the port frees. The token is shown once, and the store keeps only its hash. Every token can do everything: a deploy runs code as the host's user, so **a token is as good as a login on the host.** It keeps a stranger on your network out. It isn't for the open internet, so reach the host over your own VPN. The host logs which client made each call.
 
 ## Setting up a plugin
 
@@ -214,7 +214,7 @@ A setup that waits 10 minutes for you, or for the plugin, is ended by the host. 
 
 ## Removing a plugin
 
-Taking an `oikade.Plugin` out of your home doesn't remove its devices (OIK-225). They stay on record with their names, rooms, claims and Matter endpoints, offline, and the Home app shows them as not responding, so that a plugin missing from one build, or a rollback, loses nothing. `oikade check` and `oikade deploy` list those devices, and call out any a Safety claim holds. `oikade list devices` and `oikade status` mark them `plugin not imported`. Import the plugin again and they come back as they were. To be rid of them, `oikade devices remove --plugin NAME` removes all of that plugin's devices at once, as `remove` does one, and needs `--allow-safety` if a Safety claim holds any of them.
+Taking an `oikade.Plugin` out of your home doesn't remove its devices (OIK-225). They stay on record with their names, rooms, claims and Matter endpoints, offline, and the Home app shows them as not responding, so that a plugin missing from one build, or a rollback, loses nothing. `oikade check` and `oikade deploy` list those devices, and call out any a Safety claim holds. `oikade list devices` and `oikade status` mark them `plugin not imported`. Import the plugin again and they come back as they were. To be rid of them, `oikade forget --plugin NAME` forgets all of that plugin's devices at once, as `oikade forget DEVICE` does one, and needs `--allow-safety` if a Safety claim holds any of them.
 
 ## State that must survive
 
@@ -224,7 +224,7 @@ Losing these means re-pairing, and then the Home app forgets every room, scene a
   - **Upgrade:** take that snapshot first with `oikade backup`, and a new `oikade-host` opens the same directory, so nothing needs pairing again. A file from a newer format is refused rather than guessed at, so keep the backup until the upgrade has worked.
   - **Delete:** deleting the directory forgets the bridge. Every controller has lost it, so remove it from each one and pair again. The next host gets new codes.
   - **Restore:** with the host stopped, copy the directory back, give it to the host's user, and if it came from a running host, copy the newest `backups/oikade-<time>.db` over `oikade.db`. A host on a restored directory is the same bridge, with no pairing again, because the identity and fabrics come back with it. A controller added since that backup isn't in it, and needs pairing again. If the Matter identity or fabrics are unreadable, the host never makes new ones: it runs the home without a bridge, and the log and `oikade matter` say why, until you restore them. A restore keeps the network API's pin and every token, including any revoked since that backup, so revoke those again.
-- **The device registry** is in the data directory, and holds each device's name, room, device type and Matter endpoint ID. Endpoint IDs are never reused or reordered, and removed devices keep theirs. Back up the directory. Without a backup, a deploy gives your devices back the names, rooms and types your home [declares](devices.md#declaring-devices-in-code), and the rest come back under their apps' names, on new endpoints.
+- **The device registry** is in the data directory, and holds each device's name, room, device type and Matter endpoint ID. Endpoint IDs are never reused or reordered, and forgotten devices keep theirs. Back up the directory. Without a backup, a deploy gives your devices back the names, rooms and types your home [declares](devices.md#declaring-devices-in-code), and the rest come back under their apps' names, on new endpoints.
 - **The Zigbee network key and database are yours,** because they belong to the Zigbee2MQTT you run. They aren't in Oikade's data directory, so back up Zigbee2MQTT's own data directory as well. Oikade's backup doesn't cover it. Losing it means pairing every device again.
 
 ## Security notes

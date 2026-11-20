@@ -29,10 +29,10 @@ func TestUnimportedDevicesSayHowToRemoveThemAndCallOutSafety(t *testing.T) {
 	})
 	want := `These devices stay on record, offline, because your home doesn't import their plugin:
   relays: boiler, heater
-    A Safety claim holds boiler, and removing it ends that claim
-    Remove them with oikade devices remove --plugin relays
+    A Safety claim holds boiler, and forgetting it ends that claim
+    Forget them with oikade forget --plugin relays
   shades: awning
-    Remove them with oikade devices remove --plugin shades
+    Forget them with oikade forget --plugin shades
 `
 	if out.String() != want {
 		t.Errorf("got\n%s\nwant\n%s", out.String(), want)

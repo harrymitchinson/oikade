@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -58,10 +59,10 @@ func TestRemovingADeviceEndsItsSavedClaims(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if resp, _ := known.remove(ctx, "valve", false); resp.Error == "" || !resp.NeedsAllowSafety {
+	if resp, _ := known.forget(ctx, []string{"valve"}, false, nil); resp.Error == "" || !resp.NeedsAllowSafety {
 		t.Fatalf("removed a device under a Safety claim: %+v", resp)
 	}
-	if resp, _ := known.remove(ctx, "valve", true); resp.Error != "" {
+	if resp, _ := known.forget(ctx, []string{"valve"}, true, nil); resp.Error != "" {
 		t.Fatal(resp.Error)
 	}
 	if _, ok := controls.Get(dev); ok {
@@ -100,7 +101,7 @@ func TestAClaimOnRecordCountsForADeviceWithNoArbiters(t *testing.T) {
 	if holders, safety := known.claimed("valve"); !safety || len(holders) != 1 || holders[0] != "flow/leak" {
 		t.Errorf("got %v, %v", holders, safety)
 	}
-	if resp, _ := known.remove(ctx, "valve", false); !resp.NeedsAllowSafety {
+	if resp, _ := known.forget(ctx, []string{"valve"}, false, nil); !resp.NeedsAllowSafety {
 		t.Errorf("got %+v", resp)
 	}
 }
@@ -310,7 +311,7 @@ func TestRemovingARoomsLastDeviceWarnsOfTheHoldsThatReadIt(t *testing.T) {
 	}
 	s := &apiServer{ctx: t.Context(), devices: known, srv: &server{session: &session{reads: reads}}}
 
-	resp := s.remove(api.Request{Type: api.TypeDeviceRemove, Device: "sensor"})
+	resp := s.forget(api.Request{Type: api.TypeForget, Devices: []string{"sensor"}})
 	if resp.Error != "" {
 		t.Fatal(resp.Error)
 	}
@@ -326,10 +327,10 @@ func TestRemovingARoomsLastDeviceWarnsOfTheHoldsThatReadIt(t *testing.T) {
 	if err := controls.Put(t.Context(), key("bulb"), state); err != nil {
 		t.Fatal(err)
 	}
-	if resp := s.remove(api.Request{Type: api.TypeDeviceRemove, Device: "bulb"}); !resp.NeedsAllowSafety || resp.Warning != "" {
+	if resp := s.forget(api.Request{Type: api.TypeForget, Devices: []string{"bulb"}}); !resp.NeedsAllowSafety || resp.Warning != "" {
 		t.Errorf("got %+v, want a refusal with no warning", resp)
 	}
-	resp = s.remove(api.Request{Type: api.TypeDeviceRemove, Plugin: "relays", AllowSafety: true})
+	resp = s.forget(api.Request{Type: api.TypeForget, Plugin: "relays", AllowSafety: true})
 	if !strings.Contains(resp.Warning, "study-fan") || strings.Contains(resp.Warning, "hall-lamp") {
 		t.Errorf("got %+v, want a warning naming study-fan, and not the hall emptied before", resp)
 	}
@@ -340,9 +341,13 @@ func TestTheAPINamesAPluginAsTheRegistryRecordsIt(t *testing.T) {
 	if !ok || name != "relays" {
 		t.Errorf("got %q, %v", name, ok)
 	}
+	// A device no plugin reports, such as a simulated one, has none, not its driver's name.
+	if name, ok := api.PluginOf(registry.Device{Driver: instanceName(simInstance)}); ok || name != "" {
+		t.Errorf("a simulated device's plugin: %q, %v", name, ok)
+	}
 }
 
-func TestRemovingAPluginsDevicesRemovesThemAll(t *testing.T) {
+func TestForgettingAPluginsDevicesForgetsThemAll(t *testing.T) {
 	data, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -374,12 +379,15 @@ func TestRemovingAPluginsDevicesRemovesThemAll(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp, _ := known.removePlugin(ctx, "relays", false)
-	if !resp.NeedsAllowSafety || !strings.Contains(resp.Error, "boiler") || len(resp.Removed) != 0 {
+	resp, _ := known.forgetPlugin(ctx, "relays", false, nil)
+	if !resp.NeedsAllowSafety || !strings.Contains(resp.Error, "boiler") || len(resp.Forgotten) != 0 {
 		t.Fatalf("got %+v", resp)
 	}
-	resp, _ = known.removePlugin(ctx, "relays", true)
-	if resp.Error != "" || strings.Join(resp.Removed, ",") != "awning,boiler" {
+	resp, _ = known.forgetPlugin(ctx, "relays", true, nil)
+	// What held the boiler is what its forget ended.
+	if resp.Error != "" || len(resp.Forgotten) != 2 || resp.Forgotten[0].Device != "awning" ||
+		resp.Forgotten[1].Device != "boiler" || len(resp.Forgotten[1].Ended) != 1 ||
+		!strings.HasSuffix(resp.Forgotten[1].Ended[0], "/frost") {
 		t.Fatalf("got %+v", resp)
 	}
 	for _, d := range reg.List().Devices {
@@ -387,7 +395,7 @@ func TestRemovingAPluginsDevicesRemovesThemAll(t *testing.T) {
 			t.Errorf("got %+v", d)
 		}
 	}
-	if resp, _ := known.removePlugin(ctx, "relays", false); resp.Error == "" {
+	if resp, _ := known.forgetPlugin(ctx, "relays", false, nil); resp.Error == "" {
 		t.Errorf("removed them twice: %+v", resp)
 	}
 }
@@ -451,5 +459,69 @@ func TestADeclaredTypeOutOfARoomsSafetyCaseNamesIt(t *testing.T) {
 	}}}}
 	if out := known.leavingSafety(as("lamp", "attic", ""), anyType, anyType); len(out) != 1 {
 		t.Errorf("moving lamp out of a room written at Safety names %v", out)
+	}
+}
+
+// A forget checks every device before it changes anything, and says what became of each: the claims
+// it ended, and whether your home imports its plugin. A plugin's device doesn't come back at its next
+// report, as a simulated one does.
+func TestAForgetChecksEveryDeviceAndSaysWhatBecameOfIt(t *testing.T) {
+	data, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = data.Close() })
+	reg, err := registry.Open(data.Namespace(registry.Namespace))
+	if err != nil {
+		t.Fatal(err)
+	}
+	controls := &engine.Stored[engine.ControlState]{Values: data.Namespace(engine.ControlStatesNamespace), Log: logging.Discard()}
+	eng := &engine.Engine{Log: logging.Discard(), Controls: controls}
+	devices := hub.NewStore(logging.Discard(), eng)
+	eng.Store = devices
+	eng.Init()
+	known := newInventory(reg, data.Namespace(homeSettingsNamespace), data.Namespace(declaredNamespace), devices, eng, logging.Discard())
+	for _, r := range []registry.Report{
+		{ID: "a", Driver: instanceName(pluginKey("relays")), Name: "awning"},
+		{ID: "b", Driver: instanceName(pluginKey("relays")), Name: "boiler"},
+		{ID: "c", Driver: instanceName(pluginKey("shades")), Name: "curtain"},
+	} {
+		if _, _, err := reg.Report(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	state := engine.ControlState{capability.On: control.State{Claims: []control.Claim{{Source: "Rule/frost", Level: control.Safety}}}}
+	if err := controls.Put(t.Context(), key("boiler"), state); err != nil {
+		t.Fatal(err)
+	}
+	imports := &plugins{host: &Host{}, known: known, imported: []string{"relays"}, importsKnown: true}
+	s := &apiServer{ctx: t.Context(), devices: known, srv: &server{plugins: imports}}
+
+	resp := s.forget(api.Request{Type: api.TypeForget, Devices: []string{"awning", "nope"}})
+	if !strings.Contains(resp.Error, "device/nope") || len(resp.Forgotten) != 0 {
+		t.Errorf("forgetting awning and nope: %+v", resp)
+	}
+	if d, _ := reg.Get("awning"); d.Removed {
+		t.Error("awning was forgotten, though nope stopped the forget")
+	}
+	if resp := s.forget(api.Request{Type: api.TypeForget, Devices: []string{"awning", "awning"}}); resp.Error != "" ||
+		len(resp.Forgotten) != 1 {
+		t.Errorf("forgetting awning twice over: %+v", resp)
+	}
+
+	resp = s.forget(api.Request{Type: api.TypeForget, Devices: []string{"boiler", "curtain"}, AllowSafety: true})
+	want := []api.Forgotten{
+		{Device: "boiler", Ref: "device/boiler", Plugin: "relays", Ended: []string{control.RuleRef("frost").String()}},
+		{Device: "curtain", Ref: "device/curtain", Plugin: "shades", Unimported: true},
+	}
+	if resp.Error != "" || fmt.Sprintf("%+v", resp.Forgotten) != fmt.Sprintf("%+v", want) {
+		t.Errorf("got %+v, %q\nwant %+v", resp.Forgotten, resp.Error, want)
+	}
+
+	if resp := s.forget(api.Request{Type: api.TypeForget, Devices: []string{"boiler"}}); resp.Error != "device/boiler is forgotten already" {
+		t.Errorf("forgetting boiler again: %+v", resp)
+	}
+	if resp := s.forget(api.Request{Type: api.TypeForget}); resp.Error == "" {
+		t.Error("a forget of nothing went ahead")
 	}
 }

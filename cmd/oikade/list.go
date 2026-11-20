@@ -340,7 +340,7 @@ func printContexts(out, stderr *cli.Printer, cfg clientConfig, o listOptions) er
 	}
 	if len(contexts) == 0 {
 		stderr.Println("No contexts, so commands go to this machine's host. oikade login adds one: " +
-			"oikade-host client add, on the host's machine, prints the line to run.")
+			"oikade-host add client/NAME, on the host's machine, prints the line to run.")
 		return nil
 	}
 	table := cli.Table{

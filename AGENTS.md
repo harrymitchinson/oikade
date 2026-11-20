@@ -4,7 +4,7 @@
 
 ```
 cmd/oikade/*                   oikade: every command you run, from a laptop or CI
-cmd/oikade-host/*              oikade-host: the host, plus client add
+cmd/oikade-host/*              oikade-host: the host, plus add client/NAME
 *.go, hometest/*               Package oikade: what a home is written with (public API)
 internal/host/*                The host
 internal/engine/*              Holds, moments, arbitration, the day planner

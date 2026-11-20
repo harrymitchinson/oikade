@@ -330,6 +330,13 @@ func (p *plugins) setImports(imported []string, known bool) {
 	p.imported, p.importsKnown = imported, known
 }
 
+// imports is what the binary in use imports, and whether that's known yet.
+func (p *plugins) imports() ([]string, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return slices.Clone(p.imported), p.importsKnown
+}
+
 // unimportedNow lists the devices of plugins the binary in use doesn't import, or nothing if that
 // isn't known yet. Without safety, it doesn't look up their claims.
 func (p *plugins) unimportedNow(safety bool) []api.Unimported {

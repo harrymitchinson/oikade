@@ -83,7 +83,7 @@ func unreachable(t api.Transport, name string, err error) error {
 	case api.Remote:
 		if errors.Is(err, api.ErrOtherHost) {
 			return cli.Wrap(err, "%s, at %s, isn't the host you logged in to: its key has another pin", name, t.Address).
-				WithHint("oikade login it again, with the pin oikade-host client add prints on it")
+				WithHint("oikade login it again, with the pin oikade-host add prints on it")
 		}
 		if _, isNet := errors.AsType[*net.OpError](err); isNet || isDNS(err) {
 			return cli.Wrap(err, "couldn't reach %s, at %s", name, t.Address).
@@ -441,14 +441,14 @@ func done(resp api.Response, asJSON bool, message string) error {
 func finished(resp api.Response, asJSON bool, message string, changed bool) error {
 	if asJSON {
 		out := struct {
-			OK      bool            `json:"ok"`
-			Error   string          `json:"error,omitempty"`
-			Warning string          `json:"warning,omitempty"`
-			Removed []string        `json:"removed,omitempty"`
-			Outcome *api.Capability `json:"outcome,omitempty"`
-			Ended   []string        `json:"ended,omitempty"`
-			Kept    []string        `json:"kept,omitempty"`
-		}{resp.Error == "", resp.Error, resp.Warning, resp.Removed, resp.Outcome, resp.Ended, resp.Kept}
+			OK        bool            `json:"ok"`
+			Error     string          `json:"error,omitempty"`
+			Warning   string          `json:"warning,omitempty"`
+			Forgotten []api.Forgotten `json:"forgotten,omitempty"`
+			Outcome   *api.Capability `json:"outcome,omitempty"`
+			Ended     []string        `json:"ended,omitempty"`
+			Kept      []string        `json:"kept,omitempty"`
+		}{resp.Error == "", resp.Error, resp.Warning, resp.Forgotten, resp.Outcome, resp.Ended, resp.Kept}
 		if err := cli.PrintJSON(out); err != nil {
 			return err
 		}
@@ -460,7 +460,7 @@ func finished(resp api.Response, asJSON bool, message string, changed bool) erro
 		default:
 			std.out.Println(message)
 		}
-		// A remove that failed part way still warns of what it did.
+		// A forget that failed part way still warns of what it did.
 		if resp.Warning != "" {
 			std.err.Warn("%s", resp.Warning)
 		}

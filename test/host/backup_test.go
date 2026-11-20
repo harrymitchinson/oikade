@@ -174,7 +174,7 @@ func TestSecretsReachYourProcessAndPluginsAndNoLogOrAnswer(t *testing.T) {
 	if out := r.stdout(nil, "list", "secrets", "--json"); bytes.Contains(out, []byte(secretValue)) {
 		t.Errorf("--json has the value: %s", out)
 	}
-	r.stdout(nil, "secret", "remove", "fixture-secret")
+	r.stdout(nil, "remove", "secret/fixture-secret")
 	if out := r.stdout(nil, "list", "secrets"); len(out) != 0 {
 		t.Errorf("after removing it: %s", out)
 	}

@@ -25,7 +25,7 @@ func TestEmptyListsSayWhatWouldFillThem(t *testing.T) {
 		}, "No secrets. oikade secret set NAME adds one."},
 		{"clients", func(stdout, stderr *bytes.Buffer, asJSON bool) error {
 			return printClients(cli.Plain(stdout, 0), cli.Plain(stderr, 0), nil, asJSON, time.Now())
-		}, "No clients. oikade-host client add NAME, on the host's machine, adds one."},
+		}, "No clients. oikade-host add client/NAME, on the host's machine, adds one."},
 	} {
 		var stdout, stderr bytes.Buffer
 		if err := tc.print(&stdout, &stderr, false); err != nil {
@@ -112,7 +112,7 @@ func TestStatusStartsWithWhatsLeftToSetUp(t *testing.T) {
 		"The Matter bridge has no controller. oikade matter says how to pair one.",
 		"Devices with a problem: attic-fan. Their STATE says what's wrong.",
 		"Devices whose plugin isn't imported: shed-relay. " +
-			"Import it in your home and run oikade deploy, or remove the device with oikade devices remove.",
+			"Import it in your home and run oikade deploy, or forget its devices with oikade forget --plugin NAME.",
 	}
 	if got := strings.Split(strings.TrimSpace(stderr.String()), "\n"); !slices.Equal(got, want) {
 		t.Errorf("stderr:\n%s\nwant:\n%s", stderr.String(), strings.Join(want, "\n"))

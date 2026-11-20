@@ -49,13 +49,14 @@ func TestHostHelpAndUsage(t *testing.T) {
 		{"help", []string{"--help"}, 0},
 		{"help", []string{"-h"}, 0},
 		{"help", []string{"help", "help"}, 0},
-		{"client-add-help", []string{"client", "add", "--help"}, 0},
-		{"client-add-help", []string{"help", "client", "add"}, 0},
+		{"add-help", []string{"add", "--help"}, 0},
+		{"add-help", []string{"help", "add"}, 0},
 		{"unknown-command", []string{"instal"}, cli.ExitUsage},
 		{"unknown-command-deploy", []string{"deploy"}, cli.ExitUsage},
 		{"unknown-flag", []string{"install", "--bogus"}, cli.ExitUsage},
 		{"bad-flag-value", []string{"--settle", "soon"}, cli.ExitUsage},
-		{"usage-error", []string{"client", "list"}, cli.ExitUsage},
+		{"usage-error", []string{"add", "device/porch-light"}, cli.ExitUsage},
+		{"client-add", []string{"client", "add", "laptop"}, cli.ExitUsage},
 	} {
 		stdout, stderr, code := runHostCommand(t, tc.args...)
 		if code != tc.code {
@@ -87,5 +88,15 @@ func TestADataDirectoryTheHostMayNotWriteSaysHowToRunIt(t *testing.T) {
 	other := &fs.PathError{Op: "open", Path: "/etc/oikade/secrets/broker", Err: fs.ErrPermission}
 	if got := dataDirError(other, "/var/lib/oikade"); !errors.Is(got, other) || got != error(other) {
 		t.Errorf("got %v", got)
+	}
+}
+
+// A command word of only spaces is an unknown command, not a crash.
+func TestABlankCommandIsUnknown(t *testing.T) {
+	for _, args := range [][]string{{" "}, {"help", " "}} {
+		_, stderr, code := runHostCommand(t, args...)
+		if code != cli.ExitUsage || !strings.Contains(stderr, "unknown command") {
+			t.Errorf("oikade-host %q exits %d: %s", args, code, stderr)
+		}
 	}
 }

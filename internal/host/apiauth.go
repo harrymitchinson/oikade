@@ -41,7 +41,7 @@ const (
 )
 
 // errBadCode is a login with a code that's wrong, used or expired. It doesn't say which.
-var errBadCode = fmt.Errorf("that code doesn't work: it's wrong, used or more than %v old. Run oikade-host client add again",
+var errBadCode = fmt.Errorf("that code doesn't work: it's wrong, used or more than %v old. Run oikade-host add again",
 	codeLifetime)
 
 // validClientName refuses a new client's name that breaks the rule every name Oikade owns follows.
@@ -144,9 +144,10 @@ type clients struct {
 	codes map[string]pendingLogin
 }
 
+// pendingLogin is a client waiting for its login: its name, and when its code was made and runs out.
 type pendingLogin struct {
-	name    string
-	expires time.Time
+	name            string
+	issued, expires time.Time
 }
 
 func loadClients(values *store.Namespace) (*clients, error) {
@@ -203,7 +204,12 @@ func (c *clients) add(name string) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if _, taken := c.records[name]; taken {
-		return "", fmt.Errorf("there's already a client called %s: revoke it first", name)
+		return "", fmt.Errorf("there's already a client called %s: oikade remove %s removes it first", name,
+			ident.NewRef(ident.Client, name))
+	}
+	if c.waiting(name) {
+		return "", fmt.Errorf("%s is waiting for its login: oikade remove %s cancels its code first", name,
+			ident.NewRef(ident.Client, name))
 	}
 	rec := clientRecord{Hash: hashToken(token), Created: c.now().UTC()}
 	// On disk before it's handed out, so a token that works survives a crash.
@@ -223,19 +229,33 @@ func (c *clients) issue(name string) (string, time.Time, error) {
 	secret := make([]byte, 16)
 	_, _ = rand.Read(secret)
 	code := base64.RawURLEncoding.EncodeToString(secret)
-	expires := c.now().UTC().Add(codeLifetime)
+	issued := c.now().UTC()
+	expires := issued.Add(codeLifetime)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if _, taken := c.records[name]; taken {
-		return "", time.Time{}, fmt.Errorf("there's already a client called %s: revoke it first", name)
+		return "", time.Time{}, fmt.Errorf("there's already a client called %s: oikade remove %s removes it first", name,
+			ident.NewRef(ident.Client, name))
 	}
 	for hash, p := range c.codes {
 		if p.name == name || !c.now().Before(p.expires) {
 			delete(c.codes, hash)
 		}
 	}
-	c.codes[hashToken(code)] = pendingLogin{name: name, expires: expires}
+	c.codes[hashToken(code)] = pendingLogin{name: name, issued: issued, expires: expires}
 	return code, expires, nil
+}
+
+// waiting says a client of that name is waiting for its login, with a code that hasn't run out. Call
+// with mu held.
+func (c *clients) waiting(name string) bool {
+	now := c.now()
+	for _, p := range c.codes {
+		if p.name == name && now.Before(p.expires) {
+			return true
+		}
+	}
+	return false
 }
 
 // redeem trades a code for a client and its token. A code goes on its first try, right or not.
@@ -252,34 +272,54 @@ func (c *clients) redeem(code string) (string, string, error) {
 	return p.name, token, err
 }
 
-// revoke removes a client, so its token stops working at once, and its streams end. It's off disk
-// before it's off the list, so a revoke that failed can be tried again, and one that worked can't
-// come back with a restart.
-func (c *clients) revoke(name string) error {
+// remove removes a client, so its token stops working at once, and its streams end. It's off disk
+// before it's off the list, so a remove that failed can be tried again, and one that worked can't
+// come back with a restart. A client waiting for its login has its code cancelled, which cancelled
+// says.
+func (c *clients) remove(name string) (cancelled bool, err error) {
 	c.disk.Lock()
 	defer c.disk.Unlock()
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	// A code for the name goes whatever else does, so nothing can log in as it after.
+	cancelled = c.waiting(name)
+	for hash, p := range c.codes {
+		if p.name == name {
+			delete(c.codes, hash)
+		}
+	}
 	rec, ok := c.records[name]
-	if !ok {
-		return fmt.Errorf("there's no client called %s", name)
+	switch {
+	case !ok && cancelled:
+		return true, nil
+	case !ok:
+		return false, fmt.Errorf("there's no %s: oikade list clients lists them", ident.NewRef(ident.Client, name))
 	}
 	if err := c.values.Delete(apiTokenPrefix + name); err != nil {
-		return fmt.Errorf("revoking client %s: %w", name, err)
+		return false, fmt.Errorf("removing %s: %w", ident.NewRef(ident.Client, name), err)
 	}
 	delete(c.records, name)
 	delete(c.byHash, rec.Hash)
 	close(c.revoked[name])
 	delete(c.revoked, name)
-	return nil
+	return false, nil
 }
 
+// list is the clients, and those waiting for their login whose code hasn't run out.
 func (c *clients) list() []api.Client {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	out := make([]api.Client, 0, len(c.records))
+	out := make([]api.Client, 0, len(c.records)+len(c.codes))
 	for name, rec := range c.records {
-		out = append(out, api.Client{Name: name, Ref: ident.NewRef(ident.Client, name).String(), Created: rec.Created, LastUsed: rec.LastUsed})
+		out = append(out, api.Client{Name: name, Ref: ident.NewRef(ident.Client, name).String(), Created: rec.Created,
+			LastUsed: rec.LastUsed})
+	}
+	now := c.now()
+	for _, p := range c.codes {
+		if now.Before(p.expires) {
+			out = append(out, api.Client{Name: p.name, Ref: ident.NewRef(ident.Client, p.name).String(), Created: p.issued,
+				Expires: p.expires})
+		}
 	}
 	slices.SortFunc(out, func(a, b api.Client) int { return strings.Compare(a.Name, b.Name) })
 	return out
