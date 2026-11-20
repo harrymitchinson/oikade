@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host/api"
+	"github.com/harrymitchinson/oikade/internal/ident"
 	"github.com/harrymitchinson/oikade/internal/registry"
 )
 
@@ -62,6 +64,15 @@ func runList(ctx context.Context, args []string) error {
 	}
 	o := listOptions{json: *asJSON, wide: *wide, all: *all}
 	if kind == kindContexts { // The laptop's own, so no host.
+		var target string
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name == flagContext || f.Name == flagDataDir {
+				target = f.Name
+			}
+		})
+		if target != "" {
+			return cli.UsageErrorf("--%s picks a host, and oikade list contexts asks none", target)
+		}
 		cfg, err := loadConfig()
 		if err != nil {
 			return err
@@ -278,7 +289,7 @@ func printSecrets(out, stderr *cli.Printer, secrets []api.Secret, unset []string
 	all := append([]api.Secret{}, secrets...)
 	for _, name := range unset {
 		if !slices.ContainsFunc(all, func(s api.Secret) bool { return s.Name == name }) {
-			all = append(all, api.Secret{Name: name, Ref: "secret/" + name, Unset: true})
+			all = append(all, api.Secret{Name: name, Ref: ident.NewRef(ident.Secret, name).String(), Unset: true})
 		}
 	}
 	slices.SortFunc(all, func(a, b api.Secret) int { return strings.Compare(a.Name, b.Name) })

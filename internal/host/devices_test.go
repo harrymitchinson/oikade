@@ -3,7 +3,6 @@ package host
 import (
 	"context"
 	"encoding/json"
-	"maps"
 	"strings"
 	"testing"
 	"time"
@@ -452,51 +451,5 @@ func TestADeclaredTypeOutOfARoomsSafetyCaseNamesIt(t *testing.T) {
 	}}}}
 	if out := known.leavingSafety(as("lamp", "attic", ""), anyType, anyType); len(out) != 1 {
 		t.Errorf("moving lamp out of a room written at Safety names %v", out)
-	}
-}
-
-// A device its driver says is offline has that as its problem, before the driver's own error, so
-// oikade devices says so (OIK-340).
-func TestTheDevicesListSaysADeviceIsOffline(t *testing.T) {
-	data, err := store.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = data.Close() })
-	reg, err := registry.Open(data.Namespace(registry.Namespace))
-	if err != nil {
-		t.Fatal(err)
-	}
-	controls := &engine.Stored[engine.ControlState]{Values: data.Namespace(engine.ControlStatesNamespace), Log: logging.Discard()}
-	eng := &engine.Engine{Log: logging.Discard(), Controls: controls}
-	devices := hub.NewStore(logging.Discard(), eng)
-	eng.Store = devices
-	eng.Init()
-	known := newInventory(reg, data.Namespace(homeSettingsNamespace), data.Namespace(declaredNamespace), devices, eng, logging.Discard())
-	relays := pluginKey("relays")
-	known.attach(relays)
-	keys := map[string]ident.ID{}
-	for _, d := range []driver.AppDevice{
-		{ID: "p", Name: "pool-pump", Capabilities: []string{capability.On}},
-		{ID: "s", Name: "shed-relay", Capabilities: []string{capability.On}},
-		{ID: "d", Name: "desk-lamp", Capabilities: []string{capability.On}},
-	} {
-		key, err := known.paired(relays, d, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		keys[d.Name] = key
-	}
-	id := func(name string) ident.ID { return keys[name] }
-	devices.Availability(id("pool-pump"), false)
-	devices.Availability(id("shed-relay"), false)
-	devices.Discovered(id("shed-relay"), driver.Info{Error: "not seen on the LAN"})
-	devices.Availability(id("desk-lamp"), true)
-
-	s := &apiServer{ctx: t.Context(), devices: known, srv: &server{devices: devices}}
-	resp := s.device(api.Request{Type: api.TypeDevices})
-	want := map[string]string{"pool-pump": "offline", "shed-relay": "offline: not seen on the LAN"}
-	if !maps.Equal(resp.Problems, want) {
-		t.Errorf("problems %v, want %v", resp.Problems, want)
 	}
 }

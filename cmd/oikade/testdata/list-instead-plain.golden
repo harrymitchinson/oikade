@@ -14,6 +14,22 @@ Usage:
 Hint: oikade list devices lists them
 exit 2
 
+$ oikade devices --wide
+Error: oikade devices doesn't list devices any more
+Usage:
+  oikade devices remove DEVICE [--allow-safety] [--json]
+  oikade devices remove --plugin NAME [--allow-safety] [--json]
+Hint: oikade list devices lists them
+exit 2
+
+$ oikade devices --all
+Error: oikade devices doesn't list devices any more
+Usage:
+  oikade devices remove DEVICE [--allow-safety] [--json]
+  oikade devices remove --plugin NAME [--allow-safety] [--json]
+Hint: oikade list devices lists them
+exit 2
+
 $ oikade secret list
 Error: oikade secret doesn't list secrets any more
 Usage:

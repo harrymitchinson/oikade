@@ -157,10 +157,12 @@ func TestListTakesOneKind(t *testing.T) {
 		}
 	}
 	for args, want := range map[string]string{
-		"list":                  "Error: oikade list takes one kind\n",
-		"list devices rules":    "Error: oikade list takes one kind\n",
-		"list device/hall-lamp": "Error: oikade list doesn't take device/hall-lamp\n",
-		"list rules --all":      "Error: --all is only for oikade list devices\n",
+		"list":                        "Error: oikade list takes one kind\n",
+		"list devices rules":          "Error: oikade list takes one kind\n",
+		"list device/hall-lamp":       "Error: oikade list doesn't take device/hall-lamp\n",
+		"list rules --all":            "Error: --all is only for oikade list devices\n",
+		"list contexts --context lab": "Error: --context picks a host, and oikade list contexts asks none\n",
+		"list contexts --data-dir /x": "Error: --data-dir picks a host, and oikade list contexts asks none\n",
 	} {
 		if _, errs, code := runOikade(t, cli.Plain, strings.Fields(args)...); code != 2 || !strings.HasPrefix(errs, want) {
 			t.Errorf("oikade %s exits %d:\n%s\nwant 2, and stderr starting %q", args, code, errs, want)
@@ -172,7 +174,8 @@ func TestListTakesOneKind(t *testing.T) {
 func TestAWordFromElsewhereNamesTheCommand(t *testing.T) {
 	var b bytes.Buffer
 	for _, args := range []string{
-		"devices", "devices --json", "secret list", "client list", "logs", "events", "ls", "get", "show",
+		"devices", "devices --json", "devices --wide", "devices --all", "secret list", "client list", "logs", "events", "ls",
+		"get", "show",
 	} {
 		_, errs, code := runOikade(t, cli.Plain, strings.Fields(args)...)
 		_, _ = fmt.Fprintf(&b, "$ oikade %s\n%sexit %d\n\n", args, errs, code)

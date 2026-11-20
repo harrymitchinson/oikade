@@ -208,9 +208,6 @@ type Response struct {
 	// Unimported are the devices on record of plugins the version doesn't import: a deploy's or a
 	// rollback's for the version now running, and a devices request's for the one running now.
 	Unimported []Unimported `json:"unimported,omitempty"`
-	// Problems are a devices request's: what's wrong with a device, by name: offline, as its driver
-	// says, and the driver's error, such as "offline: unreachable".
-	Problems map[string]string `json:"problems,omitempty"`
 	// OutsidePlugins are a devices request's: the plugins that run as processes of their own, which no
 	// version imports.
 	OutsidePlugins []string `json:"outsidePlugins,omitempty"`

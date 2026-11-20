@@ -36,6 +36,9 @@ func runDevices(ctx context.Context, args []string) error {
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
 	allow := fs.Bool("allow-safety", false, "Remove a device under a Safety claim.")
 	plugin := fs.String("plugin", "", "Remove every device of this plugin, such as one your home no longer imports.")
+	// Gone with the list, and kept so that one typed from habit says where it went.
+	_ = fs.Bool("all", false, "")
+	_ = fs.Bool("wide", false, "")
 	words := cli.Parse(fs, args)
 	if len(words) == 0 {
 		return cli.UsageErrorf("oikade devices doesn't list devices any more").WithHint("%s", instead["devices"])
@@ -160,7 +163,7 @@ func printDevices(out *cli.Printer, list registry.Snapshot, marks deviceMarks, w
 		Columns: []cli.Column{
 			{Header: nameHeader},
 			{Header: "ROOM"},
-			{Header: stateHeader, DimIf: func(cell string) bool { return cell == notInYourCode }},
+			{Header: stateHeader},
 			{Header: "DEVICE TYPES", Drop: 3, Shrink: true},
 			{Header: "CAPABILITIES", Shrink: true},
 			{Header: "PLUGIN"},
@@ -199,18 +202,6 @@ func printDevices(out *cli.Printer, list registry.Snapshot, marks deviceMarks, w
 			strings.Join(d.Capabilities, ", "), plugin, or(registry.HardwareRef(d).String(), hardwareOf(d)), endpoint})
 	}
 	return undeclared, out.Table(table)
-}
-
-// modelOf is a device's manufacturer and model, as its driver says, with the manufacturer once if its
-// model already starts with it as a word.
-func modelOf(d registry.Device) string {
-	m, model := d.Manufacturer, d.Model
-	startsWith := len(model) >= len(m) && strings.EqualFold(model[:len(m)], m) &&
-		(len(model) == len(m) || model[len(m)] == ' ')
-	if m == "" || startsWith {
-		return model
-	}
-	return strings.TrimSpace(d.Manufacturer + " " + d.Model)
 }
 
 // hardwareOf names hardware that isn't a plugin's, such as a simulated device's, by its driver and

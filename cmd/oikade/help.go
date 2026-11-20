@@ -26,7 +26,7 @@ type group struct {
 }
 
 // targetValues name the values of the flags every command that talks to a host takes.
-var targetValues = map[string]string{"data-dir": "DIR", "context": "NAME"}
+var targetValues = map[string]string{flagDataDir: "DIR", flagContext: "NAME"}
 
 // groups are oikade's commands, by what you're doing.
 var groups = []group{
@@ -97,7 +97,7 @@ var groups = []group{
 			Name:    "oikade list",
 			Summary: "List what's on record, and how each is set up.",
 			Usage:   []string{"oikade list KIND [--wide] [--all] [--json]"},
-			About: "KIND is devices, rules, plugins, secrets, clients or contexts, or one of them. devices are each " +
+			About: "KIND is devices, rules, plugins, secrets, clients or contexts, singular or plural. devices are each " +
 				"device's record: its room, whether it's paired, reserved, forgotten, hidden from Matter or not in your " +
 				"code, what it is, and its plugin, with its hardware and Matter endpoint under --wide, and the forgotten " +
 				"ones under --all. secrets have when each changed, and those your home uses that aren't set. contexts " +
@@ -177,6 +177,7 @@ var groups = []group{
 				"device keeps its Matter endpoint, so hardware that comes back is the same device. oikade list devices " +
 				"lists them.",
 			Example: []string{"oikade devices remove --plugin zigbee2mqtt"},
+			Hide:    []string{"all", "wide"},
 		},
 		{
 			Name:    "oikade setup",

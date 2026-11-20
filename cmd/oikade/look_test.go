@@ -304,18 +304,3 @@ func TestOnlyAChangeGetsATick(t *testing.T) {
 		t.Error("stuck")
 	}
 }
-
-func TestAModelNamesItsManufacturerOnce(t *testing.T) {
-	for _, c := range []struct{ manufacturer, model, want string }{
-		{"Somfy", "Somfy RS100 io", "Somfy RS100 io"},
-		{"somfy", "Somfy", "Somfy"},
-		{"Aqara", "AqaraHub-M2", "Aqara AqaraHub-M2"},
-		{"Toshiba", "", "Toshiba"},
-		{"", "MINIR4", "MINIR4"},
-		{"Bosch", "Bo", "Bosch Bo"},
-	} {
-		if got := modelOf(registry.Device{Manufacturer: c.manufacturer, Model: c.model}); got != c.want {
-			t.Errorf("%q and %q gave %q, want %q", c.manufacturer, c.model, got, c.want)
-		}
-	}
-}
