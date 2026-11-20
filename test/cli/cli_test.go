@@ -231,6 +231,35 @@ func TestCheckFailsOn(t *testing.T) {
 	}
 }
 
+// A home whose code uses a value that neither its .env nor the environment has isn't deployed: that's
+// found before anything is sent, so it needs no host (OIK-365).
+func TestADeployMissingAValueStopsBeforeItReachesAHost(t *testing.T) {
+	t.Parallel()
+	bin := oikade(t)
+	dir := newHome(t, bin)
+	replacing(returns, "\t_ = oikade.Var(\"TOSHIBA_PASSWORD\")\n"+returns)(t, dir)
+	// A binary for this machine, which --binary deploys: its check says what its code uses.
+	build := exec.Command("go", "build", "-o", "home", ".")
+	build.Dir, build.Env = dir, append(os.Environ(), "GOPROXY=off", "GOFLAGS=-mod=mod")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("go build: %v\n%s", err, out)
+	}
+	nowhere := t.TempDir()
+	out, err := run(t, bin, dir, "", "deploy", "--binary", "home", "--data-dir", nowhere)
+	if err == nil || !strings.Contains(out, "Error: TOSHIBA_PASSWORD isn't set\n") ||
+		!strings.Contains(out, "Hint: add it to .env, or set it in the environment\n") || strings.Contains(out, "Uploading") {
+		t.Fatalf("got %v:\n%s", err, out)
+	}
+	// With the value, the deploy gets as far as its upload, to a host that isn't there.
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("TOSHIBA_PASSWORD=hunter2\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, bin, dir, "", "deploy", "--binary", "home", "--data-dir", nowhere)
+	if err == nil || !strings.Contains(out, "Uploading") || strings.Contains(out, "hunter2") {
+		t.Fatalf("got %v:\n%s", err, out)
+	}
+}
+
 // replacing makes the first from in a home's main.go to.
 func replacing(from, to string) func(*testing.T, string) {
 	return func(t *testing.T, dir string) {

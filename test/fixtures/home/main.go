@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -276,6 +278,29 @@ func reportSecret() {
 	}
 }
 
+// The values the tests deploy, which the variants "vars" and "vars-more" use (OIK-365).
+const (
+	fixtureToken = "FIXTURE_TOKEN"
+	fixtureExtra = "FIXTURE_EXTRA"
+)
+
+// reportVar tells the tests which value a process was given, by a digest of it: the value mustn't
+// be logged.
+func reportVar(role, name, value string) {
+	sum := sha256.Sum256([]byte(value))
+	fmt.Printf("{\"msg\":\"Read var\",\"role\":%q,\"variant\":%q,\"name\":%q,\"sha\":%q}\n",
+		role, variant, name, hex.EncodeToString(sum[:8]))
+}
+
+// keyedRelays is a plugin whose config, as a home writes one, has a value from oikade.Var. It says
+// which it was given as it starts.
+func keyedRelays(token string) plugin.Factory {
+	return func(plugin.Environment, []contractv1.DeclaredDevice) (plugin.Handler, error) {
+		reportVar("plugin", fixtureToken, token)
+		return relays.New([]contractv1.DeclaredDevice{relay("keyed")}), nil
+	}
+}
+
 func main() {
 	start()
 	reportSecret()
@@ -432,6 +457,15 @@ func home() *oikade.Home {
 			// A test's broker has a port of its own. A home writes its broker here.
 			Broker: os.Getenv("OIKADE_TEST_ZIGBEE_BROKER"),
 		}))
+	case strings.HasPrefix(variant, "vars"):
+		token := oikade.Var(fixtureToken)
+		if variant == "vars-more" {
+			_ = oikade.Var(fixtureExtra)
+		}
+		if len(os.Args) > 1 && os.Args[1] == "automations" {
+			reportVar("automations", fixtureToken, token)
+		}
+		h.Plugin("keyed", keyedRelays(token))
 	}
 	return h
 }

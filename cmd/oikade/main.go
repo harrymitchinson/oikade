@@ -77,7 +77,13 @@ type deployer struct {
 // way. A value your code uses that nothing gives stops it before the upload.
 func (d deployer) run(ctx context.Context, transport api.Transport, module, binary, envFile string, allow bool) error {
 	path := binary
-	var used []string
+	var vals values
+	// Your values are read as soon as what your code uses is known, so a missing one stops the deploy
+	// before anything slow.
+	read := func(used []string) (err error) {
+		vals, err = readValues(module, envFile, used, d.lookup)
+		return err
+	}
 	if path == "" {
 		info, err := api.Call(ctx, transport, api.Request{Type: api.TypeInfo})
 		if err != nil {
@@ -96,7 +102,9 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 			if err != nil {
 				return err
 			}
-			used = m.Vars
+			if err := read(m.Vars); err != nil {
+				return err
+			}
 		}
 		dir, err := os.MkdirTemp("", "oikade-deploy")
 		if err != nil {
@@ -116,7 +124,9 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 			if err != nil {
 				return err
 			}
-			used = m.Vars
+			if err := read(m.Vars); err != nil {
+				return err
+			}
 		}
 	} else {
 		m, err := d.manifest(ctx, module, path)
@@ -124,15 +134,13 @@ func (d deployer) run(ctx context.Context, transport api.Transport, module, bina
 		case cantRunHere(err):
 			// Built for another machine: the host checks it, and refuses it if it uses a value it
 			// isn't sent, and only the file's are.
-		case err != nil:
-			return err
-		default:
-			used = m.Vars
+			err = read(nil)
+		case err == nil:
+			err = read(m.Vars)
 		}
-	}
-	vals, err := readValues(module, envFile, used, d.lookup)
-	if err != nil {
-		return err
+		if err != nil {
+			return err
+		}
 	}
 	file, err := os.Stat(path)
 	if err != nil {
@@ -169,7 +177,12 @@ func homeCheck(ctx context.Context, module, path string) (wire.Manifest, error) 
 	if path == "" {
 		return homeManifest(ctx, module)
 	}
-	return manifestOf(ctx, path)
+	// A bare name, as in --binary home, is a file here, not a command on the PATH.
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return wire.Manifest{}, err
+	}
+	return manifestOf(ctx, abs)
 }
 
 // cantRunHere is a check that failed because the binary isn't for this machine, or can't be run.
