@@ -49,7 +49,7 @@ func (s *apiServer) deployUpload(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	allow, _ := strconv.ParseBool(r.URL.Query().Get(api.AllowSafetyRemovalParam))
+	allow, _ := strconv.ParseBool(r.URL.Query().Get(api.AllowSafetyParam))
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 	defer context.AfterFunc(s.ctx, cancel)()

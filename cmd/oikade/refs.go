@@ -88,21 +88,21 @@ func capabilityOf(arg string) (device, name string, err error) {
 	return parts[0], parts[1], nil
 }
 
-// ruleOf checks that an argument with a '/' is a rule's ref, a case's or a flow's, as command takes
-// one. A bare word goes to the host, which can say whose rule's name it is.
+// ruleOf checks that an argument is a rule's ref, a case's or a flow's, as command takes one, and not
+// another kind's, such as matter. A bare word goes to the host, which can say whose rule's name it is.
 func ruleOf(command, arg string) error {
-	if !strings.Contains(arg, "/") {
-		return nil
-	}
 	k, _, err := ident.ParseRef(arg)
-	if err != nil && (strings.HasPrefix(arg, string(ident.Case)+"/") || strings.HasPrefix(arg, string(ident.Flow)+"/")) {
+	switch {
+	case err == nil && (k == ident.Case || k == ident.Flow):
+		return nil
+	case err != nil && !strings.Contains(arg, "/"):
+		// A rule's name on its own: the host knows if a rule has it, and answers with its ref.
+		return nil
+	case err != nil && (strings.HasPrefix(arg, string(ident.Case)+"/") || strings.HasPrefix(arg, string(ident.Flow)+"/")):
 		return cli.UsageErrorf("%s", err)
 	}
-	if err != nil || (k != ident.Case && k != ident.Flow) {
-		return cli.UsageErrorf("%s isn't a rule's ref: oikade %s takes a case's, case/DEVICE/CAPABILITY/CASE, "+
-			"or a flow's, flow/FLOW", arg, command)
-	}
-	return nil
+	return cli.UsageErrorf("%s isn't a rule's ref: oikade %s takes a case's, case/DEVICE/CAPABILITY/CASE, "+
+		"or a flow's, flow/FLOW", arg, command)
 }
 
 // valueOf is the value raw, as it was typed, gives the capability, or why it can't take it, in the

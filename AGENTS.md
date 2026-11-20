@@ -87,11 +87,12 @@ log.Error("Failed to start Plugin", "err", err, "name", name)
 Every `oikade` and `oikade-host` command is not verbose, but never leaves you wondering (OIK-218):
 
 - **Anything that can take over a second says what it's doing as it starts, on stderr:** `Fetching Oikade v0.2.0`, then the result, rather than five silent seconds.
-- **Say what happened, not what was asked:** `device/desk-plug/on is false, not true: case/desk-plug/on/hall-too-humid holds it`, not `Set desk-plug on to true`.
+- **Say what happened, not what was asked:** `device/towel-rail/on is false, not true: no line applies, so its Default wins`, not `Set device/towel-rail/on to true`.
 - **An empty answer says it's empty, and what would fill it:** `No secrets. oikade set secret/NAME adds one.`, not a bare header.
 - **A long-running command says it has started:** `Following home's events`, so a quiet house doesn't look hung.
 - **Never pass on another tool's output that asks for a step already done:** `oikade init` hides Go's `go mod tidy` hint, which it has run, and shows Go's output only when Go fails.
-- **`--json` and stdout stay clean for scripts:** progress and hints go to stderr, and `--json` keeps its shape when empty (`[]`).
+- **`--json` and stdout stay clean for scripts:** progress and hints go to stderr, and `--json` keeps its shape when empty (`[]`). A verb that changes something prints `{"ok": true, "ref": …}` with what it did, or `"ok": false` and its `error` (`changedJSON`), and `forget` and `remove`, which take several, `refs`.
+- **One grammar** (OIK-355): `oikade VERB [REF...] [--flags]`, each thing named by its ref, as every output prints it. Which kinds a verb takes is in `cmd/oikade/kinds.go`, which `oikade help KIND` prints, and `TestEveryVerbExitsAsTheGrammarSays` holds each verb to it: exit 2 for a command typed wrong, such as a kind it doesn't take, and 1 for the rest. A word from another tool or a command that's gone is in help.go's `instead`, naming the one to use, and `TestNothingNamesACommandThatsGone` keeps the docs to the commands there are.
 
 #### The look
 
@@ -103,7 +104,7 @@ Human output shares one look (OIK-331), printed with `internal/cli`'s `Printer` 
 - **Say it once.** A hint that applies to many rows is one `Hint` after the table, naming the command that says more.
 - **Errors are one sentence and a next step:** return a `cli.Errorf`, `cli.Wrap(err, …)` or `cli.UsageErrorf`, with `.WithHint(…)` naming the command or flag that fixes it. `Error: <what went wrong, in the user's words>`, then a dim `Hint: …`. A wrapped cause, such as a Go error chain (`fork/exec …`, `mkdir …`), shows only with `--debug` or `OIKADE_DEBUG=1`. Usage errors exit 2, other failures 1.
 - **Times are relative near now** (`cli.Ago`: `8 s ago`, `today 08:45`, `3 days ago`) and absolute past a week, in local time. Versions are short (`cli.ShortVersion`: `f113018`, `v0.2.0-alpha.2`).
-- **Help teaches.** `oikade help` groups the commands by what you're doing, and `oikade CMD --help` (or `oikade help CMD`) says what one does, its usage, its flags in `--flag VALUE` form and an example. Each command's help is a `cli.Command` in its binary's `help.go`, and its flag set comes from that file's `newFlags`, so `-h` prints that help and a bad flag prints `Error:` and that command's usage alone. A new command or flag needs its help there: a flag's value is named in the usage line (`--module DIR`) or in `Values`. An unknown command names the one it's likely a slip for.
+- **Help teaches.** `oikade help` groups the commands by what you're doing, `oikade help KIND` lists the commands that take a kind, and `oikade CMD --help` (or `oikade help CMD`) says what one does, its usage, its flags in `--flag VALUE` form and an example. Each command's help is a `cli.Command` in its binary's `help.go`, and its flag set comes from that file's `newFlags`, so `-h` prints that help and a bad flag prints `Error:` and that command's usage alone. A new command or flag needs its help there: a flag's value is named in the usage line (`--module DIR`) or in `Values`. An unknown command names the one it's likely a slip for.
 - **Golden tests** (`testkit.Golden`, `testdata/*.golden`, rewritten with `go test -update`) show what a command prints, plain and styled (`cli.Plain`, `cli.Styled`), at 80 and 120 columns.
 - **No new dependency:** ANSI by hand beside `golang.org/x/term`.
 

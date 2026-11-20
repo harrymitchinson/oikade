@@ -35,6 +35,11 @@ func runSetup(ctx context.Context, args []string) error {
 	if len(words) != 1 {
 		return cli.UsageErrorf("oikade setup takes the plugin to set up")
 	}
+	if words[0] == string(ident.Matter) {
+		return cli.UsageErrorf("oikade setup takes a plugin, and matter is the Matter bridge").
+			WithHint("oikade pair matter opens its window to pair a controller, and a plugin called matter is " +
+				"plugin/matter")
+	}
 	transport, host := target.resolve()
 	s := setupper{
 		stdout: os.Stdout, stderr: os.Stderr, in: bufio.NewReader(os.Stdin), terminal: os.Stdin,
@@ -89,19 +94,20 @@ func (s setupper) run(ctx context.Context, t api.Transport, host, plugin string,
 		}
 		return nil
 	})
+	ref := ident.NewRef(ident.Plugin, plugin).String()
 	if err != nil {
 		if errors.Is(err, api.ErrHostStopped) {
-			return fmt.Errorf("the host stopped before the setup of %s finished", plugin)
+			err = fmt.Errorf("the host stopped before the setup of %s finished", plugin)
+		}
+		// However it failed, --json says so.
+		if asJSON {
+			_ = printJSON(printerOf(s.stdout), changedJSON{Error: err.Error(), Ref: ref})
 		}
 		return err
 	}
 	if asJSON {
-		if err := cli.PrintJSON(struct {
-			OK     bool   `json:"ok"`
-			Plugin string `json:"plugin"`
-			Result string `json:"result,omitempty"`
-			Error  string `json:"error,omitempty"`
-		}{done.Error == "", plugin, done.Result, done.Error}); err != nil {
+		out := changedJSON{OK: done.Error == "", Error: done.Error, Ref: ref, Result: done.Result}
+		if err := printJSON(printerOf(s.stdout), out); err != nil {
 			return err
 		}
 	} else if done.Error == "" {

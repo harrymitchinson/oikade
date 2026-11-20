@@ -116,7 +116,7 @@ func runRollback(ctx context.Context, args []string) error {
 	allow := fs.Bool("allow-safety", false, "Go ahead even though a Safety rule would go, and end its claims.")
 	renamed(fs, "allow-safety-removal", "allow-safety", true)
 	_ = fs.Parse(args)
-	resp, err := api.Call(ctx, target.transport(), api.Request{Type: api.TypeRollback, AllowSafetyRemoval: *allow})
+	resp, err := api.Call(ctx, target.transport(), api.Request{Type: api.TypeRollback, AllowSafety: *allow})
 	if err != nil {
 		return err
 	}

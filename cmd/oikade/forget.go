@@ -35,12 +35,25 @@ func runForget(ctx context.Context, args []string) error {
 		return cli.UsageErrorf("oikade forget takes the devices to forget, or --plugin NAME")
 	}
 	req := api.Request{Type: api.TypeForget, Devices: devices, Plugin: *plugin, AllowSafety: *allow}
-	resp, err := api.Call(ctx, target.transport(), req)
-	if err != nil {
-		return err
-	}
+	resp, callErr := api.Call(ctx, target.transport(), req)
 	if *asJSON {
-		return finished(resp, true, "", true)
+		// What it forgot, even if it then failed, as a forget of a plugin's devices can part way.
+		out := refsJSON{OK: callErr == nil && resp.Error == "", Error: resp.Error, Warning: resp.Warning,
+			Refs: []string{}, Forgotten: resp.Forgotten}
+		if callErr != nil {
+			out.Error = callErr.Error()
+		}
+		for _, f := range resp.Forgotten {
+			out.Refs = append(out.Refs, f.Ref)
+		}
+		_ = printJSON(std.out, out)
+		if out.OK {
+			return nil
+		}
+		return errors.New(out.Error)
+	}
+	if callErr != nil {
+		return callErr
 	}
 	printForgotten(std.out, resp.Forgotten, *plugin)
 	if resp.Warning != "" {
@@ -210,7 +223,7 @@ func runRemove(ctx context.Context, args []string) error {
 	// --json says how it ended, however it did, with what was removed before it failed.
 	failed := func(err error) error {
 		if *asJSON {
-			_ = printJSON(std.out, removedJSON{OK: false, Error: err.Error(), Removed: removed})
+			_ = printJSON(std.out, refsJSON{OK: false, Error: err.Error(), Refs: removed})
 		}
 		return err
 	}
@@ -236,16 +249,19 @@ func runRemove(ctx context.Context, args []string) error {
 		}
 	}
 	if *asJSON {
-		return printJSON(std.out, removedJSON{OK: true, Removed: removed})
+		return printJSON(std.out, refsJSON{OK: true, Refs: removed})
 	}
 	return nil
 }
 
-// removedJSON is what remove --json prints: the refs it removed, even if it then failed.
-type removedJSON struct {
-	OK      bool     `json:"ok"`
-	Error   string   `json:"error,omitempty"`
-	Removed []string `json:"removed"`
+// refsJSON is what forget and remove print under --json: whether they did it, and why not, the refs
+// they forgot or removed, even if they then failed, and for forget what became of each device.
+type refsJSON struct {
+	OK        bool            `json:"ok"`
+	Error     string          `json:"error,omitempty"`
+	Warning   string          `json:"warning,omitempty"`
+	Refs      []string        `json:"refs"`
+	Forgotten []api.Forgotten `json:"forgotten,omitempty"`
 }
 
 // removable is what remove's arguments name: secrets and clients, each by its ref. A device is

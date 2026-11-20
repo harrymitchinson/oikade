@@ -96,10 +96,10 @@ var groups = []group{
 			Hide:    []string{"allow-safety-removal"},
 		},
 	}},
-	{"Watch and drive", []cli.Command{
+	{"Ask your home", []cli.Command{
 		{
 			Name:    "oikade list",
-			Summary: "List what's on record, and how each is set up.",
+			Summary: "What's on record, and how is each set up?",
 			Usage:   []string{"oikade list KIND [--wide] [--all] [--json]"},
 			About: "KIND is devices, rules, plugins, secrets, clients or contexts, singular or plural. devices are each " +
 				"device's record: its room, whether it's paired, reserved, forgotten, hidden from Matter or not in your " +
@@ -111,7 +111,7 @@ var groups = []group{
 		},
 		{
 			Name:    "oikade status",
-			Summary: "Show what your home is doing now, and what's wrong.",
+			Summary: "What's your home doing now, and what's wrong?",
 			Usage:   []string{"oikade status [REF...] [--check] [--wide] [--json]"},
 			About: "With no REF, it shows your home's version, what's left to set up, each device's values and the " +
 				"rules. REF shows one thing in full: a device (device/office-ac, or its name alone), with why each value " +
@@ -124,7 +124,7 @@ var groups = []group{
 		},
 		{
 			Name:    "oikade history",
-			Summary: "Show what your home did: each change, write and run, and why.",
+			Summary: "What did your home do, and why?",
 			Usage:   []string{"oikade history [REF...] [--since WHEN] [--until WHEN] [--json]"},
 			About: "REF narrows it to a device (device/porch-light, or its name alone), a capability " +
 				"(device/porch-light/on), a room (room/hall), a case or a flow (flow/morning), a plugin (plugin/overkiz) or " +
@@ -135,12 +135,14 @@ var groups = []group{
 		},
 		{
 			Name:    "oikade tail",
-			Summary: "Follow your home's events as they happen.",
+			Summary: "What's your home doing, as it happens?",
 			Usage:   []string{"oikade tail [REF...] [--since WHEN] [--json]"},
 			About: "REF narrows it, as oikade history's does. With --since it prints the history from then first: how " +
 				"long ago (10m), a time of day (03:00) or a date and time.",
 			Example: []string{"oikade tail porch-light --since 10m"},
 		},
+	}},
+	{"Drive it", []cli.Command{
 		{
 			Name:    "oikade set",
 			Summary: "Set a capability as a person would, or a secret.",
@@ -172,7 +174,21 @@ var groups = []group{
 			Hide: []string{"allow-safety"},
 		},
 	}},
-	{"Devices and pairing", []cli.Command{
+	{"Pair and clean up", []cli.Command{
+		{
+			Name:    "oikade setup",
+			Summary: "Give a plugin what it needs, such as a sign-in, on the host.",
+			Usage:   []string{"oikade setup PLUGIN [--json]"},
+			Example: []string{"oikade setup overkiz"},
+		},
+		{
+			Name:    "oikade pair",
+			Summary: "Open the Matter bridge's window to pair a controller.",
+			Usage:   []string{"oikade pair matter [--for DURATION] [--json]"},
+			About: "It prints the codes to pair with, and the QR code on a terminal. oikade status matter says " +
+				"what the bridge is doing, and who's paired.",
+			Example: []string{"oikade pair matter --for 10m"},
+		},
 		{
 			Name:    "oikade forget",
 			Summary: "Forget devices a plugin reports, or every device of a plugin.",
@@ -195,20 +211,6 @@ var groups = []group{
 				"removes any. A client's token stops working at once, and a client waiting for its login has its " +
 				"code cancelled. Devices are forgotten, with oikade forget.",
 			Example: []string{"oikade remove client/old-laptop", "oikade remove secret/weather-api-key"},
-		},
-		{
-			Name:    "oikade setup",
-			Summary: "Give a plugin what it needs, such as a sign-in, on the host.",
-			Usage:   []string{"oikade setup PLUGIN [--json]"},
-			Example: []string{"oikade setup overkiz"},
-		},
-		{
-			Name:    "oikade pair",
-			Summary: "Open the Matter bridge's window to pair a controller.",
-			Usage:   []string{"oikade pair matter [--for DURATION] [--json]"},
-			About: "It prints the codes to pair with, and the QR code on a terminal. oikade status matter says " +
-				"what the bridge is doing, and who's paired.",
-			Example: []string{"oikade pair matter --for 10m"},
 		},
 	}},
 	{"Host access", []cli.Command{
@@ -298,7 +300,8 @@ func hostVersionLine(info api.Response, name string) string {
 
 // overviewAfter is what oikade help says after its commands.
 var overviewAfter = []string{
-	"oikade help COMMAND, or oikade COMMAND --help, says more of one.",
+	"oikade help COMMAND, or oikade COMMAND --help, says more of one, and oikade help KIND, such as oikade " +
+		"help device, lists the commands that take one: " + orList(kindWords()) + ".",
 	"Every command that talks to a host takes --data-dir DIR, for the host on this machine, and --context " +
 		"NAME, which reaches a host you logged in to over its network API. Without either, a command uses the " +
 		"context oikade login last saved, or the host on this machine. OIKADE_TOKEN is the token of a context " +
@@ -399,6 +402,10 @@ func dispatch(ctx context.Context, args []string, debug bool) int {
 		}
 		word, args = args[0], []string{"--help"}
 		if _, ok := find(word); !ok {
+			if k, ok := kindNamed(word); ok {
+				printKind(std.out, k)
+				return 0
+			}
 			return std.err.Fail(unknown(word), debug)
 		}
 	}

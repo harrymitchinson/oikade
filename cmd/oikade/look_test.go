@@ -296,7 +296,8 @@ func TestOnlyAChangeGetsATick(t *testing.T) {
 	}{{true, "\x1b[32m✓\x1b[0m Paused flow/morning\n"}, {false, "Paused flow/morning\n"}} {
 		var b bytes.Buffer
 		std.out = cli.Styled(&b, 80)
-		if err := finished(api.Response{}, false, "Paused flow/morning", tc.changed); err != nil || b.String() != tc.want {
+		if err := finished(api.Response{}, "flow/morning", false, "Paused flow/morning", tc.changed); err != nil ||
+			b.String() != tc.want {
 			t.Errorf("changed %v: %q, %v", tc.changed, b.String(), err)
 		}
 	}

@@ -51,17 +51,18 @@ func runPair(ctx context.Context, args []string) error {
 	req := api.Request{Type: api.TypeMatterOpen, WindowSeconds: int(window.Seconds())}
 	_, _ = fmt.Fprintln(os.Stderr, "Opening the Matter bridge's window")
 	resp, err := api.Call(ctx, target.transport(), req)
+	switch {
+	case err != nil:
+	case resp.Error != "":
+		err = errors.New(resp.Error)
+	case resp.MatterWindow == nil:
+		err = errors.New("the host opened no window")
+	}
 	if err != nil {
-		return err
-	}
-	if resp.Error != "" {
-		return errors.New(resp.Error)
-	}
-	if resp.MatterWindow == nil {
-		return errors.New("the host opened no window")
+		return failedJSON(*asJSON, string(ident.Matter), err)
 	}
 	if *asJSON {
-		return cli.PrintJSON(resp.MatterWindow)
+		return printJSON(std.out, changedJSON{OK: true, Ref: string(ident.Matter), Window: resp.MatterWindow})
 	}
 	printWindow(std.out, resp.MatterWindow, std.out.Terminal)
 	return nil

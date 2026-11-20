@@ -136,7 +136,7 @@ func TestADeclaredSwapOfHardwareKeepsTheNameEndpointAndClaims(t *testing.T) {
 	}
 }
 
-func TestADeclaredTypeThatTakesADeviceOutOfASafetyRoomWaitsForAllowSafetyRemoval(t *testing.T) {
+func TestADeclaredTypeThatTakesADeviceOutOfASafetyRoomWaitsForAllowSafety(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)
 	r.until("the relay", func() bool {
