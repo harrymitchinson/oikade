@@ -119,3 +119,62 @@ func workflowJobs(workflow string) map[string]map[string]string {
 	}
 	return jobs
 }
+
+// Both jobs write your values from the one secret OIKADE_ENV, outside the checkout, and check and
+// deploy with them (OIK-365).
+func TestTheWorkflowGivesCheckAndDeployYourValues(t *testing.T) {
+	workflow := initWorkflow(t)
+	write := `run: (umask 077 && printf '%s\n' "$OIKADE_ENV" > "$RUNNER_TEMP/.env")`
+	n := strings.Count(workflow, "OIKADE_ENV: ${{ secrets.OIKADE_ENV }}")
+	if n != 2 || strings.Count(workflow, write) != 2 {
+		t.Errorf("the workflow writes your values %d times, not once in each job:\n%s", n, workflow)
+	}
+	for _, run := range []string{
+		`- run: oikade check --env-file "$RUNNER_TEMP/.env"`, `oikade deploy --env-file "$RUNNER_TEMP/.env"`,
+	} {
+		at := strings.Index(workflow, run)
+		if at < 0 || strings.LastIndex(workflow[:at], write) < 0 {
+			t.Errorf("the workflow doesn't write your values before %s:\n%s", run, workflow)
+		}
+	}
+}
+
+// oikade init's .gitignore lists .env, in a new one or one that's there already, once.
+func TestInitIgnoresYourValues(t *testing.T) {
+	for name, c := range map[string]struct {
+		before  string
+		changed bool
+	}{
+		"none":           {"", true},
+		"one of yours":   {"bin/\n", true},
+		"no last return": {"bin/", true},
+		"listed":         {"bin/\n.env\n", false},
+		"listed rooted":  {"/.env\n", false},
+	} {
+		dir := t.TempDir()
+		path := filepath.Join(dir, ".gitignore")
+		if c.before != "" {
+			if err := os.WriteFile(path, []byte(c.before), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		changed, err := ignoreValues(dir)
+		if err != nil || changed != c.changed {
+			t.Errorf("%s: changed %v, %v", name, changed, err)
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if again, err := ignoreValues(dir); err != nil || again {
+			t.Errorf("%s: a second time changed it, %v", name, err)
+		}
+		if name == "none" {
+			testkit.Golden(t, "init-gitignore", raw)
+		}
+		if c.changed && (!strings.HasPrefix(string(raw), strings.TrimSuffix(c.before, "\n")) ||
+			!strings.HasSuffix(string(raw), "\n/.env\n") || strings.Contains(string(raw), "bin/#")) {
+			t.Errorf("%s: the .gitignore is %q", name, raw)
+		}
+	}
+}

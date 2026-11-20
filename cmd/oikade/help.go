@@ -36,15 +36,19 @@ var groups = []group{
 			Summary: "Start a home: a Go module that builds against Oikade.",
 			Usage:   []string{"oikade init [DIR] [--module-path PATH] [--source DIR]"},
 			Hide:    []string{"module"},
-			About:   "DIR is the directory to start it in, the current one by default, which mustn't hold a home already.",
+			About: "DIR is the directory to start it in, the current one by default, which mustn't hold a home " +
+				"already. Its .gitignore lists .env, where your values go, and its workflow writes .env from the " +
+				"secret OIKADE_ENV.",
 			Example: []string{"oikade init my-home"},
 		},
 		{
 			Name:    "oikade check",
 			Summary: "Find what's wrong with your home, as a deploy would.",
-			Usage:   []string{"oikade check [--module DIR]"},
+			Usage:   []string{"oikade check [--module DIR] [--env-file FILE]"},
 			About: "It runs the compiler, then the source checks, then the checks your home's binary makes of " +
-				"itself, which are the ones a deploy makes.",
+				"itself, which are the ones a deploy makes, with your values from the .env beside your go.mod " +
+				"and the environment, which wins. A value your code uses that neither has is only a warning, so " +
+				"a pull request passes without them.",
 			Example: []string{"oikade check"},
 		},
 		{
@@ -57,8 +61,10 @@ var groups = []group{
 		{
 			Name:    "oikade dev",
 			Summary: "Run your home against simulated devices.",
-			Usage:   []string{"oikade dev [--module DIR] [--types FILE]"},
-			Example: []string{"oikade dev"},
+			Usage:   []string{"oikade dev [--module DIR] [--types FILE] [--env-file FILE]"},
+			About: "Your code gets your values, from the .env beside your go.mod and the environment, which " +
+				"wins, as it gets them on the host.",
+			Example: []string{"oikade dev", "oikade dev --env-file test-host.env"},
 		},
 		{
 			Name:    "oikade replay",

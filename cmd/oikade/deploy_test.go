@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"mime"
@@ -54,7 +55,9 @@ func hintOf(err error) string {
 	return ""
 }
 
-func usesNothing(context.Context, string, string) (wire.Manifest, error) { return wire.Manifest{}, nil }
+func usesNothing(context.Context, string, string, map[string]string) (wire.Manifest, error) {
+	return wire.Manifest{}, nil
+}
 
 func noEnvironment(string) (string, bool) { return "", false }
 
@@ -321,7 +324,7 @@ func deployValues(t *testing.T, host *recordingHost, module, envFile string, use
 		build: func(_ context.Context, _, out string, _ api.Response) error {
 			return os.WriteFile(out, []byte("a binary"), 0o600)
 		},
-		manifest: func(context.Context, string, string) (wire.Manifest, error) {
+		manifest: func(context.Context, string, string, map[string]string) (wire.Manifest, error) {
 			return wire.Manifest{Vars: used}, nil
 		},
 		lookup: func(name string) (string, bool) { v, ok := environment[name]; return v, ok },
@@ -470,22 +473,54 @@ func TestADeploysCheckHereLeavesTheRestToTheHost(t *testing.T) {
 		"another machine":  file("elsewhere", "\x7fELF\x02\x01\x01garbage", 0o755),
 		"an unread answer": file("unread", "#!/bin/sh\necho not json\n", 0o755),
 	} {
-		if _, err := homeCheck(t.Context(), ".", path); !cantRunHere(err) {
+		if _, err := homeCheck(t.Context(), ".", path, nil); !cantRunHere(err) {
 			t.Errorf("%s: got %v", name, err)
 		}
 	}
 	other := file("other", `#!/bin/sh
 echo '{"protocol":999,"vars":["TAHOMA_PIN"]}'
 `, 0o755)
-	if m, err := homeCheck(t.Context(), ".", other); err != nil || !slices.Equal(m.Vars, []string{"TAHOMA_PIN"}) {
+	if m, err := homeCheck(t.Context(), ".", other, nil); err != nil || !slices.Equal(m.Vars, []string{"TAHOMA_PIN"}) {
 		t.Errorf("another protocol: got %+v, %v", m, err)
 	}
 	failing := file("failing", "#!/bin/sh\nexit 3\n", 0o755)
-	if _, err := homeCheck(t.Context(), ".", failing); err == nil || cantRunHere(err) {
+	if _, err := homeCheck(t.Context(), ".", failing, nil); err == nil || cantRunHere(err) {
 		t.Errorf("a home that fails its checks: got %v", err)
 	}
 	// oikade check, which runs the home here too, still refuses another protocol.
 	if _, err := manifestOf(t.Context(), other); err == nil || !strings.Contains(err.Error(), "protocol 999") {
 		t.Errorf("manifestOf: got %v", err)
+	}
+}
+
+// A home's check here runs once, with the file's values and the environment winning, as a deploy's
+// values have it, though only the check says which names the code uses.
+func TestAHomesCheckHereHasTheValuesADeployWouldSend(t *testing.T) {
+	module := homeWithValues(t, "TOSHIBA_USER=from-the-file\nTAHOMA_PIN=1234\n")
+	seen := filepath.Join(t.TempDir(), "seen")
+	home := filepath.Join(t.TempDir(), "home")
+	script := fmt.Sprintf(`#!/bin/sh
+{ echo "$%s"; cat "$%s"; echo; } >> %s
+echo '{"protocol":%d,"vars":["TOSHIBA_USER","TOSHIBA_PASSWORD","COZYTOUCH_USER"]}'
+`, wire.VarsFromEnvironment, wire.VarsEnv, seen, wire.Version)
+	if err := os.WriteFile(home, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	environment := map[string]string{"TOSHIBA_USER": "from-the-environment", "COZYTOUCH_USER": "only-here"}
+	lookup := func(name string) (string, bool) { v, ok := environment[name]; return v, ok }
+	_, vals, missing, err := homeValues(t.Context(), module, home, "", lookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"TOSHIBA_USER": "from-the-environment", "TAHOMA_PIN": "1234", "COZYTOUCH_USER": "only-here"}
+	if !maps.Equal(vals.set, want) || !slices.Equal(missing, []string{"TOSHIBA_PASSWORD"}) {
+		t.Errorf("got %q, missing %q", vals.set, missing)
+	}
+	raw, err := os.ReadFile(seen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(raw); got != "1\n"+`{"TAHOMA_PIN":"1234","TOSHIBA_USER":"from-the-environment"}`+"\n" {
+		t.Errorf("the check ran with:\n%s", got)
 	}
 }

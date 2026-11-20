@@ -20,10 +20,18 @@ type exited int
 // printed and the code it exits with. It isn't parallel: std and exit are the package's.
 func runOikade(t *testing.T, printer func(io.Writer, int) *cli.Printer, args ...string) (out, errs string, code int) {
 	t.Helper()
+	return runOikadeAt(t, printer, 80, args...)
+}
+
+// runOikadeAt is runOikade at width columns.
+func runOikadeAt(t *testing.T, printer func(io.Writer, int) *cli.Printer, width int, args ...string) (
+	out, errs string, code int,
+) {
+	t.Helper()
 	var stdout, stderr bytes.Buffer
 	saved, savedExit := std, exit
 	t.Cleanup(func() { std, exit = saved, savedExit })
-	std.out, std.err = printer(&stdout, 80), printer(&stderr, 80)
+	std.out, std.err = printer(&stdout, width), printer(&stderr, width)
 	exit = func(code int) { panic(exited(code)) }
 	func() {
 		defer func() {
@@ -102,5 +110,27 @@ func TestEveryCommandHasHelp(t *testing.T) {
 	}
 	if len(runners) != len(words())-1 {
 		t.Errorf("%d runners for %d commands", len(runners), len(words())-1)
+	}
+}
+
+// The help of the commands that give your code your values, and the warning for one that nothing
+// gives, at 80 and 120 columns (OIK-365).
+func TestTheValuesHelpAndWarning(t *testing.T) {
+	for name, printer := range printers {
+		for _, width := range []int{80, 120} {
+			var b bytes.Buffer
+			for _, command := range []string{"check", "dev"} {
+				stdout, stderr, code := runOikadeAt(t, printer, width, command, "--help")
+				if code != 0 || stderr != "" {
+					t.Errorf("oikade %s --help exits %d: %s", command, code, stderr)
+				}
+				b.WriteString(stdout + "---\n")
+			}
+			p := printer(&b, width)
+			v := values{file: ".env"}
+			v.warnMissing(p, []string{"TAHOMA_PIN"}, "a deploy from here would stop")
+			v.warnMissing(p, []string{"TAHOMA_PIN", "TOSHIBA_USER"}, `oikade.Var gives "" for them here`)
+			testkit.Golden(t, fmt.Sprintf("values-%s-%d", name, width), b.Bytes())
+		}
 	}
 }

@@ -132,7 +132,7 @@ func TestInitThenTestAndCheckPass(t *testing.T) {
 	if err != nil {
 		t.Fatalf("oikade check: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "1 rules") {
+	if !strings.Contains(out, "1 rules") || strings.Contains(out, "Warning:") {
 		t.Errorf("oikade check said %q", out)
 	}
 	if out, err := run(t, bin, dir, "", "init", "--source", repo(t)); err == nil {
@@ -183,6 +183,23 @@ func TestInitLeavesTheDirectoryAsItFoundIt(t *testing.T) {
 	}
 	if out, err := run(t, bin, dir, "", "init", "--source", repo(t)); err == nil {
 		t.Fatalf("init over a home passed:\n%s", out)
+	}
+}
+
+// An init that can't add .env to the .gitignore leaves the directory as it found it too.
+func TestInitThatCantIgnoreYourValuesLeavesNothing(t *testing.T) {
+	t.Parallel()
+	bin := oikade(t)
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, ".gitignore"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out, err := run(t, bin, dir, "", "init", "--source", repo(t))
+	if err == nil || !strings.Contains(out, "Error: couldn't add .env to the .gitignore in .") {
+		t.Fatalf("got %v:\n%s", err, out)
+	}
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 1 {
+		t.Errorf("left behind %v, %v", entries, err)
 	}
 }
 
@@ -257,6 +274,52 @@ func TestADeployMissingAValueStopsBeforeItReachesAHost(t *testing.T) {
 	out, err = run(t, bin, dir, "", "deploy", "--binary", "home", "--data-dir", nowhere)
 	if err == nil || !strings.Contains(out, "Uploading") || strings.Contains(out, "hunter2") {
 		t.Fatalf("got %v:\n%s", err, out)
+	}
+}
+
+// Your code gets your values in oikade check and oikade dev, as on the host: from .env, or the file
+// --env-file names, so a plugin's config is as it will be there. A new home's first check passes
+// without them, as a pull request's does, with a warning (OIK-365).
+func TestCheckAndDevGiveYourCodeYourValues(t *testing.T) {
+	t.Parallel()
+	bin := oikade(t)
+	dir := newHome(t, bin)
+	ignore, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	if err != nil || !strings.Contains(string(ignore), "\n/.env\n") {
+		t.Errorf("the .gitignore is %q, %v", ignore, err)
+	}
+	main := filepath.Join(dir, "main.go")
+	replaceIn(t, main, "\t\"github.com/harrymitchinson/oikade\"\n",
+		"\t\"github.com/harrymitchinson/oikade\"\n\t\"github.com/harrymitchinson/oikade/plugins/toshibaac\"\n")
+	replaceIn(t, main, returns, `	toshiba := toshibaac.Config{Username: oikade.Var("TOSHIBA_USER")}
+	println("The plugin's username is", toshiba.Username)
+	home.Plugin("toshiba", toshibaac.New(toshiba))
+`+returns)
+	out, err := run(t, bin, dir, "", "check")
+	if err != nil || !strings.Contains(out, "Warning: TOSHIBA_USER isn't set, so a deploy from here would stop\n") ||
+		!strings.Contains(out, "Hint: add it to .env, or set it in the environment\n") {
+		t.Fatalf("oikade check without .env: %v\n%s", err, out)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("TOSHIBA_USER=from-dot-env\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, bin, dir, "", "check")
+	if err != nil || strings.Contains(out, "Warning:") ||
+		!strings.Contains(out, "The plugin's username is from-dot-env\n") {
+		t.Fatalf("oikade check with .env: %v\n%s", err, out)
+	}
+	out, err = run(t, bin, dir, "quit\n", "dev")
+	if err != nil || !strings.Contains(out, "The plugin's username is from-dot-env\n") {
+		t.Fatalf("oikade dev with .env: %v\n%s", err, out)
+	}
+	other := filepath.Join(t.TempDir(), "test-host.env")
+	if err := os.WriteFile(other, []byte("TOSHIBA_USER='from the other file'\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err = run(t, bin, dir, "quit\n", "dev", "--env-file", other)
+	if err != nil || !strings.Contains(out, "The plugin's username is from the other file\n") ||
+		strings.Contains(out, "from-dot-env") {
+		t.Fatalf("oikade dev --env-file: %v\n%s", err, out)
 	}
 }
 

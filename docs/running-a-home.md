@@ -33,7 +33,7 @@ Removing a Safety rule is refused, and so is renaming one, because a rule's clai
 
 ### Your values
 
-What's yours rather than your home's, such as a login's username, a hub's address or an API key, goes in `.env` beside your `go.mod`, which Git ignores, so the code can be pushed or shared as it stands (OIK-365). Your code reads each value by its name with `oikade.Var`, which returns a string:
+What's yours rather than your home's, such as a login's username, a hub's address or an API key, goes in `.env` beside your `go.mod`, which the `.gitignore` `oikade init` writes keeps out of Git, so the code can be pushed or shared as it stands (OIK-365). Your code reads each value by its name with `oikade.Var`, which returns a string:
 
 ```go
 home.Plugin("tahoma", overkiz.New(overkiz.Local{
@@ -73,11 +73,22 @@ To learn which names your code uses, `oikade deploy` runs your home's check here
 
 Deploying the running version with values that changed starts your automations and plugins again, with them, and says which changed: `Deployed version 3f9c2a1 again, with TAHOMA_PIN changed`. `oikade rollback` keeps the host's values as they are, so an old password never comes back, and refuses a version whose code uses one they lack, saying which. `oikade rollback --env-file FILE` replaces them with that file's as it goes back.
 
-The host keeps your values as it keeps secrets: never in a binary, a log, an answer or `--json`, which name them only. It keeps them in its store with the version they came with, so a crash during a deploy leaves a version and the values that go with it. Before each process it starts from your binary, it writes them to a file only its user can read, and names it to the process: in its runtime directory, `/run/oikade`, which is in memory, or in the data directory where there's none, as in Docker. Your code reads them as the home is built, so call `oikade.Var` in a plugin's config or a package-level `var`: that declares the name, so a deploy knows of it, and one called in a rule as it runs is too late for that. In `oikade check`, `oikade dev` and `go test`, a `Var` is empty.
+The host keeps your values as it keeps secrets: never in a binary, a log, an answer or `--json`, which name them only. It keeps them in its store with the version they came with, so a crash during a deploy leaves a version and the values that go with it. Before each process it starts from your binary, it writes them to a file only its user can read, and names it to the process: in its runtime directory, `/run/oikade`, which is in memory, or in the data directory where there's none, as in Docker. Your code reads them as the home is built, so call `oikade.Var` in a plugin's config or a package-level `var`: that declares the name, so a deploy knows of it, and one called in a rule as it runs is too late for that. The host's check of a version has the values it would run with, the deploy's.
+
+`oikade check` and `oikade dev` give your code your values too, from `.env` and the environment, or the file `--env-file` names, so what your code builds from them, such as a plugin's config, is as it will be on the host, and `oikade types` gives it `.env`'s. `oikade dev` doesn't run plugins, so nothing logs in. A value your code uses that nothing gives is empty there, and only a warning, so a pull request passes without `.env`:
+
+```console
+$ oikade check
+Warning: TAHOMA_PIN isn't set, so a deploy from here would stop
+Hint: add it to .env, or set it in the environment
+Your home is fine: 12 rules, 2 plugins
+```
+
+Under `go test` and `hometest`, a `Var` is empty.
 
 ### Deploying from CI
 
-The workflow `oikade init` writes, `.github/workflows/deploy.yml`, checks and tests every change on GitHub's runners. Once you turn deploys on, it also deploys what reaches `main`, over the [network API](#the-network-api), from a runner that can reach the host. Until then a push to `main` passes, and leaves a notice that deploys are off, so a home you deploy from your laptop never fails its CI (OIK-286).
+The workflow `oikade init` writes, `.github/workflows/deploy.yml`, checks and tests every change on GitHub's runners. Both jobs write your values to a file from the secret `OIKADE_ENV`, in the job's temporary directory rather than the checkout, which a self-hosted runner keeps, and `oikade check` and `oikade deploy` read it with `--env-file`. Set it to your `.env` whole: `gh secret set OIKADE_ENV < .env`. A pull request from a fork gets no secrets, so its check warns of the values it lacks and passes. Once you turn deploys on, it also deploys what reaches `main`, over the [network API](#the-network-api), from a runner that can reach the host. Until then a push to `main` passes, and leaves a notice that deploys are off, so a home you deploy from your laptop never fails its CI (OIK-286).
 
 GitHub's own runners reach the host only if its API is on the internet, which it shouldn't be, so the deploy job runs on `self-hosted`. Add a runner on your network first, in the repo's Settings → Actions → Runners: a deploy waits 24 hours for one, then GitHub cancels it. To use GitHub's runners instead, change the deploy job's `runs-on` to `ubuntu-latest`, and join the runner to your network over a VPN in a step before the deploy.
 

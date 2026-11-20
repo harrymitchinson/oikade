@@ -25,17 +25,23 @@ import (
 // the home is built, such as in a plugin's config or a package-level var: that declares it, so
 // oikade deploy refuses to go ahead without a value for it, and one called in a rule as it runs is
 // too late for that. The host gives the values to each process it starts from your binary, and
-// keeps them as it keeps secrets: never in a binary, a log or an answer. Built or tested without
-// the host, such as by go test or in oikade check, a Var is empty.
+// keeps them as it keeps secrets: never in a binary, a log or an answer. oikade check and oikade dev
+// give your code the values a deploy would send: .env's, with the environment winning. Under go test
+// or hometest, a Var is empty.
 func Var(name string) string {
 	return hostVars.get(name)
 }
 
-// hostVars are the values the host gave this process, and the names the home's code used.
-var hostVars = &values{path: func() string { return os.Getenv(wire.VarsEnv) }}
+// hostVars are the values the host or oikade gave this process, and the names the home's code used.
+var hostVars = &values{
+	path:        func() string { return os.Getenv(wire.VarsEnv) },
+	environment: func() bool { return os.Getenv(wire.VarsFromEnvironment) == "1" },
+}
 
 type values struct {
 	path func() string
+	// environment says whether the environment wins over the file, as oikade has it on your machine.
+	environment func() bool
 
 	mu   sync.Mutex
 	used map[string]bool
@@ -54,6 +60,11 @@ func (v *values) get(name string) string {
 	if !v.read {
 		v.read = true
 		v.set, v.err = readValues(v.path())
+	}
+	if v.environment != nil && v.environment() {
+		if value, ok := os.LookupEnv(name); ok {
+			return value
+		}
 	}
 	return v.set[name]
 }
