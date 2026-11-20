@@ -203,7 +203,7 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 	}
 	secret := b.config.Password.Name()
 	wait := b.timing.retry
-	// limit is the last wait for a limit, while the cloud's limits follow one another.
+	// limit is the last wait for a limit, until a session connects.
 	var limit time.Duration
 	for ctx.Err() == nil {
 		password, ok, err := plugin.ReadSecret(b.env, secret)
@@ -228,7 +228,7 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 		if !live.IsZero() && time.Since(live) >= b.timing.retryMax {
 			wait = b.timing.retry
 		}
-		// A login that passed ends a run of limits.
+		// A session that connected ends a run of limits.
 		if !live.IsZero() {
 			limit = 0
 		}
@@ -265,9 +265,10 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 }
 
 // limitWait is how long to wait after the cloud limited the plugin's requests with err, when last
-// was the wait for the limit before, 0 if there wasn't one since a login passed. It's as long as the
-// cloud asked (OIK-361), or twice last if that's longer, since a limit still there after the wait it
-// asked for hasn't passed, and between retry and limited. One that doesn't say how long waits limited.
+// was the wait for the limit before, 0 if there wasn't one since a session connected. It's as long as
+// the cloud asked (OIK-361), or twice last if that's longer, since a limit still there after the wait
+// it asked for hasn't passed, and between retry and limited. One that doesn't say how long waits
+// limited. last is only this process's: a deploy starts again from the cloud's ask.
 func (b *bridge) limitWait(err error, last time.Duration) time.Duration {
 	var status *statusError
 	if !errors.As(err, &status) || !status.asked {

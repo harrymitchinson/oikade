@@ -429,14 +429,14 @@ func TestALimitWaitsAsLongAsTheCloudAsks(t *testing.T) {
 	cloud.set(func(c *fakeCloud) { c.limited = 0 })
 	b.waitAvailability(bedroom, "online")
 
-	// A login that passed ends the run of limits, so the next waits as long as it asks.
+	// A session that connected ends the run of limits, so the next waits as long as it asks.
 	for len(b.waits) > 0 {
 		<-b.waits
 	}
 	cloud.set(func(c *fakeCloud) { c.limited = http.StatusTooManyRequests })
 	cloud.kick()
 	if got := b.limitWaits(1); got[0] != time.Minute {
-		t.Errorf("waited %s after a login passed, not 1m0s", got[0])
+		t.Errorf("waited %s after a session connected, not 1m0s", got[0])
 	}
 }
 
