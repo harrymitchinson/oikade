@@ -136,12 +136,30 @@ var errHeartbeat = errors.New("stopped answering heartbeats")
 func (h *Host) runProcess(ctx context.Context, srv *server, socket, path string, swaps <-chan *swap) (*swap, error) {
 	cmd := exec.Command(path, wire.RoleAutomations)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	cmd.Env = append(os.Environ(), wire.SocketEnv+"="+socket, contractv1.EnvSecretsDir+"="+h.SecretsDir)
+	env, err := h.processEnv(socket)
+	if err != nil {
+		return nil, err
+	}
+	cmd.Env = env
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
 	h.Log.Info("Started automations process", "pid", cmd.Process.Pid)
 	return h.watch(logging.NewContext(ctx, h.Log), cmd, "automations", srv.ping, swaps)
+}
+
+// processEnv is the environment of a process started from your binary: the host's, with the socket
+// it talks to the host on, and where to read the secrets and your values, which it writes now so that
+// the process gets them as they are.
+func (h *Host) processEnv(socket string) ([]string, error) {
+	env := append(os.Environ(), wire.SocketEnv+"="+socket, contractv1.EnvSecretsDir+"="+h.SecretsDir)
+	if h.vars == nil {
+		return env, nil
+	}
+	if err := h.vars.write(); err != nil {
+		return nil, err
+	}
+	return append(env, wire.VarsEnv+"="+h.vars.path), nil
 }
 
 // watch waits for a started process, killing it if it stops answering pings, and stopping it when

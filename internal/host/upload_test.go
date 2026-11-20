@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -32,7 +33,7 @@ func TestAnUploadStopsWhenItsCallerIsCutOff(t *testing.T) {
 	failed := make(chan error, 1)
 	cutOff, cut := context.WithCancel(t.Context())
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path, err := s.spool(cutOff, w, r)
+		_, path, err := s.spool(cutOff, w, r, "b")
 		if err == nil {
 			_ = os.Remove(path)
 		}
@@ -42,7 +43,8 @@ func TestAnUploadStopsWhenItsCallerIsCutOff(t *testing.T) {
 
 	body, sending := io.Pipe()
 	go func() {
-		_, _ = sending.Write([]byte("partial"))
+		_, _ = sending.Write([]byte("--b\r\nContent-Disposition: form-data; name=\"vars\"\r\n\r\n{}\r\n" +
+			"--b\r\nContent-Disposition: form-data; name=\"binary\"\r\n\r\npartial"))
 		// Then nothing, as a slow link or a revoked client would.
 	}()
 	go func() {
@@ -90,7 +92,7 @@ func TestADeployOfSomethingElseIsRefused(t *testing.T) {
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 	if _, err := fmt.Fprintf(conn, "POST /v1/deploy HTTP/1.1\r\nHost: x\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n",
-		api.BinaryContentType, maxUpload+1); err != nil {
+		api.DeployContentType+"; boundary=b", maxUpload+1); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := conn.Write(make([]byte, 64<<10)); err != nil {
@@ -138,5 +140,113 @@ func TestAnUploadIsMovedNotCopied(t *testing.T) {
 	}
 	if _, err := os.Stat(other); err != nil {
 		t.Errorf("a binary from elsewhere went: %v", err)
+	}
+}
+
+// tcpHost reaches a test's HTTP server, as a Transport.
+type tcpHost string
+
+func (h tcpHost) Dial(ctx context.Context) (net.Conn, error) {
+	return (&net.Dialer{}).DialContext(ctx, "tcp", string(h))
+}
+
+// received is what the host made of a deploy's body.
+type received struct {
+	vars   map[string]string
+	binary []byte
+	err    error
+}
+
+func receiving(t *testing.T) (*httptest.Server, <-chan received) {
+	t.Helper()
+	s, _ := uploadServer(t, t.Context())
+	got := make(chan received, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		boundary, ok := deployBoundary(r.Header.Get("Content-Type"))
+		if !ok {
+			got <- received{err: fmt.Errorf("content type %q", r.Header.Get("Content-Type"))}
+			return
+		}
+		vars, path, err := s.spool(r.Context(), w, r, boundary)
+		var binary []byte
+		if err == nil {
+			binary, err = os.ReadFile(path)
+			_ = os.Remove(path)
+		}
+		got <- received{vars, binary, err}
+		_, _ = io.WriteString(w, "{}")
+	}))
+	t.Cleanup(server.Close)
+	return server, got
+}
+
+func TestADeployCarriesItsValuesBeforeItsBinary(t *testing.T) {
+	server, got := receiving(t)
+	path := filepath.Join(t.TempDir(), "home")
+	binary := []byte("a binary\r\n--with a line like a boundary\r\n")
+	if err := os.WriteFile(path, binary, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	vars := map[string]string{"TOSHIBA_USER": "someone", "TOSHIBA_PASSWORD": "pa\"ss\nword", "EMPTY": ""}
+	var sent, total int64
+	if _, err := api.Deploy(t.Context(), tcpHost(server.Listener.Addr().String()), path, vars, false,
+		func(s, n int64) { sent, total = s, n }); err != nil {
+		t.Fatal(err)
+	}
+	r := <-got
+	if r.err != nil {
+		t.Fatal(r.err)
+	}
+	if !maps.Equal(r.vars, vars) || string(r.binary) != string(binary) {
+		t.Errorf("got %q and %q", r.vars, r.binary)
+	}
+	// The progress counts the binary, not its values.
+	if sent != int64(len(binary)) || total != sent {
+		t.Errorf("progress said %d of %d", sent, total)
+	}
+}
+
+func TestADeployWithNoValuesSendsAnEmptySet(t *testing.T) {
+	server, got := receiving(t)
+	path := filepath.Join(t.TempDir(), "home")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.Deploy(t.Context(), tcpHost(server.Listener.Addr().String()), path, nil, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	if r := <-got; r.err != nil || r.vars == nil || len(r.vars) != 0 || len(r.binary) != 0 {
+		t.Errorf("got %+v", r)
+	}
+}
+
+func TestADeploysBodyIsRefusedUnlessItsWhole(t *testing.T) {
+	const part = "--b\r\nContent-Disposition: form-data; name=%q\r\n\r\n%s\r\n"
+	vars := fmt.Sprintf(part, "vars", `{"A":"hunter2"}`)
+	binary := fmt.Sprintf(part, "binary", "ELF")
+	for name, c := range map[string]struct{ body, want string }{
+		"no binary":           {vars + "--b--\r\n", "the deploy has no binary"},
+		"binary first":        {binary + vars + "--b--\r\n", `the deploy has "binary" where its vars should be`},
+		"cut off":             {vars + "--b\r\nContent-Disposition: form-data; name=\"binary\"\r\n\r\nEL", "the upload was cut short"},
+		"no closing boundary": {vars + binary, "the upload was cut short"},
+		"a part after":        {vars + binary + fmt.Sprintf(part, "more", "") + "--b--\r\n", "the deploy has a part after the binary"},
+		"values not strings":  {fmt.Sprintf(part, "vars", `{"A":1}`) + binary + "--b--\r\n", "the values aren't a JSON object of strings"},
+		"values not JSON":     {fmt.Sprintf(part, "vars", `{"A":"hunter2`) + binary + "--b--\r\n", "the values aren't a JSON object of strings"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, dir := uploadServer(t, t.Context())
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest(http.MethodPost, "/v1/deploy", strings.NewReader(c.body))
+			_, _, err := s.spool(t.Context(), w, r, "b")
+			if err == nil || err.Error() != c.want {
+				t.Errorf("got %v, want %s", err, c.want)
+			}
+			if err != nil && strings.Contains(err.Error(), "hunter2") {
+				t.Errorf("the error quotes a value: %v", err)
+			}
+			if left, _ := os.ReadDir(filepath.Join(dir, uploadsDir)); len(left) != 0 {
+				t.Errorf("left %v behind", left)
+			}
+		})
 	}
 }

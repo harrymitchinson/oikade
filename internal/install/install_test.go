@@ -144,7 +144,8 @@ func TestFirstInstall(t *testing.T) {
 	}
 	unit := m.read(UnitPath)
 	if !strings.Contains(unit, "ExecStart=/usr/local/bin/oikade-host --api-addr :8443\n") ||
-		!strings.Contains(unit, "User=oikade\n") || !strings.Contains(unit, "KillMode=mixed\n") {
+		!strings.Contains(unit, "User=oikade\n") || !strings.Contains(unit, "KillMode=mixed\n") ||
+		!strings.Contains(unit, "RuntimeDirectory=oikade\nRuntimeDirectoryMode=0700\n") {
 		t.Errorf("unit is\n%s", unit)
 	}
 	if m.running != "v0.3.0" {

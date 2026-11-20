@@ -64,6 +64,9 @@ type Host struct {
 	// SecretsDir holds one file per secret, which your process and plugins read. It defaults to
 	// DefaultSecretsDir in DataDir. A mounted, read-only one works, and oikade set secret/NAME says so.
 	SecretsDir string
+	// RuntimeDir is where the host writes your values for each process it starts from your binary:
+	// systemd's RuntimeDirectory, which is in memory. Empty writes them in DataDir.
+	RuntimeDir string
 	// Outside names plugins that run as processes of their own and speak the MQTT contract on
 	// Broker, under oikade/v1/<name>.
 	Outside []string
@@ -77,6 +80,8 @@ type Host struct {
 	Log         *slog.Logger
 
 	plugins *plugins
+	// vars is the file of your values each process from your binary reads.
+	vars *varsFile
 
 	processesMu sync.Mutex
 	processes   map[*exec.Cmd]struct{}
@@ -110,6 +115,11 @@ func (h *Host) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	dir, err := varsDir(h.RuntimeDir, h.DataDir)
+	if err != nil {
+		return err
+	}
+	h.vars = &varsFile{path: filepath.Join(dir, varsFileName), set: kept.vars}
 	// A host that stopped between taking an upload and recording it left a binary no version names.
 	if err := kept.prune(); err != nil {
 		h.Log.Error("Failed to remove binaries no version names", "err", err)

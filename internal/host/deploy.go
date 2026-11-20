@@ -73,28 +73,46 @@ func (d *deployer) startup() string {
 	return d.running
 }
 
-// deploy takes a new binary. Nothing stops until it has passed its check.
-func (d *deployer) deploy(ctx context.Context, binary string, allow bool) api.Response {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.withUnimported(d.deployLocked(ctx, binary, allow))
+// incoming is the values a deploy or a rollback runs its version with, and whose they are, as a
+// refusal names them.
+type incoming struct {
+	vars  map[string]string
+	whose string
 }
 
-func (d *deployer) deployLocked(ctx context.Context, binary string, allow bool) api.Response {
+// deploy takes a new binary, and vars, which replace your values whole. Nothing stops until it has
+// passed its check.
+func (d *deployer) deploy(ctx context.Context, binary string, vars map[string]string, allow bool) api.Response {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.withUnimported(d.deployLocked(ctx, binary, vars, allow))
+}
+
+func (d *deployer) deployLocked(ctx context.Context, binary string, vars map[string]string, allow bool) api.Response {
+	if err := checkVarNames(vars); err != nil {
+		return api.Response{Error: "the deploy's values: " + err.Error()}
+	}
 	id, err := d.versions.take(binary)
 	if err != nil {
 		return api.Response{Error: fmt.Sprintf("storing the binary: %s", err)}
 	}
+	in := incoming{vars: vars, whose: "the deploy's"}
 	if cur, ok := d.versions.current(); ok && cur.ID == id {
-		if d.confirmable == id {
-			return d.confirm(id)
-		}
-		if d.versions.state.Pending {
+		changed := len(changedVars(d.versions.state.Vars, vars)) > 0
+		switch {
+		case d.confirmable == id:
+			if resp := d.confirm(id); resp.Error != "" || !changed {
+				return resp
+			}
+		case d.versions.state.Pending:
 			return api.Response{Error: "this version hasn't settled", Version: id}
+		case !changed:
+			return d.unchanged(id)
 		}
-		return d.unchanged(id)
+		// Only the values changed. The processes take them up as they start again, which they do as
+		// a new version's would, with the same checks.
 	}
-	return d.takeOver(ctx, id, allow, d.versions.begin)
+	return d.takeOver(ctx, id, allow, d.versions.begin, in)
 }
 
 // unchanged answers a deploy of the version already running.
@@ -131,15 +149,23 @@ func hideFailed(err error) string {
 }
 
 // rollback returns to the version before the running one, on the same terms as a deploy. The running
-// one is forgotten, so a second rollback goes back further.
-func (d *deployer) rollback(ctx context.Context, allow bool) api.Response {
+// one is forgotten, so a second rollback goes back further. It keeps your values as they are, so an
+// old password never comes back, unless vars isn't nil, which replaces them whole.
+func (d *deployer) rollback(ctx context.Context, vars map[string]string, allow bool) api.Response {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	prev, ok := d.versions.previous()
 	if !ok {
 		return api.Response{Error: "there's no earlier version"}
 	}
-	return d.withUnimported(d.takeOver(ctx, prev.ID, allow, d.versions.beginRollback))
+	in := incoming{vars: d.versions.state.Vars, whose: "the host's"}
+	if vars != nil {
+		if err := checkVarNames(vars); err != nil {
+			return api.Response{Error: "the rollback's values: " + err.Error()}
+		}
+		in = incoming{vars: vars, whose: "the rollback's"}
+	}
+	return d.withUnimported(d.takeOver(ctx, prev.ID, allow, d.versions.beginRollback, in))
 }
 
 // withUnimported tells a deploy that went ahead of the devices left behind by plugins its version
@@ -230,9 +256,12 @@ func removalsFailed(err error) string {
 	return fmt.Sprintf("the version is running, but removed rules left claims or state, which the next deploy or host start will retry: %s", err)
 }
 
-// takeOver checks a stored binary, stops what's running, starts it and watches it settle. If it fails
-// to, the last version comes back.
-func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin func(version, []string) error) api.Response {
+// takeOver checks a stored binary, stops what's running, starts it with in's values and watches it
+// settle. If it fails to, the last version comes back, with the values it had. One whose code uses a
+// value in lacks goes no further.
+func (d *deployer) takeOver(ctx context.Context, id string, allow bool,
+	begin func(version, []string, map[string]string) error, in incoming,
+) api.Response {
 	var home *version
 	reject := func(resp api.Response) api.Response {
 		d.dropHome(home)
@@ -246,19 +275,32 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 	if err != nil {
 		return reject(api.Response{Error: err.Error()})
 	}
+	if missing := missingVars(manifest.Vars, in.vars); len(missing) > 0 {
+		return reject(api.Response{Error: missingError(missing, in.whose), MissingVars: missing})
+	}
+	changed := changedVars(d.versions.state.Vars, in.vars)
 	var old wire.Manifest
+	// again is the binary already running, with other values.
+	again := false
 	if cur, ok := d.versions.current(); ok {
-		old = cur.Manifest
+		old, again = cur.Manifest, cur.ID == id
 	} else if home = d.keepHome(ctx); home != nil {
 		if home.ID == id {
 			// It's the binary already running, and it has just passed its check.
 			if err := d.versions.adopt(*home); err != nil {
 				d.log.Error("Failed to record the running binary", "err", err)
 			}
-			return d.unchanged(id)
+			if len(changed) == 0 {
+				return d.unchanged(id)
+			}
+			// It's on record now, so this goes on as a deploy over it.
+			old, home, again = home.Manifest, nil, true
+		} else {
+			old = home.Manifest
+			begin = func(next version, spared []string, vars map[string]string) error {
+				return d.versions.beginFromHome(*home, next, spared, vars)
+			}
 		}
-		old = home.Manifest
-		begin = func(next version, spared []string) error { return d.versions.beginFromHome(*home, next, spared) }
 	}
 	// Before anything stops, so that declarations the host can't apply leave the old version running.
 	// A rename takes a device's cases with it, so the Safety ones aren't gone.
@@ -292,7 +334,7 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 		return reject(api.Response{Error: fmt.Sprintf("clearing the last copy of the flow runs: %s", err)})
 	}
 	d.confirmable = ""
-	if err := begin(version{ID: id, Manifest: manifest, At: time.Now()}, spared); err != nil {
+	if err := begin(version{ID: id, Manifest: manifest, At: time.Now()}, spared, in.vars); err != nil {
 		return reject(api.Response{Error: fmt.Sprintf("recording the version: %s", err)})
 	}
 	fault.Hit(fault.HostDeployBegun)
@@ -330,7 +372,7 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool, begin fu
 	resp.DeviceChanges, resp.Unseen = declared.Changes, declared.Unseen
 	if resp.Version == id {
 		// It's running, even if something after that failed.
-		resp.Warning = warning
+		resp.Warning, resp.VarsChanged, resp.Unchanged = warning, changed, again
 	}
 	return resp
 }

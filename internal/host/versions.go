@@ -50,6 +50,12 @@ type history struct {
 	Spared []string `json:"spared,omitempty"`
 	// Released is claims of flows that gave them up under a version since confirmed, yet to end.
 	Released []heldRelease `json:"released,omitempty"`
+	// Vars are your values, by name, as the last deploy sent them, which every process started from
+	// your binary is given (OIK-365). They're kept here so that they reach disk in the same write as
+	// the version they go with. They're never in a log or an answer.
+	Vars map[string]string `json:"vars,omitempty"`
+	// VarsBefore is what Vars was until the deploy in progress, which an abort brings back.
+	VarsBefore map[string]string `json:"varsBefore,omitempty"`
 }
 
 // versions keeps your binaries. Only one deploy runs at a time, so it needs no lock of its own.
@@ -61,6 +67,8 @@ type versions struct {
 	state   history
 	// pendingNow is state.Pending, for those who read it without the deployer's lock.
 	pendingNow atomic.Bool
+	// varsNow is state.Vars, for the processes starting, which don't take the deployer's lock.
+	varsNow atomic.Pointer[varSet]
 }
 
 func openVersions(dataDir string, data *store.Store) (*versions, error) {
@@ -81,6 +89,7 @@ func openVersions(dataDir string, data *store.Store) (*versions, error) {
 		}
 	}
 	v.pendingNow.Store(v.state.Pending)
+	v.varsNow.Store(newVarSet(v.state.Vars))
 	return v, nil
 }
 
@@ -93,10 +102,19 @@ func (v *versions) save(next history) error {
 	if err := v.values.Put(versionsKey, raw); err != nil {
 		return err
 	}
-	v.state = next
-	v.pendingNow.Store(next.Pending)
+	v.setState(next)
 	return nil
 }
+
+// setState makes next the state, saved or not.
+func (v *versions) setState(next history) {
+	v.state = next
+	v.pendingNow.Store(next.Pending)
+	v.varsNow.Store(newVarSet(next.Vars))
+}
+
+// vars are the values the processes starting now are given, safe to call from any goroutine.
+func (v *versions) vars() *varSet { return v.varsNow.Load() }
 
 // deploying says a version is running that hasn't settled, safe to call from any goroutine.
 func (v *versions) deploying() bool { return v.pendingNow.Load() }
@@ -216,32 +234,37 @@ func (v *versions) discard(id string) error {
 // adopt records the version running now, which nothing deployed, so that a deploy has something to
 // go back to.
 func (v *versions) adopt(next version) error {
-	return v.save(history{Versions: []version{next}, Removals: v.state.Removals, Spared: v.state.Spared, Released: v.state.Released})
+	return v.save(history{
+		Versions: []version{next}, Removals: v.state.Removals, Spared: v.state.Spared, Released: v.state.Released,
+		Vars: v.state.Vars,
+	})
 }
 
-// begin makes next the running version, unconfirmed. Call it before the process changes.
-func (v *versions) begin(next version, spared []string) error {
+// begin makes next the running version, unconfirmed, with vars as its values. Call it before the
+// process changes.
+func (v *versions) begin(next version, spared []string, vars map[string]string) error {
 	rest := slices.DeleteFunc(slices.Clone(v.state.Versions), func(k version) bool { return k.ID == next.ID })
-	return v.pending(append([]version{next}, rest...), slices.Clone(v.state.Versions), spared)
+	return v.pending(append([]version{next}, rest...), slices.Clone(v.state.Versions), spared, vars)
 }
 
 // beginFromHome is begin for a first deploy, over a binary from the host's flags that isn't on record.
 // One write records both, so the home binary is on record only if the deploy went ahead, and a crash
 // after it still has the home binary to go back to.
-func (v *versions) beginFromHome(home, next version, spared []string) error {
-	return v.pending([]version{next, home}, []version{home}, spared)
+func (v *versions) beginFromHome(home, next version, spared []string, vars map[string]string) error {
+	return v.pending([]version{next, home}, []version{home}, spared, vars)
 }
 
 // beginRollback makes next, the version before the running one, the running one, unconfirmed. The
 // running one leaves the history, so that another rollback goes back further rather than to it.
-func (v *versions) beginRollback(next version, spared []string) error {
-	return v.pending(append([]version{next}, v.state.Versions[2:]...), slices.Clone(v.state.Versions), spared)
+func (v *versions) beginRollback(next version, spared []string, vars map[string]string) error {
+	return v.pending(append([]version{next}, v.state.Versions[2:]...), slices.Clone(v.state.Versions), spared, vars)
 }
 
-func (v *versions) pending(next, before []version, spared []string) error {
+func (v *versions) pending(next, before []version, spared []string, vars map[string]string) error {
 	return v.save(history{
 		Versions: next, Before: before, Pending: true,
 		Removals: v.state.Removals, Spared: spared, Released: v.state.Released,
+		Vars: vars, VarsBefore: v.state.Vars,
 	})
 }
 
@@ -250,7 +273,7 @@ func (v *versions) pending(next, before []version, spared []string) error {
 func (v *versions) commit(released ...heldRelease) error {
 	return v.save(history{
 		Versions: slices.Clone(v.state.Versions[:min(len(v.state.Versions), keptVersions)]), Removals: true,
-		Released: released,
+		Released: released, Vars: v.state.Vars,
 	})
 }
 
@@ -266,9 +289,12 @@ func (v *versions) removalsDone() error {
 // because it's no longer what runs, and the next start will find the deploy unfinished.
 func (v *versions) abort() error {
 	failed := v.state.Versions[0].ID
-	next := history{Versions: v.state.Before, Removals: true, Spared: v.state.Spared, Released: v.state.Released}
+	next := history{
+		Versions: v.state.Before, Removals: true, Spared: v.state.Spared, Released: v.state.Released,
+		Vars: v.state.VarsBefore,
+	}
 	err := v.save(next)
-	v.state = next
+	v.setState(next)
 	if err != nil {
 		return err
 	}
