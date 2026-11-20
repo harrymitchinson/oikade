@@ -26,6 +26,9 @@ var gone = []struct {
 	{regexp.MustCompile(`oikade init\b[^\n]*--module\b[^-]`), "oikade init --module-path"},
 }
 
+// ghCommand is the text before a command of GitHub's gh: the word gh, then a space.
+var ghCommand = regexp.MustCompile(`(^|\W)gh $`)
+
 // No doc and no message names a command that's gone: every file in the repo, the skills agents read
 // included, but the plan, test data, tests, which try the old forms on purpose, handoffs and the
 // CHANGELOG, which are history, and what builds leave.
@@ -58,9 +61,13 @@ func TestNothingNamesACommandThatsGone(t *testing.T) {
 		}
 		for i, line := range strings.Split(string(b), "\n") {
 			for _, g := range gone {
-				if m := g.pattern.FindString(line); m != "" {
+				for _, at := range g.pattern.FindAllStringIndex(line, -1) {
+					// GitHub's gh has a secret set of its own, which the docs on deploying from CI run.
+					if ghCommand.MatchString(line[:at[0]]) {
+						continue
+					}
 					rel, _ := filepath.Rel(root, path)
-					t.Errorf("%s:%d names %q, which is gone: %s", rel, i+1, strings.TrimSpace(m), g.now)
+					t.Errorf("%s:%d names %q, which is gone: %s", rel, i+1, strings.TrimSpace(line[at[0]:at[1]]), g.now)
 				}
 			}
 		}

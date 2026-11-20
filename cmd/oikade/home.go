@@ -443,11 +443,14 @@ func TestPorchLightFollowsThePorchSensor(t *testing.T) {
 }
 `
 
-// homeWorkflow tests every change, and deploys what reaches main. It needs three settings: the
-// secret OIKADE_TOKEN, from oikade-host add client/ci --token, and the variables OIKADE_ADDRESS, where
-// the host serves its API, and OIKADE_PIN, the pin add printed, because a key taken from whatever
-// answers proves nothing. GitHub's runners reach the host only if it's on the internet, so the README says
-// to run it on a self-hosted runner, or over a VPN.
+// homeWorkflow tests every change on GitHub's runners, and deploys what reaches main only once you
+// turn deploys on, so a new home's first push passes (OIK-286). Setting the variable OIKADE_ADDRESS,
+// where the host serves its API, turns them on. The deploy then needs OIKADE_PIN, the pin add printed,
+// because a key taken from whatever answers proves nothing, and the secret OIKADE_TOKEN, from
+// oikade-host add client/ci --token. Until then, a push to main leaves a notice saying how. GitHub's
+// runners reach the host only if it's on the internet, so deploys run on a self-hosted runner. That
+// runner's user may be a person's too, so the deploy keeps its oikade and its context in RUNNER_TEMP,
+// which GitHub empties for each job, rather than replacing theirs.
 const homeWorkflow = `name: Home
 
 on:
@@ -456,7 +459,7 @@ on:
     branches: [main]
 
 jobs:
-  home:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -466,8 +469,30 @@ jobs:
       - run: go install github.com/harrymitchinson/oikade/cmd/oikade@OIKADE_VERSION
       - run: oikade check
       - run: oikade test
+      - name: Deploy is off
+        if: github.event_name == 'push' && vars.OIKADE_ADDRESS == ''
+        run: |
+          echo "::notice title=Deploy is off::` + deployIsOff + `"
+
+  deploy:
+    needs: test
+    if: github.event_name == 'push' && vars.OIKADE_ADDRESS != ''
+    runs-on: self-hosted
+    # One deploy at a time, and a push replaces a deploy still waiting, so the last push wins.
+    concurrency: deploy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # A self-hosted runner keeps its home between jobs, so this oikade and its login stay out of it.
+      - name: Keep to the job's own directory
+        run: |
+          echo "GOBIN=$RUNNER_TEMP/bin" >> "$GITHUB_ENV"
+          echo "XDG_CONFIG_HOME=$RUNNER_TEMP/config" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - run: go install github.com/harrymitchinson/oikade/cmd/oikade@OIKADE_VERSION
       - name: Deploy
-        if: github.event_name == 'push'
         env:
           OIKADE_TOKEN: ${{ secrets.OIKADE_TOKEN }}
           OIKADE_ADDRESS: ${{ vars.OIKADE_ADDRESS }}
@@ -476,3 +501,10 @@ jobs:
           oikade login "$OIKADE_ADDRESS" --pin "$OIKADE_PIN"
           oikade deploy
 `
+
+// deployIsOff is the notice on a push to main before deploys are on, naming what turns them on.
+const deployIsOff = "Set the variables OIKADE_ADDRESS and OIKADE_PIN and the secret OIKADE_TOKEN to deploy " +
+	"what reaches main, from a self-hosted runner: " + deployFromCIDocs
+
+// deployFromCIDocs is the section of the docs that sets up deploys from CI.
+const deployFromCIDocs = "https://github.com/harrymitchinson/oikade/blob/main/docs/running-a-home.md#deploying-from-ci"
