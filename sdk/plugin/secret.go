@@ -9,11 +9,11 @@ import (
 	"github.com/harrymitchinson/oikade/internal/secretuse"
 )
 
-// ErrSecretNotSet is Secret.Read's error for a secret nobody has set with oikade secret set.
+// ErrSecretNotSet is Secret.Read's error for a secret nobody has set with oikade set secret/NAME.
 var ErrSecretNotSet = errors.New("secret isn't set")
 
-// Secret is a credential kept on the host, such as a password or an API key, which oikade secret
-// set sets. A home makes one with oikade.Secret and passes it where it's used, such as a plugin's
+// Secret is a credential kept on the host, such as a password or an API key, which oikade set
+// secret/NAME sets. A home makes one with oikade.Secret and passes it where it's used, such as a plugin's
 // config. Making one declares it, so oikade deploy and oikade status name it while it isn't set.
 // Make them where the home is built, such as in a package-level var or the plugin's config, rather
 // than in a rule as it runs, which is too late for the host to know.
@@ -31,7 +31,7 @@ func NewSecret(name string) Secret {
 	return Secret{name: name}
 }
 
-// Name is the secret's name, as oikade secret set takes it. It's empty for the zero Secret.
+// Name is the secret's name, as oikade set secret/NAME takes it. It's empty for the zero Secret.
 func (s Secret) Name() string { return s.name }
 
 // Read reads the secret's value from the host. A secret nobody has set, as under oikade dev, is an
@@ -57,7 +57,7 @@ func (s Secret) Read() (string, error) {
 type notSetError struct{ name string }
 
 func (e notSetError) Error() string {
-	return fmt.Sprintf("secret %s isn't set: oikade secret set %s", e.name, e.name)
+	return fmt.Sprintf("secret %s isn't set: oikade set secret/%s", e.name, e.name)
 }
 
 func (e notSetError) Is(target error) bool { return target == ErrSecretNotSet }

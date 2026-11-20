@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -116,7 +117,7 @@ func TestStatusSaysWhyAndSetGoesThroughArbitration(t *testing.T) {
 		t.Errorf("fan: %+v", c)
 	}
 
-	r.stdout(nil, "set", "claimed", "on", "off", "--json")
+	r.stdout(nil, "set", "device/claimed/on", "off", "--json")
 	r.wrote("claimed", false)
 	c := onOf(t, r.status(), "claimed")
 	if c.Value != false || c.Level != "Override" || winner(c) != "command" {
@@ -130,23 +131,23 @@ func TestStatusSaysWhyAndSetGoesThroughArbitration(t *testing.T) {
 	if c.Level != "Safety" || winner(c) != "case/valve/on/leak-shutoff" {
 		t.Errorf("a Safety hold: %+v", c)
 	}
-	stderr, err := r.oikade(nil, "set", "valve", "on", "on")
+	stderr, err := r.oikade(nil, "set", "device/valve/on", "on")
 	if err == nil || !strings.Contains(stderr, "device/valve/on: case/valve/on/leak-shutoff holds it, a safety line") {
 		t.Errorf("set against Safety: %v: %s", err, stderr)
 	}
 	if v := onOf(t, r.status(), "valve").Value; v != false {
 		t.Errorf("the valve moved: %v", v)
 	}
-	if _, err := r.oikade(nil, "set", "nothing", "on", "on"); err == nil {
+	if _, err := r.oikade(nil, "set", "device/nothing/on", "on"); err == nil {
 		t.Error("set an unknown device")
 	}
-	if _, err := r.oikade(nil, "set", "fan", "on", "12"); err == nil {
+	if _, err := r.oikade(nil, "set", "device/fan/on", "12"); err == nil {
 		t.Error("set a bad value")
 	}
-	if _, err := r.oikade(nil, "set", "leak-sensor", "open", "true"); err == nil {
+	if _, err := r.oikade(nil, "set", "device/leak-sensor/open", "true"); err == nil {
 		t.Error("set a read-only capability")
 	}
-	if _, err := r.oikade(nil, "set", "fan", "brightness", "12"); err == nil {
+	if _, err := r.oikade(nil, "set", "device/fan/brightness", "12"); err == nil {
 		t.Error("set a capability the device doesn't have")
 	}
 }
@@ -158,22 +159,55 @@ func TestSetReportsWhatTheDeviceWasLeftAt(t *testing.T) {
 
 	// What set says of an outcome is cmd/oikade's (TestSetSaysWhatTheDeviceWasLeftAt): here, that
 	// the host answers with the outcome. The towel rail's Control writes back any outside change, so
-	// the set doesn't last.
+	// the set doesn't last, and fails.
 	set := func(device, value string) (bool, api.Capability) {
 		var resp struct {
 			OK      bool           `json:"ok"`
 			Outcome api.Capability `json:"outcome"`
 		}
-		if err := json.Unmarshal(r.stdout(nil, "set", device, "on", value, "--json"), &resp); err != nil {
-			t.Fatal(err)
+		cmd := exec.Command(ctlBin, "set", "--data-dir", r.dir, "device/"+device+"/on", value, "--json")
+		out, _ := cmd.Output()
+		if err := json.Unmarshal(out, &resp); err != nil {
+			t.Fatalf("%v: %s", err, out)
 		}
 		return resp.OK, resp.Outcome
 	}
-	if ok, c := set("towel-rail", "on"); !ok || c.Value != false || c.Level != "Default" {
+	if ok, c := set("towel-rail", "on"); ok || c.Value != false || c.Level != "Default" {
 		t.Errorf("the towel rail's outcome: %v, %+v", ok, c)
 	}
 	if ok, c := set("claimed", "off"); !ok || c.Value != false || c.Level != "Override" || winner(c) != "command" {
 		t.Errorf("set's outcome: %v, %+v", ok, c)
+	}
+}
+
+// A set that a case holds at another value fails, with exit 1, naming the case and what lets go of
+// it: the garage heater's overheat latches it off, and its decision has no override line, which makes
+// that a safety line, so the host refuses the set before it writes anything, and only its release, the
+// garage door opening, ends the claim.
+func TestSetFailsWhenACaseHoldsItElsewhere(t *testing.T) {
+	t.Parallel()
+	r := start(t)
+	r.sync()
+	r.change("garage-sensor", "temperature", 45)
+	r.wrote("garage-heater", false)
+	r.change("garage-sensor", "temperature", 20)
+	r.sync()
+
+	cmd := exec.Command(ctlBin, "set", "--data-dir", r.dir, "device/garage-heater/on", "true")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	err := cmd.Run()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 1 {
+		t.Fatalf("set exits %v:\n%s%s", err, stdout.String(), stderr.String())
+	}
+	held := "device/garage-heater/on: case/garage-heater/on/overheat holds it, a safety line"
+	hint := "as a pause keeps it: oikade status case/garage-heater/on/overheat says what it's waiting for"
+	if !strings.Contains(stderr.String(), "Error: "+held) || !strings.Contains(stderr.String(), hint) {
+		t.Errorf("set said:\n%s%s", stdout.String(), stderr.String())
+	}
+	if c := onOf(t, r.status("garage-heater"), "garage-heater"); c.Value != false {
+		t.Errorf("the heater stayed on: %+v", c)
 	}
 }
 

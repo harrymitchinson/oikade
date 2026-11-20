@@ -430,14 +430,14 @@ func logOutput() io.Writer {
 	return os.Stdout
 }
 
-// Secret is the credential oikade secret set keeps as name, such as a plugin's password or an API
+// Secret is the credential oikade set secret/NAME keeps as name, such as a plugin's password or an API
 // key for r.Do. Pass it where it's used: its Read reads the value each time, so a changed secret
 // needs no deploy. Making one declares it, so oikade deploy and oikade status name it while it isn't
 // set. Make it where the home is built, such as in a package-level var or a plugin's config: one
 // made in a rule as it runs is too late for that.
 func Secret(name string) plugin.Secret { return plugin.NewSecret(name) }
 
-// checkSecrets says which of the secrets the home uses have names oikade secret set refuses.
+// checkSecrets says which of the secrets the home uses have names oikade set secret/NAME refuses.
 func checkSecrets() error {
 	names := secretuse.Names()
 	errs := make([]error, 0, len(names))

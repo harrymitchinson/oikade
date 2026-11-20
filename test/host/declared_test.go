@@ -150,8 +150,8 @@ func TestADeclaredTypeThatTakesADeviceOutOfASafetyRoomWaitsForAllowSafetyRemoval
 	if d := deviceOf(t, r.devices(), "relay"); d.DeviceType != devicetype.OnOffPlugInUnit {
 		t.Errorf("the refused deploy left the relay a %q", d.DeviceType)
 	}
-	r.mustDeploy("plugins-porch-light", "--allow-safety-removal")
+	r.mustDeploy("plugins-porch-light", "--allow-safety")
 	if d := deviceOf(t, r.devices(), "relay"); d.DeviceType != devicetype.OnOffLight {
-		t.Errorf("with --allow-safety-removal, the relay is a %q", d.DeviceType)
+		t.Errorf("with --allow-safety, the relay is a %q", d.DeviceType)
 	}
 }

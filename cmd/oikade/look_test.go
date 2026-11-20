@@ -110,7 +110,7 @@ func aStatus(now time.Time) *api.Status {
 				},
 			},
 			{
-				Name: "porch-light", Problem: "no LAN key: oikade secret set 1000ddeeff", Plugin: "ewelink-lan",
+				Name: "porch-light", Problem: "no LAN key: oikade set secret/1000ddeeff", Plugin: "ewelink-lan",
 				Capabilities: []api.Capability{{Name: "on"}},
 			},
 			{

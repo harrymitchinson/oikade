@@ -198,7 +198,8 @@ type Response struct {
 	// Cancelled is a client remove's of a client waiting for its login: its code was cancelled.
 	Cancelled bool `json:"cancelled,omitempty"`
 	// Outcome is a set's: the capability once the device answered and nothing wrote it back, with its
-	// claims. It's nil if the device hadn't answered in time.
+	// claims. It's nil if the device hadn't answered in time. A set a Safety claim refused has the
+	// capability as it is, beside Error, so its claims say who holds it.
 	Outcome *Capability `json:"outcome,omitempty"`
 	// Ended are the claims a pause ended, and Kept its Safety claims, which only a release ends, each as
 	// the capability's ref, such as device/fan/on.
@@ -226,7 +227,7 @@ type Response struct {
 	TakenOffMatter []string `json:"takenOffMatter,omitempty"`
 	// Matter is a matter request's.
 	Matter *Matter `json:"matter,omitempty"`
-	// MatterWindow is the window a matter open request opened.
+	// MatterWindow is the window a matter open request, oikade pair matter's, opened.
 	MatterWindow *MatterWindow `json:"matterWindow,omitempty"`
 	// Backup is the file a backup wrote, on the host.
 	Backup string `json:"backup,omitempty"`
@@ -363,8 +364,8 @@ type Secret struct {
 	Unset bool `json:"unset,omitempty"`
 }
 
-// Matter is the host's Matter bridge. Its JSON is what oikade matter --json prints, so scripts rely on
-// it: add to it, and don't rename.
+// Matter is the host's Matter bridge. Its JSON is matter in what oikade status --json prints, so
+// scripts rely on it: add to it, and don't rename.
 type Matter struct {
 	// Serving is whether the bridge is up. It's down if its port is taken, mDNS wouldn't start, or
 	// what it keeps in the store can't be read.
@@ -385,15 +386,15 @@ type Matter struct {
 	Fabrics []Fabric `json:"fabrics"`
 }
 
-// MatterWindow is a commissioning window oikade matter open opened. Its JSON is what oikade matter
-// open --json prints, so scripts rely on it: add to it, and don't rename.
+// MatterWindow is a commissioning window oikade pair matter opened. Its JSON is what oikade pair
+// matter --json prints, so scripts rely on it: add to it, and don't rename.
 type MatterWindow struct {
 	// ManualCode and QRCode pair a controller in it, and Passcode is the setup passcode they carry.
 	ManualCode string `json:"manualCode"`
 	QRCode     string `json:"qrCode"`
 	Passcode   uint32 `json:"passcode"`
 	// Fresh is codes made for this window, which pair nothing once it closes: the bridge was already
-	// paired. Otherwise they're the bridge's own, which oikade matter shows.
+	// paired. Otherwise they're the bridge's own, which oikade status matter shows.
 	Fresh bool `json:"fresh"`
 	// Expires is when the window closes, unless a controller pairs first.
 	Expires time.Time `json:"expires"`

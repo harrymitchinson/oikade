@@ -11,7 +11,7 @@ home.Plugin("toshiba", toshibaac.New(toshibaac.Config{
 ## Setting it up
 
 1. **Add your units in Toshiba's Home AC Control app**, if they aren't there already. The plugin sees what the app's account sees.
-2. **Use the app's account:** `Username` is its username, usually your email address, and its password is a secret. Run `oikade secret set toshiba`, and paste it. It's read at each login, so a new password needs no deploy.
+2. **Use the app's account:** `Username` is its username, usually your email address, and its password is a secret. Run `oikade set secret/toshiba`, and paste it. It's read at each login, so a new password needs no deploy.
 
 A refused password shows in `oikade status`, and the plugin waits for the secret to change, or an hour, rather than trying again, since too many failed logins could lock the account.
 

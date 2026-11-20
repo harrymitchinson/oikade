@@ -74,7 +74,7 @@ func (s *Session) Open(ctx context.Context, page, redirect string) (url.Values, 
 	return q, nil
 }
 
-// KeepSecret keeps value as the host's secret name, as oikade secret set would, and returns once
+// KeepSecret keeps value as the host's secret name, as oikade set secret/NAME would, and returns once
 // it's on disk, so ReadSecret has it straight after. A backup has it too.
 func (s *Session) KeepSecret(ctx context.Context, name, value string) error {
 	if !contractv1.ValidSecretName(name) {

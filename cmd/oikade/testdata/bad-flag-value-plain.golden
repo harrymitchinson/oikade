@@ -3,6 +3,5 @@ exit 2
 --- stderr
 Error: --for is a duration, such as 90s or 10m, not "soon"
 Usage:
-  oikade matter [--json]
-  oikade matter open [--for DURATION] [--json]
-Hint: oikade matter --help says more
+  oikade pair matter [--for DURATION] [--json]
+Hint: oikade pair --help says more

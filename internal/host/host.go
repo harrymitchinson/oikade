@@ -62,7 +62,7 @@ type Host struct {
 	// Broker is an MQTT broker of yours, for Outside. A plugin your home imports takes its own.
 	Broker string
 	// SecretsDir holds one file per secret, which your process and plugins read. It defaults to
-	// DefaultSecretsDir in DataDir. A mounted, read-only one works, and oikade secret set says so.
+	// DefaultSecretsDir in DataDir. A mounted, read-only one works, and oikade set secret/NAME says so.
 	SecretsDir string
 	// Outside names plugins that run as processes of their own and speak the MQTT contract on
 	// Broker, under oikade/v1/<name>.

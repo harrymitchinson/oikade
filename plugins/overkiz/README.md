@@ -21,7 +21,7 @@ The local API needs a TaHoma Switch, or another TaHoma with Developer Mode. The 
 
 1. **Turn on Developer Mode** in the TaHoma By Somfy app: under "Configure the installation", then "Access the parameters", tap the hub's PIN (such as `1234-5678-9012`) seven times.
 2. **Make a token** from the Developer Mode menu, as [Somfy's Developer Mode guide](https://github.com/Somfy-Developer/Somfy-TaHoma-Developer-Mode) says. The app shows it only once, so copy it then.
-3. **Give the token to Oikade:** run `oikade secret set tahoma-token`, and paste it. The plugin reads it at each login, so a new token needs no deploy.
+3. **Give the token to Oikade:** run `oikade set secret/tahoma-token`, and paste it. The plugin reads it at each login, so a new token needs no deploy.
 
 Until the token is set, or while the hub refuses it, `oikade status` says so, and the plugin waits for the secret to change rather than trying the same token again. It tries a refused token once an hour.
 
@@ -29,7 +29,7 @@ Until the token is set, or while the hub refuses it, `oikade status` says so, an
 
 ## Setting up a Cozytouch account
 
-`Brand` is the app your account is in: `overkiz.Atlantic`, `overkiz.Thermor` or `overkiz.Sauter`. `Username` is the account's email address, and its password is a secret: run `oikade secret set cozytouch`, and paste it. It's read at each login, so a new password needs no deploy.
+`Brand` is the app your account is in: `overkiz.Atlantic`, `overkiz.Thermor` or `overkiz.Sauter`. `Username` is the account's email address, and its password is a secret: run `oikade set secret/cozytouch`, and paste it. It's read at each login, so a new password needs no deploy.
 
 **Your account's devices can be on either of Atlantic's clouds, or both:** Overkiz, or Magellan, where newer WiFi devices such as a Thermor Riva 5 are (OIK-329). You don't need to know which. The plugin logs in once and reads both. A cloud that has no account for your login, as Overkiz answers `No such user account` for an account on Magellan, isn't a problem: the plugin logs it once, and asks it again hourly.
 

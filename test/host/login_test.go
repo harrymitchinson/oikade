@@ -51,7 +51,7 @@ func TestLoginFromAnotherMachineThenEveryCommandOverTLS(t *testing.T) {
 
 	for _, args := range [][]string{
 		{"status", "--json"},
-		{"set", "siren", "on", "on"},
+		{"set", "device/siren/on", "on"},
 		{"pause", "case/fan/on/fan"},
 		{"resume", "case/fan/on/fan"},
 		{"list", "devices", "--json"},
@@ -69,14 +69,14 @@ func TestLoginFromAnotherMachineThenEveryCommandOverTLS(t *testing.T) {
 
 	// A deploy streams the binary, so the host needn't share a disk with the laptop.
 	out, err = away(t, laptop, nil, "deploy", "--binary", variant(t, "renamed"))
-	if err == nil || !strings.Contains(out, "--allow-safety-removal") {
+	if err == nil || !strings.Contains(out, "--allow-safety") {
 		t.Errorf("a deploy that drops a Safety rule went ahead over TLS: %v: %s", err, out)
 	}
-	out, err = away(t, laptop, nil, "deploy", "--binary", variant(t, "renamed"), "--allow-safety-removal")
+	out, err = away(t, laptop, nil, "deploy", "--binary", variant(t, "renamed"), "--allow-safety")
 	if err != nil {
 		t.Errorf("deploying over TLS: %v: %s", err, out)
 	}
-	if out, err := away(t, laptop, nil, "rollback", "--allow-safety-removal"); err != nil {
+	if out, err := away(t, laptop, nil, "rollback", "--allow-safety"); err != nil {
 		t.Errorf("rolling back over TLS: %v: %s", err, out)
 	}
 	if out, err := away(t, laptop, nil, "add", "client/more"); err == nil {

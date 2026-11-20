@@ -1,7 +1,7 @@
 NAME         ROOM   STATE                                     CAPABILITIES
 hall-lamp    hall   paired                                    on
 study-blind  study  paired, not in your code                  position, target-position, moving
-office-ac           no LAN key: oikade secret set 1000ddeeff  mode, on, setpoint, temperature, fan-speed, swing
+office-ac           no LAN key: oikade set secret/1000ddeeff  mode, on, setpoint, temperature, fan-speed, swing
 Hint: --wide shows HARDWARE and ENDPOINT
 Deployed version f113018
 Warning: the broker's password isn't set

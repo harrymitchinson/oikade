@@ -3,5 +3,5 @@ exit 2
 --- stderr
 Error: oikade deploy has no flag --bogus
 Usage:
-  oikade deploy [--module DIR | --binary FILE] [--allow-safety-removal]
+  oikade deploy [--module DIR | --binary FILE] [--allow-safety]
 Hint: oikade deploy --help says more

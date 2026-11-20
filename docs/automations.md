@@ -194,8 +194,8 @@ The rest are lines of their own:
 
 A capability has one decision, and `oikade check` refuses a second, a line after `Default`, a case with no condition and a name given twice. A case's conditions are looked at again on every device change and at least once a minute. A `Daily` in them, on its own or in an `All`, is different: the case starts and ends on its edge, and `oikade status` shows when it next does. One inside an `Any` or a `Not` changes within a minute of its edge.
 
-- **Every capability with a decision is arbitrated:** the host saves the decision, so a device is arbitrated, and a safety line holds, while your automations are down. A setting you delete goes once that deploy has settled, and a deploy that would end a safety line's claim that way needs `--allow-safety-removal`.
-- **Restarts are safe.** The host saves each case's state, under its device, capability and name, and a new process writes only if a case started or ended meanwhile. A `Linger`'s deadline is saved too, so the fan still stops on time. Renaming a case loses its state, so a deploy refuses to drop a safety line's that way without `--allow-safety-removal`.
+- **Every capability with a decision is arbitrated:** the host saves the decision, so a device is arbitrated, and a safety line holds, while your automations are down. A setting you delete goes once that deploy has settled, and a deploy that would end a safety line's claim that way needs `--allow-safety`.
+- **Restarts are safe.** The host saves each case's state, under its device, capability and name, and a new process writes only if a case started or ended meanwhile. A `Linger`'s deadline is saved too, so the fan still stops on time. Renaming a case loses its state, so a deploy refuses to drop a safety line's that way without `--allow-safety`.
 - **A lock** goes to its `Default` when nothing claims it, as any capability does, so give it `Default(true)` unless it should unlock by itself (OIK-23).
 
 ### Arbitration
@@ -216,7 +216,7 @@ home.Decide(HallLight.On).
 | `NoOverride()` | is written back at once, as for a valve that must stay closed. It goes before the first line |
 | none | beats every line until their answer next changes |
 
-A line above the override line is a **safety line**: an outside change can't beat it, and with `NoOverride`, every case is one. Pausing a safety line needs `--allow-safety`, and a deploy that would end one's claim needs `--allow-safety-removal`. With no override line, nothing is a safety line, and `oikade check` warns about a latched case, which a tap could then beat until it lets go.
+A line above the override line is a **safety line**: an outside change can't beat it, and with `NoOverride`, every case is one. Pausing a safety line, or a deploy or rollback that would end one's claim, needs `--allow-safety`. With no override line, nothing is a safety line, and `oikade check` warns about a latched case, which a tap could then beat until it lets go.
 
 In this example, motion turns the light on, and it goes off 5 minutes after the motion stops. A wall switch turned off during that is an override, so the light stays off until the motion case ends. A wall switch turned on with nobody about lasts until the next motion starts, and the light then goes off 5 minutes after the motion stops.
 

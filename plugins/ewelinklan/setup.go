@@ -221,8 +221,8 @@ func (b *bridge) signIn(ctx context.Context, s *plugin.Session, a app) (token, r
 }
 
 // fixApp says how to change the app's details that setup kept, which it doesn't ask for again.
-const fixApp = "check the app's ID, secret and redirect URL, and change them with oikade secret set " +
-	appIDSecret + " and " + appSecretSecret
+const fixApp = "check the app's ID, secret and redirect URL, and change them with oikade set secret/" +
+	appIDSecret + " and oikade set secret/" + appSecretSecret
 
 // detail is what a redirect says went wrong, if anything.
 func detail(q url.Values) string {

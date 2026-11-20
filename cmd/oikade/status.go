@@ -715,10 +715,10 @@ func setupGaps(st *api.Status) []string {
 	switch {
 	case bridge == nil:
 	case !bridge.Serving:
-		gaps = append(gaps, fmt.Sprintf("The Matter bridge is down%s. oikade matter says more.",
+		gaps = append(gaps, fmt.Sprintf("The Matter bridge is down%s. oikade status matter says more.",
 			map[bool]string{true: "", false: ": " + bridge.Problem}[bridge.Problem == ""]))
 	case len(bridge.Fabrics) == 0:
-		gaps = append(gaps, "The Matter bridge has no controller. oikade matter says how to pair one.")
+		gaps = append(gaps, "The Matter bridge has no controller. oikade status matter says how to pair one.")
 	}
 	// A plugin that needs its setup can't serve its devices until it's run.
 	for _, p := range st.Plugins {

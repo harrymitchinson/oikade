@@ -289,7 +289,7 @@ func TestSetupSaysWhatWentWrong(t *testing.T) {
 			things: things, secret: "not-the-secret",
 			browse: func(t *testing.T) func(string) string { t.Helper(); return signIn(t, "eu") },
 			want: "eWeLink refused to sign in: wrong sign (error 401): check the app's ID, secret and redirect URL, " +
-				"and change them with oikade secret set ewelink-app-id and ewelink-app-secret",
+				"and change them with oikade set secret/ewelink-app-id and oikade set secret/ewelink-app-secret",
 		},
 		"refused sign-in": {
 			things: things, secret: testAppSecret,

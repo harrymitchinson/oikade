@@ -238,10 +238,14 @@ func (s *apiServer) set(ctx context.Context, req api.Request) api.Response {
 	}
 	if holder, _ := heldAtSafety(s.srv.engine, s.srv.devices, dev, req.Capability, value); holder != "" {
 		what := ident.CapabilityRef(req.Device, req.Capability)
+		now := s.capabilityNow(dev, req.Capability)
 		if _, ok := control.CaseOf(holder, req.Device, req.Capability); ok {
-			return api.Response{Error: fmt.Sprintf("%s: %s holds it, a safety line", what, control.SourceRef(holder))}
+			return api.Response{
+				Error:   fmt.Sprintf("%s: %s holds it, a safety line", what, control.SourceRef(holder)),
+				Outcome: now,
+			}
 		}
-		return api.Response{Error: fmt.Sprintf("%s holds %s at Safety", control.SourceRef(holder), what)}
+		return api.Response{Error: fmt.Sprintf("%s holds %s at Safety", control.SourceRef(holder), what), Outcome: now}
 	}
 	// Before the write, so that the device's answer can't come first.
 	events, stop := s.srv.feed.subscribe()
@@ -273,6 +277,11 @@ func (s *apiServer) settled(ctx context.Context, dev ident.ID, name string, valu
 	if !awaitAnswer(ctx, events, dev.Name, name, value, has, setSettle) {
 		return nil
 	}
+	return s.capabilityNow(dev, name)
+}
+
+// capabilityNow is a device's capability as it is, with its claims, or nil if the device has gone.
+func (s *apiServer) capabilityNow(dev ident.ID, name string) *api.Capability {
 	snap, ok := s.srv.devices.Get(dev)
 	if !ok {
 		return nil

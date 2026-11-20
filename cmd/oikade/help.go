@@ -34,7 +34,8 @@ var groups = []group{
 		{
 			Name:    "oikade init",
 			Summary: "Start a home: a Go module that builds against Oikade.",
-			Usage:   []string{"oikade init [DIR] [--module PATH] [--source DIR]"},
+			Usage:   []string{"oikade init [DIR] [--module-path PATH] [--source DIR]"},
+			Hide:    []string{"module"},
 			About:   "DIR is the directory to start it in, the current one by default, which mustn't hold a home already.",
 			Example: []string{"oikade init my-home"},
 		},
@@ -80,16 +81,19 @@ var groups = []group{
 		{
 			Name:    "oikade deploy",
 			Summary: "Check and build your home, and run it on the host.",
-			Usage:   []string{"oikade deploy [--module DIR | --binary FILE] [--allow-safety-removal]"},
+			Usage:   []string{"oikade deploy [--module DIR | --binary FILE] [--allow-safety]"},
 			About: "The host keeps the version it was running until the new one has stayed up, and puts it back " +
-				"if it doesn't. A deploy that would end a Safety rule's claims needs --allow-safety-removal.",
+				"if it doesn't. A deploy that would end a Safety rule's claims needs --allow-safety.",
 			Example: []string{"oikade deploy --module ~/my-home"},
+			Hide:    []string{"allow-safety-removal"},
 		},
 		{
 			Name:    "oikade rollback",
 			Summary: "Go back to the version the host ran before this one.",
-			Usage:   []string{"oikade rollback [--allow-safety-removal]"},
+			Usage:   []string{"oikade rollback [--allow-safety]"},
+			About:   "A rollback that would end a Safety rule's claims needs --allow-safety.",
 			Example: []string{"oikade rollback"},
+			Hide:    []string{"allow-safety-removal"},
 		},
 	}},
 	{"Watch and drive", []cli.Command{
@@ -139,13 +143,16 @@ var groups = []group{
 		},
 		{
 			Name:    "oikade set",
-			Summary: "Set a capability, as a person would, through arbitration.",
+			Summary: "Set a capability as a person would, or a secret.",
 			Usage: []string{
 				"oikade set device/DEVICE/CAPABILITY VALUE [--json]",
-				"oikade set DEVICE CAPABILITY VALUE [--json]",
+				"oikade set secret/NAME [--json]",
 			},
-			About:   "It says what the capability is afterwards, and the rule that holds it if that isn't VALUE.",
-			Example: []string{"oikade set device/hall-heater/setpoint 19.5"},
+			About: "A capability's set says what it is afterwards, and fails, naming the rule or limit that holds " +
+				"it, if that isn't VALUE. One whose device hasn't answered yet isn't a failure: the write was sent. " +
+				"A secret's value comes from stdin, or a prompt, never an argument, which your shell's history and " +
+				"ps would keep. oikade list secrets lists them, and oikade remove secret/NAME removes one.",
+			Example: []string{"oikade set device/hall-heater/setpoint 19.5", "oikade set secret/weather-api-key"},
 		},
 		{
 			Name:    "oikade pause",
@@ -196,11 +203,12 @@ var groups = []group{
 			Example: []string{"oikade setup overkiz"},
 		},
 		{
-			Name:    "oikade matter",
-			Summary: "Show the Matter bridge, or open its window to pair a controller.",
-			Usage:   []string{"oikade matter [--json]", "oikade matter open [--for DURATION] [--json]"},
-			About:   "With no word, it's oikade status matter.",
-			Example: []string{"oikade matter open --for 10m"},
+			Name:    "oikade pair",
+			Summary: "Open the Matter bridge's window to pair a controller.",
+			Usage:   []string{"oikade pair matter [--for DURATION] [--json]"},
+			About: "It prints the codes to pair with, and the QR code on a terminal. oikade status matter says " +
+				"what the bridge is doing, and who's paired.",
+			Example: []string{"oikade pair matter --for 10m"},
 		},
 	}},
 	{"Host access", []cli.Command{
@@ -211,14 +219,7 @@ var groups = []group{
 			About:   "oikade-host add client/NAME, on the host's machine, prints the line to run.",
 			Example: []string{"oikade login pi.home:8443 --pin sha256:9f2c… --code k7Qx…"},
 		},
-		{
-			Name:    "oikade secret",
-			Summary: "Set a secret your home and its plugins read.",
-			Usage:   []string{"oikade secret set NAME [--json]"},
-			About: "set takes the value from stdin, or asks for it, and never from an argument, which ps would show. " +
-				"oikade list secrets lists them, and oikade remove secret/NAME removes one.",
-			Example: []string{"oikade secret set weather-api-key"},
-		},
+
 		{
 			Name:    "oikade backup",
 			Summary: "Back up the host's store, on the host, and print where it went.",
@@ -242,8 +243,8 @@ func runners() map[string]func(ctx context.Context, args []string) error {
 		verbList: runList, "status": runStatus, "history": runHistory, "tail": runTail, "set": runSet,
 		"pause":  func(ctx context.Context, args []string) error { return runPause(ctx, args, true) },
 		"resume": func(ctx context.Context, args []string) error { return runPause(ctx, args, false) },
-		"forget": runForget, verbRemove: runRemove, "setup": runSetup, "matter": runMatter,
-		"login": runLogin, "secret": runSecret, "backup": runBackup, "version": runVersion,
+		"forget": runForget, verbRemove: runRemove, "setup": runSetup, "pair": runPair,
+		"login": runLogin, "backup": runBackup, "version": runVersion,
 	}
 }
 
@@ -359,6 +360,9 @@ var instead = map[string]string{
 	"rm":      "oikade remove REF removes a secret or a client, and oikade forget DEVICE forgets a device",
 	"delete":  "oikade remove REF removes a secret or a client, and oikade forget DEVICE forgets a device",
 	"add":     "oikade-host add client/NAME, on the host's machine, adds a client",
+	"secret":  "oikade set secret/NAME sets one, oikade list secrets lists them and oikade remove secret/NAME removes one",
+	"matter":  "oikade status matter shows the Matter bridge, and oikade pair matter opens its window to pair one",
+	"open":    "oikade pair matter opens the Matter bridge's window to pair a controller",
 	"logs":    "oikade history shows what your home did, and oikade tail follows it",
 	"events":  "oikade history shows what your home did, and oikade tail follows it",
 	"ls":      "oikade list KIND lists " + orList(listKinds),

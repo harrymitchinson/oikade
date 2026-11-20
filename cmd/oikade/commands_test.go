@@ -4,9 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -238,4 +241,75 @@ func TestPauseByThreeWordsGivesTheCasesRef(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), `"Desk-Plug" isn't a device name`) {
 		t.Errorf("err = %v", err)
 	}
+}
+
+// A set fails, with exit 1, when something holds the capability at another value, and says what lets
+// go of it: pausing the rule, with --allow-safety for a Safety one, or its limits running out. One whose
+// device hasn't answered yet was sent, so it doesn't fail.
+func TestSetFailsWhenItsHeldElsewhere(t *testing.T) {
+	until := time.Date(2026, 11, 20, 17, 30, 0, 0, time.Local)
+	for _, tc := range []struct {
+		name string
+		resp api.Response
+		code int
+		says string
+	}{
+		{"done", api.Response{Outcome: &api.Capability{Name: "on", Value: true}}, 0,
+			"device/desk-plug/on is true\n"},
+		{"not answered", api.Response{}, 0,
+			"device/desk-plug/on hasn't answered yet: oikade status desk-plug shows it when it does\n"},
+		{"a flow holds it", api.Response{Outcome: &api.Capability{Name: "on", Value: false, Level: "Normal",
+			Claims: []api.Claim{{Source: "flow/bedtime", Level: "Normal", Value: false, Winner: true}}}}, 1,
+			"Error: device/desk-plug/on is false, not true: flow/bedtime holds it\n" +
+				"Hint: oikade pause flow/bedtime lets go of it until you resume it\n"},
+		{"a Safety case refused it", api.Response{
+			Error: "device/desk-plug/on: case/desk-plug/on/leak holds it, a safety line",
+			Outcome: &api.Capability{Name: "on", Value: false, Level: "Safety", Claims: []api.Claim{
+				{Source: "case/desk-plug/on/leak", Case: "leak", Level: "Safety", Value: false, Winner: true}}},
+		}, 1, "Error: device/desk-plug/on: case/desk-plug/on/leak holds it, a safety line\n" +
+			"Hint: a Safety claim ends only when its rule releases it, as a pause keeps it: oikade status " +
+			"case/desk-plug/on/leak says what it's waiting for\n"},
+		{"its limits hold it", api.Response{Outcome: &api.Capability{
+			Name: "on", Value: false, Level: "Override", Limit: "MinimumOff", LimitUntil: &until,
+			Claims: []api.Claim{{Source: "command", Level: "Override", Value: true, Winner: true}},
+		}}, 1, "Error: device/desk-plug/on is false, not true: oikade set holds it, resting until 17:30\n" +
+			"Hint: its limits let go when they're done: oikade status device/desk-plug/on says when\n"},
+		{"written back", api.Response{Outcome: &api.Capability{Name: "on", Value: false, Level: "Default"}}, 1,
+			"Error: device/desk-plug/on is false, not true: no line applies, so its Default wins\n" +
+				"Hint: oikade status device/desk-plug/on says why\n"},
+	} {
+		dir := aSetHost(t, tc.resp)
+		out, errs, code := runOikade(t, cli.Plain, "set", "device/desk-plug/on", "true", "--data-dir", dir)
+		errs = strings.TrimPrefix(errs, "Setting device/desk-plug/on to true\n")
+		if code != tc.code || out+errs != tc.says {
+			t.Errorf("%s: exit %d:\n%s%s\nwant exit %d:\n%s", tc.name, code, out, errs, tc.code, tc.says)
+		}
+		out, _, _ = runOikade(t, cli.Plain, "set", "device/desk-plug/on", "true", "--json", "--data-dir", dir)
+		if ok := strings.HasPrefix(out, `{"ok":true`); ok != (tc.code == 0) {
+			t.Errorf("%s: --json says %s", tc.name, out)
+		}
+	}
+}
+
+// aSetHost is a host that answers every set with resp.
+func aSetHost(t *testing.T, resp api.Response) (dir string) {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "oik") //nolint:usetesting // a Unix socket's path has to fit in about 100 bytes
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	l, err := net.Listen("unix", filepath.Join(dir, api.SocketName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST "+api.Prefix+"/set", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", api.ContentType)
+		_ = json.NewEncoder(w).Encode(resp)
+	})
+	host := &http.Server{Handler: mux}
+	go func() { _ = host.Serve(l) }()
+	t.Cleanup(func() { _ = host.Close() })
+	return dir
 }

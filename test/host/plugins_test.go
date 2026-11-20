@@ -88,7 +88,7 @@ func (r *rig) launchPlugins(args ...string) {
 func (r *rig) setting(device, value string) {
 	r.t.Helper()
 	r.until("a write to "+device, func() bool {
-		_, err := r.oikade(nil, "set", device, "on", value)
+		_, err := r.oikade(nil, "set", "device/"+device+"/on", value)
 		return err == nil
 	})
 }
@@ -119,7 +119,7 @@ func TestAnImportedPluginsDevicesAreUsableAtOnce(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)
 	r.untilValue("relay", false)
-	r.stdout(nil, "set", "relay", "on", "on")
+	r.stdout(nil, "set", "device/relay/on", "on")
 	r.untilValue("relay", true)
 	if d := deviceOf(t, r.devices(), "relay"); d.Driver != "plugin/relays" || d.Endpoint == 0 ||
 		d.Manufacturer != "Oikade" || d.Model != "Simulated switch" || !strings.HasPrefix(d.SerialNumber, "SIM-") ||
@@ -179,7 +179,7 @@ func TestADeviceYouRemoveStaysRemovedWhileItsPluginLists(t *testing.T) {
 
 	// A restart is the plugin listing everything again.
 	connected := r.count(pluginConnected)
-	r.oikade(nil, "set", "panics", "on", "on") //nolint:errcheck // It dies taking this.
+	r.oikade(nil, "set", "device/panics/on", "on") //nolint:errcheck // It dies taking this.
 	r.until("the plugin to come back", func() bool { return r.count(pluginConnected) > connected })
 	r.untilValue("panics", false)
 	r.untilValue("valve", true)
@@ -216,10 +216,10 @@ func TestAPluginThatPanicsIsRestartedWhileTheRestCarriesOn(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)
 	r.untilValue("relay", false)
-	r.stdout(nil, "set", "relay", "on", "on")
+	r.stdout(nil, "set", "device/relay/on", "on")
 	r.untilValue("relay", true)
 	automations := r.pid()
-	r.stdout(nil, "set", "panics", "on", "on")
+	r.stdout(nil, "set", "device/panics/on", "on")
 	r.waitFor(func(l line) bool { return l.is(pluginRestarted, "plugin", "relays") })
 	r.until("the plugin to come back", func() bool { return r.count(pluginConnected, "plugin", "relays") == 2 })
 	if r.pid() != automations || r.count(attached) != 1 || r.count(pluginConnected, "plugin", "quiet") != 1 {
@@ -237,7 +237,7 @@ func TestAPluginThatHangsIsKilledAndRestarted(t *testing.T) {
 	r := startPlugins(t, "--heartbeat-timeout=1s", "--plugin-set-timeout=100ms")
 	r.untilValue("relay", false)
 	automations := r.pid()
-	r.stdout(nil, "set", "hangs", "on", "on")
+	r.stdout(nil, "set", "device/hangs/on", "on")
 	r.waitFor(func(l line) bool { return l.is(pluginKilled, "plugin", "relays") })
 	r.until("the plugin to come back", func() bool { return r.count(pluginConnected, "plugin", "relays") == 2 })
 	if r.pid() != automations {
@@ -257,7 +257,7 @@ func TestASafetyClaimOutlastsItsPlugin(t *testing.T) {
 	// Its valve starts open, so coming back is a change the claim has to undo.
 	const changed = "Changed capability"
 	before := r.count(changed, "device", "valve")
-	r.stdout(nil, "set", "panics", "on", "on")
+	r.stdout(nil, "set", "device/panics/on", "on")
 	r.waitFor(func(l line) bool { return l.is(pluginRestarted, "plugin", "relays") })
 	r.until("the plugin to come back", func() bool { return r.count(pluginConnected, "plugin", "relays") == 2 })
 	r.until("the valve to be seen open and shut again", func() bool {
@@ -267,7 +267,7 @@ func TestASafetyClaimOutlastsItsPlugin(t *testing.T) {
 	if st.Level != "Safety" {
 		t.Fatalf("got %+v. The log:\n%s", st, r.dump())
 	}
-	if _, err := r.oikade(nil, "set", "valve", "on", "on"); err == nil {
+	if _, err := r.oikade(nil, "set", "device/valve/on", "on"); err == nil {
 		t.Fatal("a write beat the Safety claim")
 	}
 }
@@ -279,9 +279,9 @@ func TestAWriteToADownPluginFailsOutLoud(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(r.dir, "plugin-down"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	r.stdout(nil, "set", "panics", "on", "on")
+	r.stdout(nil, "set", "device/panics/on", "on")
 	r.waitFor(func(l line) bool { return l.is(pluginRestarted, "plugin", "relays") })
-	stderr, err := r.oikade(nil, "set", "relay", "on", "on")
+	stderr, err := r.oikade(nil, "set", "device/relay/on", "on")
 	if err == nil || !strings.Contains(stderr, "offline") {
 		t.Fatalf("got %v, %q", err, stderr)
 	}
@@ -311,7 +311,7 @@ func TestTheDeployCheckSeesAClaimOnADeviceWhosePluginIsDown(t *testing.T) {
 	if err == nil {
 		t.Fatalf("the deploy went ahead. The log:\n%s", r.dump())
 	}
-	if !strings.Contains(stderr, `"valve on leak-shutoff"`) || !strings.Contains(stderr, "--allow-safety-removal") {
+	if !strings.Contains(stderr, `"valve on leak-shutoff"`) || !strings.Contains(stderr, "--allow-safety") {
 		t.Fatalf("got %q", stderr)
 	}
 }
@@ -335,7 +335,7 @@ func TestAControllerDrivesAPluginsDevice(t *testing.T) {
 	}
 	c.command(endpoint, turnOn)
 	r.untilValue("relay", true)
-	r.stdout(nil, "set", "relay", "on", "off")
+	r.stdout(nil, "set", "device/relay/on", "off")
 	r.until("the controller to hear relay", func() bool { return !c.isOn(endpoint) })
 }
 
@@ -529,7 +529,7 @@ func TestAnOutsideProcessSpeaksMQTT(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.untilValue("kettle", false)
-	r.stdout(nil, "set", "kettle", "on", "on")
+	r.stdout(nil, "set", "device/kettle/on", "on")
 	r.untilValue("kettle", true)
 	if device.sets.Load() != 1 {
 		t.Fatalf("got %d sets", device.sets.Load())

@@ -98,10 +98,8 @@ Hint: oikade remove --help says more
 exit 2
 
 $ oikade secret remove api-key
-Error: oikade secret doesn't remove secrets any more
-Usage:
-  oikade secret set NAME [--json]
-Hint: oikade remove secret/api-key does
+Error: oikade has no secret command
+Hint: oikade set secret/NAME sets one, oikade list secrets lists them and oikade remove secret/NAME removes one
 exit 2
 
 $ oikade client revoke old-laptop

@@ -4,20 +4,20 @@ oikade deploy: Check and build your home, and run it on the host.
 
 The host keeps the version it was running until the new one has stayed up, and
 puts it back if it doesn't. A deploy that would end a Safety rule's claims needs
---allow-safety-removal.
+--allow-safety.
 
 Usage:
-  oikade deploy [--module DIR | --binary FILE] [--allow-safety-removal]
+  oikade deploy [--module DIR | --binary FILE] [--allow-safety]
 
 Flags:
-  --module DIR            Your home's module, to check and build. (default .)
-  --binary FILE           A binary already built for the host, skipping the
-                          source checks.
-  --allow-safety-removal  Go ahead even though a Safety rule would go.
-  --context NAME          The host to reach over its network API, from oikade
-                          login.
-  --data-dir DIR          The host's data directory, on this machine. (default
-                          /var/lib/oikade)
+  --module DIR    Your home's module, to check and build. (default .)
+  --binary FILE   A binary already built for the host, skipping the source
+                  checks.
+  --allow-safety  Go ahead even though a Safety rule would go, and end its
+                  claims.
+  --context NAME  The host to reach over its network API, from oikade login.
+  --data-dir DIR  The host's data directory, on this machine. (default
+                  /var/lib/oikade)
 
 Example:
   oikade deploy --module ~/my-home

@@ -7,6 +7,7 @@ import (
 
 	"github.com/harrymitchinson/oikade/internal/cli"
 	"github.com/harrymitchinson/oikade/internal/host/api"
+	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
 const testQR = "MT:Y.K9042C00KA0648G00"
@@ -34,12 +35,12 @@ func TestMatterDrawsTheQRCodeWhileItPairs(t *testing.T) {
 	closed := *ready
 	closed.Window = false
 	out = matterOutput(&closed, true)
-	if strings.Contains(out, "█") || !strings.Contains(out, "oikade matter open opens it again") {
+	if strings.Contains(out, "█") || !strings.Contains(out, "oikade pair matter opens it again") {
 		t.Errorf("window closed:\n%s", out)
 	}
 	paired := closed
 	paired.Fabrics = []api.Fabric{{Index: 1, VendorID: 0x1349}}
-	if out := matterOutput(&paired, true); strings.Contains(out, "█") || !strings.Contains(out, "run oikade matter open") {
+	if out := matterOutput(&paired, true); strings.Contains(out, "█") || !strings.Contains(out, "run oikade pair matter") {
 		t.Errorf("paired:\n%s", out)
 	}
 	paired.Window = true
@@ -64,5 +65,21 @@ func TestMatterOpenSaysWhoseCodeItIs(t *testing.T) {
 	printWindow(cli.Plain(&b, 0), w, false)
 	if out := b.String(); strings.Contains(out, "█") || !strings.Contains(out, "pair nothing once it closes") {
 		t.Errorf("a fresh code, to a pipe:\n%s", out)
+	}
+}
+
+// What pair matter prints, plain and styled: with the bridge's own code, drawn on a terminal, and with
+// a fresh one of a window's, as it is once the bridge is paired.
+func TestPairMatterInTheLook(t *testing.T) {
+	expires := time.Date(2026, 11, 17, 14, 47, 0, 0, time.Local)
+	for name, printer := range printers {
+		var b strings.Builder
+		own := &api.MatterWindow{ManualCode: "34970112332", QRCode: testQR, Expires: expires}
+		printWindow(printer(&b, 80), own, name == "colour")
+		b.WriteString("--- once paired\n")
+		fresh := *own
+		fresh.Fresh = true
+		printWindow(printer(&b, 80), &fresh, false)
+		testkit.Golden(t, "pair-matter-"+name, []byte(b.String()))
 	}
 }

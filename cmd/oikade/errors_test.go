@@ -26,20 +26,20 @@ func TestErrorsReadAsSentences(t *testing.T) {
 		code int
 	}{
 		// set checks its value before it says it's setting it.
-		{[]string{"set", "salon", "on", "maybe"}, "Error: device/salon/on takes true or false, not maybe\n", 1},
+		{[]string{"set", "device/salon/on", "maybe"}, "Error: device/salon/on takes true or false, not maybe\n", 1},
 		{
 			[]string{"set", "device/salon/setpoint", "warm"},
 			"Error: device/salon/setpoint takes a number, such as 25, not warm\n",
 			1,
 		},
-		{[]string{"set", "salon", "setpoint", "90"}, "Error: device/salon/setpoint takes 0°C to 50°C, not 90\n", 1},
+		{[]string{"set", "device/salon/setpoint", "90"}, "Error: device/salon/setpoint takes 0°C to 50°C, not 90\n", 1},
 		{
-			[]string{"set", "salon", "mode", "off"},
+			[]string{"set", "device/salon/mode", "off"},
 			"Error: device/salon/mode takes auto, heat, cool, dry or fan, not off\n",
 			1,
 		},
 		{
-			[]string{"set", "salon", "temperature", "3"},
+			[]string{"set", "device/salon/temperature", "3"},
 			"Error: device/salon/temperature is read-only: salon reports it, and nothing sets it\n",
 			1,
 		},

@@ -95,7 +95,7 @@ func runHost(ctx context.Context, args []string) error {
 		case err == nil:
 			*broker = withPassword
 		case errors.Is(err, os.ErrNotExist):
-			// oikade secret set needs a running host, so a first start comes before the secret does.
+			// oikade set secret/NAME needs a running host, so a first start comes before the secret does.
 			log.Error("Could not read the broker's password; restart the host once it's set", "err", err,
 				"secret", *brokerPassword)
 		default:
