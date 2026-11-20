@@ -313,7 +313,7 @@ func (p *plugins) refreshing(ctx context.Context) {
 
 // start runs a binary's plugins, and returns how to stop them.
 func (p *plugins) start(ctx context.Context, path string) (func(), error) {
-	manifest, err := runCheck(ctx, path)
+	manifest, err := runCheck(ctx, path, p.host.vars, p.host.vars.current())
 	if err != nil {
 		return func() {}, err
 	}

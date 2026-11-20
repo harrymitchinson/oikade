@@ -217,8 +217,37 @@ func TestChangedVarsNamesWhatWasAddedChangedAndRemoved(t *testing.T) {
 }
 
 func TestAManifestNamesItsVars(t *testing.T) {
-	m, err := runCheck(t.Context(), checks(t, "TOSHIBA_USER"))
+	m, err := runCheck(t.Context(), checks(t, "TOSHIBA_USER"), nil, nil)
 	if err != nil || !slices.Equal(m.Vars, []string{"TOSHIBA_USER"}) || m.Protocol != wire.Version {
 		t.Errorf("got %+v, %v", m, err)
+	}
+}
+
+// A version's check runs with the values it would run with, so code that reads one as the home is
+// built is checked as it will run: the deploy's, in a file of their own that's gone once it's done.
+func TestAVersionsCheckHasTheDeploysValues(t *testing.T) {
+	v, closeStore := openTestVersions(t, t.TempDir())
+	defer closeStore()
+	dir, seen := t.TempDir(), filepath.Join(t.TempDir(), "seen")
+	m := manifest()
+	m.Vars = []string{"TOSHIBA_PASSWORD"}
+	raw, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary := script(t, fmt.Sprintf(`cat "$%s" > %s
+echo '%s'`, wire.VarsEnv, seen, raw))
+	d := &deployer{log: logging.Discard(), versions: v,
+		vars: &varsFile{path: filepath.Join(dir, varsFileName), set: v.vars}}
+	resp := d.deploy(t.Context(), binary, map[string]string{"TOSHIBA_USER": "someone"}, false)
+	if !slices.Equal(resp.MissingVars, []string{"TOSHIBA_PASSWORD"}) {
+		t.Fatalf("got %+v", resp)
+	}
+	got, err := os.ReadFile(seen)
+	if err != nil || string(got) != `{"TOSHIBA_USER":"someone"}` {
+		t.Errorf("the check had %s, %v", got, err)
+	}
+	if left, err := os.ReadDir(dir); err != nil || len(left) != 0 {
+		t.Errorf("left %v, %v", left, err)
 	}
 }

@@ -128,7 +128,7 @@ func TestCheckTakesTheManifestFromCheckMode(t *testing.T) {
 	path := script(t, fmt.Sprintf(`[ "$1" = check ] || exit 9
 echo something a home printed
 echo '%s'`, raw))
-	m, err := runCheck(t.Context(), path)
+	m, err := runCheck(t.Context(), path, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestCheckRefuses(t *testing.T) {
 		"no protocol":    {`echo '{"rules":[]}'`, "protocol 0"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := runCheck(t.Context(), script(t, tc.body))
+			_, err := runCheck(t.Context(), script(t, tc.body), nil, nil)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("got %v, want it to mention %q", err, tc.want)
 			}

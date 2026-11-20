@@ -218,8 +218,8 @@ func (h *Host) Run(ctx context.Context) error {
 	}
 	deploys := &deployer{
 		log: h.Log.With("logger", "deploy"), versions: kept, srv: srv, settle: h.Settle, home: h.Home,
-		secrets: secrets{dir: h.SecretsDir},
-		swaps:   make(chan *swap), connected: make(chan struct{}, 1),
+		secrets: secrets{dir: h.SecretsDir}, vars: h.vars,
+		swaps: make(chan *swap), connected: make(chan struct{}, 1),
 	}
 	srv.connected = func() {
 		select {

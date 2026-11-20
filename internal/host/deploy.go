@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
 	"slices"
 	"strings"
@@ -43,6 +44,8 @@ type deployer struct {
 	secrets secrets
 	// running is the path of the binary the supervisor runs, or empty for none.
 	running string
+	// vars writes your values for a binary's check, and is nil in tests that need none.
+	vars *varsFile
 	// confirmable is a version that settled and couldn't be recorded as confirmed. Being unconfirmed
 	// doesn't say that on its own: a version the host stopped watching is unconfirmed too.
 	confirmable string
@@ -207,7 +210,7 @@ func (d *deployer) keepHome(ctx context.Context) *version {
 		d.log.Info("Couldn't keep the running binary; a deploy can't go back to it", "reason", err.Error())
 		return nil
 	}
-	manifest, err := runCheck(ctx, d.versions.path(id))
+	manifest, err := runCheck(ctx, d.versions.path(id), d.vars, d.versions.vars().values)
 	if err != nil {
 		d.log.Info("Couldn't check the running binary", "reason", err.Error())
 	}
@@ -277,7 +280,9 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool,
 		d.log.Info("Rejected automations version", "version", id, "reason", resp.Error)
 		return resp
 	}
-	manifest, err := runCheck(ctx, d.versions.path(id))
+	// With the values it would run with, so code that reads one as the home is built is checked as
+	// it will run.
+	manifest, err := runCheck(ctx, d.versions.path(id), d.vars, in.vars)
 	if err != nil {
 		return reject(api.Response{Error: err.Error()})
 	}
@@ -618,10 +623,18 @@ func safetyFindings(old, next wire.Manifest, renamed map[string]string, held map
 
 // runCheck runs a binary's check mode and returns what it says about itself. A binary that fails it,
 // or was built for another protocol, goes no further.
-func runCheck(ctx context.Context, path string) (wire.Manifest, error) {
+func runCheck(ctx context.Context, path string, vars *varsFile, values map[string]string) (wire.Manifest, error) {
 	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
 	defer cancel()
+	env, remove, err := vars.forCheck(values)
+	if err != nil {
+		return wire.Manifest{}, err
+	}
+	defer remove()
 	cmd := exec.CommandContext(ctx, path, wire.RoleCheck)
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	cmd.WaitDelay = time.Second
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &limited{&stdout, checkOutput}, &limited{&stderr, checkOutput}

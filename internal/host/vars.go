@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/harrymitchinson/oikade/internal/host/wire"
 	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
@@ -64,31 +65,61 @@ func varsDir(runtimeDir, dataDir string) (string, error) {
 func (f *varsFile) write() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	values := f.set().values
+	tmp, err := f.temp(".vars-*", f.set().values)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(tmp) }()
+	if err := os.Rename(tmp, f.path); err != nil {
+		return fmt.Errorf("writing your values: %w", err)
+	}
+	return nil
+}
+
+// current is the values as they are now, or none for a nil varsFile.
+func (f *varsFile) current() map[string]string {
+	if f == nil {
+		return nil
+	}
+	return f.set().values
+}
+
+// forCheck writes values for a binary's check mode, in a file of their own beside the processes',
+// and returns the environment that names it and how to remove it. A nil varsFile gives none.
+func (f *varsFile) forCheck(values map[string]string) ([]string, func(), error) {
+	if f == nil {
+		return nil, func() {}, nil
+	}
+	tmp, err := f.temp(".check-vars-*", values)
+	if err != nil {
+		return nil, nil, err
+	}
+	return []string{wire.VarsEnv + "=" + tmp}, func() { _ = os.Remove(tmp) }, nil
+}
+
+// temp writes values to a new file beside the processes' one, named for pattern, and returns its path.
+func (f *varsFile) temp(pattern string, values map[string]string) (string, error) {
 	if values == nil {
 		values = map[string]string{}
 	}
 	raw, err := json.Marshal(values)
 	if err != nil {
-		return err
+		return "", err
 	}
 	// CreateTemp makes it 0600, so no one else can read it, even for a moment.
-	tmp, err := os.CreateTemp(filepath.Dir(f.path), ".vars-*")
+	tmp, err := os.CreateTemp(filepath.Dir(f.path), pattern)
 	if err != nil {
-		return fmt.Errorf("writing your values: %w", err)
+		return "", fmt.Errorf("writing your values: %w", err)
 	}
-	defer func() { _ = os.Remove(tmp.Name()) }()
 	_, err = tmp.Write(raw)
 	if closeErr := tmp.Close(); err == nil {
 		err = closeErr
 	}
-	if err == nil {
-		err = os.Rename(tmp.Name(), f.path)
-	}
 	if err != nil {
-		return fmt.Errorf("writing your values: %w", err)
+		_ = os.Remove(tmp.Name())
+		return "", fmt.Errorf("writing your values: %w", err)
 	}
-	return nil
+	return tmp.Name(), nil
 }
 
 // checkVarNames refuses a set with a name that breaks the rule, which a process couldn't ask for.
