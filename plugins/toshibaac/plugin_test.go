@@ -385,7 +385,8 @@ func TestNoSecretWaitsForOne(t *testing.T) {
 	b.waitAvailability(bedroom, "online")
 }
 
-// TestTooManyRequestsWaitsLonger is the firewall's 403 and the login's 429.
+// TestTooManyRequestsWaitsLonger is the firewall's 403 and the login's 429, when neither says how
+// long to wait.
 func TestTooManyRequestsWaitsLonger(t *testing.T) {
 	for _, status := range []int{http.StatusForbidden, http.StatusTooManyRequests} {
 		t.Run(strconv.Itoa(status), func(t *testing.T) {
@@ -406,6 +407,54 @@ func TestTooManyRequestsWaitsLonger(t *testing.T) {
 			b.waitAvailability(bedroom, "online")
 		})
 	}
+}
+
+// TestALimitWaitsAsLongAsTheCloudAsks is the login's 429 saying how long, as it did in OIK-327, so a
+// few deploys in a row cost a minute rather than ten (OIK-361).
+func TestALimitWaitsAsLongAsTheCloudAsks(t *testing.T) {
+	cloud := newFakeCloud(t)
+	cloud.set(home)
+	cloud.set(func(c *fakeCloud) {
+		c.limited, c.limitedBody = http.StatusTooManyRequests, `{"message":"Too many requests. Try again in 60 seconds."}`
+	})
+	timings := fast
+	timings.limited = 10 * time.Minute
+	b := start(t, cloud, password, timings)
+	b.waitProblem("trying again in 1m0s")
+	// A limit still there after the wait it asked for waits twice as long, up to limited.
+	want := []time.Duration{time.Minute, 2 * time.Minute, 4 * time.Minute, 8 * time.Minute, 10 * time.Minute}
+	if got := b.limitWaits(len(want)); !slices.Equal(got, want) {
+		t.Errorf("waited %v, not %v", got, want)
+	}
+	cloud.set(func(c *fakeCloud) { c.limited = 0 })
+	b.waitAvailability(bedroom, "online")
+
+	// A session that connected ends the run of limits, so the next waits as long as it asks.
+	for len(b.waits) > 0 {
+		<-b.waits
+	}
+	cloud.set(func(c *fakeCloud) { c.limited = http.StatusTooManyRequests })
+	cloud.kick()
+	if got := b.limitWaits(1); got[0] != time.Minute {
+		t.Errorf("waited %s after a session connected, not 1m0s", got[0])
+	}
+}
+
+// limitWaits are the next n waits of a second or more, which only a limit waits in fast.
+func (b *bench) limitWaits(n int) []time.Duration {
+	b.t.Helper()
+	var waits []time.Duration
+	for len(waits) < n {
+		select {
+		case d := <-b.waits:
+			if d >= time.Second {
+				waits = append(waits, d)
+			}
+		case <-time.After(waitLimit):
+			b.t.Fatalf("waited only %v for limits", waits)
+		}
+	}
+	return waits
 }
 
 func TestEveryUnitIsReadAgain(t *testing.T) {

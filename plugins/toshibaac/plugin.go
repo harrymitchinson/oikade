@@ -76,7 +76,8 @@ type timing struct {
 	keepAlive time.Duration
 	// retry is the first wait after the cloud doesn't answer, doubling up to retryMax.
 	retry, retryMax time.Duration
-	// limited is how long to wait after being told there were too many requests.
+	// limited is the longest wait after being told there were too many requests, and the wait when
+	// the cloud doesn't say how long.
 	limited time.Duration
 	// refused is how long to wait before trying a refused password again, unless it changes.
 	refused time.Duration
@@ -202,6 +203,8 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 	}
 	secret := b.config.Password.Name()
 	wait := b.timing.retry
+	// limit is the last wait for a limit, until a session connects.
+	var limit time.Duration
 	for ctx.Err() == nil {
 		password, ok, err := plugin.ReadSecret(b.env, secret)
 		switch {
@@ -225,6 +228,10 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 		if !live.IsZero() && time.Since(live) >= b.timing.retryMax {
 			wait = b.timing.retry
 		}
+		// A session that connected ends a run of limits.
+		if !live.IsZero() {
+			limit = 0
+		}
 		// A session whose tokens ran out starts again at once, its devices online meanwhile. One that
 		// ends as soon as it starts backs off, so the cloud isn't asked to log in over and over.
 		if errors.Is(err, errRenew) && !live.IsZero() && time.Since(live) >= b.timing.retry {
@@ -243,9 +250,10 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 			b.setProblem(ctx, fmt.Sprintf("Toshiba's cloud refused the login (%v): check the secret %q", err, secret))
 			b.untilSecretChanges(ctx, password, b.timing.refused)
 		case errors.Is(err, errLimited):
-			b.log.Warn("Toshiba's cloud limited the plugin's requests", "err", err, "retry", b.timing.limited.String())
-			b.setProblem(ctx, fmt.Sprintf("Toshiba's cloud says there were too many requests: trying again in %s", b.timing.limited))
-			b.backoff(ctx, b.timing.limited)
+			limit = b.limitWait(err, limit)
+			b.log.Warn("Toshiba's cloud limited the plugin's requests", "err", err, "retry", limit.String())
+			b.setProblem(ctx, fmt.Sprintf("Toshiba's cloud says there were too many requests: trying again in %s", limit))
+			b.backoff(ctx, limit)
 		default:
 			b.log.Warn("Could not reach Toshiba's cloud", "err", err, "retry", wait.String())
 			b.setProblem(ctx, fmt.Sprintf("could not reach Toshiba's cloud: %v", err))
@@ -254,6 +262,19 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 		}
 	}
 	return nil
+}
+
+// limitWait is how long to wait after the cloud limited the plugin's requests with err, when last
+// was the wait for the limit before, 0 if there wasn't one since a session connected. It's as long as
+// the cloud asked (OIK-361), or twice last if that's longer, since a limit still there after the wait
+// it asked for hasn't passed, and between retry and limited. One that doesn't say how long waits
+// limited. last is only this process's: a deploy starts again from the cloud's ask.
+func (b *bridge) limitWait(err error, last time.Duration) time.Duration {
+	var status *statusError
+	if !errors.As(err, &status) || !status.asked {
+		return b.timing.limited
+	}
+	return min(max(status.wait, 2*last, b.timing.retry), b.timing.limited)
 }
 
 // session logs in, lists the units, connects to the hub and follows it until something fails or
