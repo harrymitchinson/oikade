@@ -669,7 +669,7 @@ func stateOf(d api.Device, down string) string {
 	if d.PluginNotImported {
 		state = append(state, notImported)
 	}
-	// Offline comes first, and the driver's problem may say why, as oikade devices had it (OIK-340).
+	// Offline comes first, and the driver's problem may say why (OIK-340).
 	off := d.Online != nil && !*d.Online && !d.PluginNotImported
 	switch {
 	case off && d.Problem != "":
@@ -851,7 +851,7 @@ func lineName(c api.Claim) string {
 		return "oikade set"
 	case "device":
 		return "a change on the device"
-	case "matter":
+	case string(ident.Matter):
 		return "a change from Matter"
 	}
 	return c.Source

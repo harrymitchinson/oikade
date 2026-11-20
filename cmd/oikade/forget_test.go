@@ -97,7 +97,7 @@ func TestRemoveAndForgetTakeEachOnce(t *testing.T) {
 func TestRemoveJSONSaysItFailed(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	out, _, code := runOikade(t, cli.Plain, "remove", "secret/api-key", "--json", "--data-dir", t.TempDir())
-	if code != 1 || !strings.HasPrefix(out, `{"ok":false,"error":`) || !strings.HasSuffix(out, `"removed":[]}`+"\n") {
+	if code != 1 || !strings.HasPrefix(out, `{"ok":false,"error":`) || !strings.HasSuffix(out, `"refs":[]}`+"\n") {
 		t.Errorf("exit %d: %s", code, out)
 	}
 }

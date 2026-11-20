@@ -71,8 +71,8 @@ const ContentType = "application/json"
 // StreamContentType is a tail's and an event log's: lines of JSON.
 const StreamContentType = "application/x-ndjson"
 
-// AllowSafetyRemovalParam is a deploy's query parameter for AllowSafetyRemoval.
-const AllowSafetyRemovalParam = "allowSafetyRemoval"
+// AllowSafetyParam is a deploy's query parameter for AllowSafety.
+const AllowSafetyParam = "allowSafety"
 
 // BinaryContentType is a deploy's body.
 const BinaryContentType = "application/octet-stream"
@@ -132,9 +132,6 @@ func routeOf(requestType string) (Route, bool) {
 type Request struct {
 	// Type says which call. A route sets it, so it isn't in the body.
 	Type string `json:"-"`
-	// AllowSafetyRemoval goes ahead even though a Safety rule would go. A deploy sends it as a query
-	// parameter, as its body is the binary.
-	AllowSafetyRemoval bool `json:"allowSafetyRemoval,omitempty"`
 	// Device, Capability and Value are a set's.
 	Device     string `json:"device,omitempty"`
 	Capability string `json:"capability,omitempty"`
@@ -147,7 +144,9 @@ type Request struct {
 	WindowSeconds int `json:"windowSeconds,omitempty"`
 	// Rule is a pause's or a resume's.
 	Rule string `json:"rule,omitempty"`
-	// AllowSafety pauses a Safety rule, or forgets a device a Safety claim holds.
+	// AllowSafety goes ahead with something that touches a Safety rule: a pause of one, a forget of a
+	// device one holds, or a rollback that would end one's claims. A deploy sends it as a query
+	// parameter, as its body is the binary.
 	AllowSafety bool `json:"allowSafety,omitempty"`
 	// Secret names a secret to set or remove.
 	Secret string `json:"secret,omitempty"`
@@ -155,7 +154,7 @@ type Request struct {
 	SecretValue string `json:"secretValue,omitempty"`
 	// Client names a client of the network API to add or remove.
 	Client string `json:"client,omitempty"`
-	// Token asks a client add for a token rather than a code to log in with.
+	// Token asks a clientAdd request for a token rather than a code to log in with.
 	Token bool `json:"token,omitempty"`
 	// Code is what a login trades for a token.
 	Code string `json:"code,omitempty"`
@@ -227,7 +226,7 @@ type Response struct {
 	TakenOffMatter []string `json:"takenOffMatter,omitempty"`
 	// Matter is a matter request's.
 	Matter *Matter `json:"matter,omitempty"`
-	// MatterWindow is the window a matter open request, oikade pair matter's, opened.
+	// MatterWindow is the window a matterOpen request, oikade pair matter's, opened.
 	MatterWindow *MatterWindow `json:"matterWindow,omitempty"`
 	// Backup is the file a backup wrote, on the host.
 	Backup string `json:"backup,omitempty"`
@@ -721,7 +720,7 @@ func Call(ctx context.Context, t Transport, req Request) (Response, error) {
 // Deploy sends the binary at path to the host, which runs it as your home's new version. It waits
 // for as long as that takes, as Call does. progress, if it isn't nil, hears the bytes sent of the
 // total as the upload goes, from the goroutine sending them; sent reaches total once it's done.
-func Deploy(ctx context.Context, t Transport, path string, allowSafetyRemoval bool,
+func Deploy(ctx context.Context, t Transport, path string, allowSafety bool,
 	progress func(sent, total int64)) (Response, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -734,8 +733,8 @@ func Deploy(ctx context.Context, t Transport, path string, allowSafetyRemoval bo
 	}
 	route, _ := routeOf(TypeDeploy)
 	target := route.Path
-	if allowSafetyRemoval {
-		target += "?" + url.Values{AllowSafetyRemovalParam: {"true"}}.Encode()
+	if allowSafety {
+		target += "?" + url.Values{AllowSafetyParam: {"true"}}.Encode()
 	}
 	sent := &counting{r: f, total: info.Size(), progress: progress}
 	body, err := send(ctx, t, route, target, sent, info.Size(), BinaryContentType)

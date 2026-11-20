@@ -322,7 +322,7 @@ func runSet(ctx context.Context, args []string) error {
 		Type: api.TypeSet, Device: device, Capability: name, Value: value,
 	})
 	if err != nil {
-		return err
+		return failedJSON(*asJSON, ref.String(), err)
 	}
 	said := outcome(device, name, value, resp.Outcome)
 	if resp.Error == "" && resp.Outcome != nil && !stuck(name, resp.Outcome.Value, value) {
@@ -332,12 +332,12 @@ func runSet(ctx context.Context, args []string) error {
 	if resp.Error != "" && resp.Outcome != nil {
 		// Held elsewhere, or by a Safety rule, which the host refused the set for: say what lets go.
 		if *asJSON {
-			_ = finished(resp, true, "", false)
+			_ = finished(resp, ref.String(), true, "", false)
 		}
 		return cli.Errorf("%s", resp.Error).WithHint("%s", heldHint(ref.String(), *resp.Outcome))
 	}
 	// A value that hasn't answered isn't a change, so it gets no ✓, and isn't a failure either.
-	return finished(resp, *asJSON, said, resp.Outcome != nil)
+	return finished(resp, ref.String(), *asJSON, said, resp.Outcome != nil)
 }
 
 // heldHint says what lets go of a capability something holds at another value: pausing the rule
@@ -382,10 +382,10 @@ func setSecret(ctx context.Context, target target, words []string, asJSON bool) 
 	}
 	resp, err := api.Call(ctx, target.transport(), api.Request{Type: api.TypeSecretSet, Secret: name, SecretValue: value})
 	if err != nil {
-		return err
+		return failedJSON(asJSON, ref.String(), err)
 	}
-	return finished(resp, asJSON, fmt.Sprintf("Set %s. Your process and plugins read it when they next ask, "+
-		"so one that reads it once needs a restart", ref), true)
+	return finished(resp, ref.String(), asJSON, fmt.Sprintf("Set %s. Your process and plugins read it when "+
+		"they next ask, so one that reads it once needs a restart", ref), true)
 }
 
 // outcome says what a set left the capability at, and why, rather than what it asked for.
@@ -471,13 +471,23 @@ func runPause(ctx context.Context, args []string, pause bool) error {
 		return err
 	}
 	resp, err := api.Call(ctx, target.transport(), api.Request{Type: kind, Rule: rule, AllowSafety: *allow})
+	if !strings.Contains(rule, "/") {
+		// A rule's name on its own is a command typed wrong, whether or not the host is there to
+		// answer it with the rule's ref, as it does when one has that name.
+		why := fmt.Sprintf("%s isn't a rule's ref: oikade %s takes a case's, case/DEVICE/CAPABILITY/CASE, "+
+			"or a flow's, flow/FLOW", rule, name)
+		if err == nil && resp.Error != "" {
+			why = resp.Error
+		}
+		return failedJSON(*asJSON, rule, cli.UsageErrorf("%s", why))
+	}
 	if err != nil {
-		return err
+		return failedJSON(*asJSON, rule, err)
 	}
 	if resp.NeedsAllowSafety {
 		fmt.Fprintln(os.Stderr, "Pass --allow-safety to pause it anyway.")
 	}
-	return done(resp, *asJSON, paused(did, rule, resp))
+	return finished(resp, rule, *asJSON, paused(did, rule, resp), true)
 }
 
 // paused says what a pause or a resume did to the rule's claims.
@@ -503,23 +513,37 @@ func printerOf(w io.Writer) *cli.Printer {
 	return cli.Plain(w, 0)
 }
 
-// done prints the outcome of a command that changes something.
-func done(resp api.Response, asJSON bool, message string) error {
-	return finished(resp, asJSON, message, true)
+// changedJSON is what a verb that changes one thing prints under --json: whether it did, and why not,
+// the ref it acted on, and what became of it. forget and remove, which take several, print refsJSON.
+type changedJSON struct {
+	OK      bool              `json:"ok"`
+	Error   string            `json:"error,omitempty"`
+	Warning string            `json:"warning,omitempty"`
+	Ref     string            `json:"ref"`
+	Outcome *api.Capability   `json:"outcome,omitempty"`
+	Ended   []string          `json:"ended,omitempty"`
+	Kept    []string          `json:"kept,omitempty"`
+	Window  *api.MatterWindow `json:"window,omitempty"`
+	Result  string            `json:"result,omitempty"`
 }
 
-// finished prints how a request ended: its JSON, or message, on a ✓ line if it changed something.
-func finished(resp api.Response, asJSON bool, message string, changed bool) error {
+// failedJSON prints that a verb that changes ref failed, under --json, as when the host is out of
+// reach, and returns err.
+func failedJSON(asJSON bool, ref string, err error) error {
 	if asJSON {
-		out := struct {
-			OK        bool            `json:"ok"`
-			Error     string          `json:"error,omitempty"`
-			Warning   string          `json:"warning,omitempty"`
-			Forgotten []api.Forgotten `json:"forgotten,omitempty"`
-			Outcome   *api.Capability `json:"outcome,omitempty"`
-			Ended     []string        `json:"ended,omitempty"`
-			Kept      []string        `json:"kept,omitempty"`
-		}{resp.Error == "", resp.Error, resp.Warning, resp.Forgotten, resp.Outcome, resp.Ended, resp.Kept}
+		_ = printJSON(std.out, changedJSON{Error: err.Error(), Ref: ref})
+	}
+	return err
+}
+
+// finished prints how a request to change ref ended: its JSON, or message, on a ✓ line if it changed
+// something.
+func finished(resp api.Response, ref string, asJSON bool, message string, changed bool) error {
+	if asJSON {
+		out := changedJSON{
+			OK: resp.Error == "", Error: resp.Error, Warning: resp.Warning, Ref: ref,
+			Outcome: resp.Outcome, Ended: resp.Ended, Kept: resp.Kept,
+		}
 		if err := printJSON(std.out, out); err != nil {
 			return err
 		}
@@ -531,7 +555,6 @@ func finished(resp api.Response, asJSON bool, message string, changed bool) erro
 		default:
 			std.out.Println(message)
 		}
-		// A forget that failed part way still warns of what it did.
 		if resp.Warning != "" {
 			std.err.Warn("%s", resp.Warning)
 		}

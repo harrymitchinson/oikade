@@ -348,6 +348,14 @@ func listColumn(binary string, commands []Command) int {
 	return column
 }
 
+// CommandList lists commands, each by its name without binary's, with its summary after the longest.
+func (p *Printer) CommandList(binary string, commands []Command) {
+	p.commandList(binary, commands, listColumn(binary, commands))
+}
+
+// Wrap fits text to the terminal's width, as help's paragraphs are.
+func (p *Printer) Wrap(text string) string { return p.wrap(text, 0) }
+
 // commandList lists commands, each by its name without binary's, with its summary at column.
 func (p *Printer) commandList(binary string, commands []Command, column int) {
 	for _, c := range commands {

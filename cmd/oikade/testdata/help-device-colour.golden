@@ -1,0 +1,14 @@
+exit 0
+--- stdout
+A device is device/NAME, or its name alone for status, history, tail and forget,
+which take a device first.
+
+[1mCommands that take a device[0m
+  list devices         What's on record, and how each is set up.
+  status device/NAME   What it's doing now, why, and its last 10 events.
+  history device/NAME  What it did, and who wrote to it.
+  tail device/NAME     What it does, as it happens.
+  forget device/NAME   Drop it from the host's record, and end its claims.
+
+oikade help COMMAND says more of one.
+--- stderr

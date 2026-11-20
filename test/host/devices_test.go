@@ -266,12 +266,14 @@ func TestRemovingARoomsLastSensorWarnsOfTheHoldsThatReadIt(t *testing.T) {
 	var removed struct {
 		OK        bool            `json:"ok"`
 		Warning   string          `json:"warning"`
+		Refs      []string        `json:"refs"`
 		Forgotten []api.Forgotten `json:"forgotten"`
 	}
 	if err := json.Unmarshal(r.stdout(nil, "forget", "dry-sensor", "--json"), &removed); err != nil {
 		t.Fatal(err)
 	}
-	if !removed.OK || len(removed.Forgotten) != 1 || !strings.Contains(removed.Warning, "cellar-damp") ||
+	if !removed.OK || len(removed.Forgotten) != 1 || !slices.Equal(removed.Refs, []string{"device/dry-sensor"}) ||
+		!strings.Contains(removed.Warning, "cellar-damp") ||
 		!strings.Contains(removed.Warning, "cellar") {
 		t.Errorf("got %+v, want a warning naming cellar-damp and the cellar", removed)
 	}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -50,6 +51,8 @@ func TestHelpAndUsage(t *testing.T) {
 		{"help-to-stderr", nil, cli.ExitUsage},
 		{"deploy-help", []string{"deploy", "--help"}, 0},
 		{"deploy-help", []string{"help", "deploy"}, 0},
+		{"help-device", []string{"help", "device"}, 0},
+		{"help-device", []string{"help", "devices"}, 0},
 		{"deploy-help", []string{"deploy", "-h"}, 0},
 		{"unknown-command", []string{"statu"}, cli.ExitUsage},
 		{"unknown-command-bogus", []string{"bogus"}, cli.ExitUsage},
@@ -60,7 +63,7 @@ func TestHelpAndUsage(t *testing.T) {
 		{"usage-error", []string{"set", "desk-plug"}, cli.ExitUsage},
 	} {
 		for name, printer := range printers {
-			if name == "colour" && tc.golden != "help" && tc.golden != "deploy-help" && tc.golden != "unknown-flag" {
+			if name == "colour" && !slices.Contains([]string{"help", "help-device", "deploy-help", "unknown-flag"}, tc.golden) {
 				continue
 			}
 			stdout, stderr, code := runOikade(t, printer, tc.args...)

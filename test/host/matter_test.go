@@ -230,10 +230,18 @@ func TestOikadeMatterOpenPairsASecondController(t *testing.T) {
 		t.Errorf("oikade pair matter:\n%s", out)
 	}
 	before := time.Now()
-	var w api.MatterWindow
-	if err := json.Unmarshal(c.r.stdout(nil, "pair", "matter", "--json"), &w); err != nil {
+	var paired struct {
+		OK     bool             `json:"ok"`
+		Ref    string           `json:"ref"`
+		Window api.MatterWindow `json:"window"`
+	}
+	if err := json.Unmarshal(c.r.stdout(nil, "pair", "matter", "--json"), &paired); err != nil {
 		t.Fatal(err)
 	}
+	if !paired.OK || paired.Ref != "matter" {
+		t.Errorf("oikade pair matter --json: %+v", paired)
+	}
+	w := paired.Window
 	if !w.Fresh || w.Passcode == c.r.matter().Passcode || !strings.HasPrefix(w.QRCode, "MT:") || len(w.ManualCode) != 11 ||
 		w.Expires.Before(before.Add(14*time.Minute)) || w.Expires.After(time.Now().Add(15*time.Minute)) {
 		t.Fatalf("oikade pair matter --json: %+v", w)

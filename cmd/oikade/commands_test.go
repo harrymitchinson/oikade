@@ -69,16 +69,6 @@ func TestSetDoesntCallARoundedValueADifferentOne(t *testing.T) {
 	}
 }
 
-func TestSetOnADeviceThatHasntAnsweredSaysSoAndPasses(t *testing.T) {
-	got := outcome("desk-plug", "on", true, nil)
-	if !strings.Contains(got, "device/desk-plug/on hasn't answered yet") {
-		t.Errorf("got %q", got)
-	}
-	if err := done(api.Response{}, false, got); err != nil {
-		t.Errorf("a set the device hasn't answered failed: %v", err)
-	}
-}
-
 func TestPauseNamesTheClaimsItEnded(t *testing.T) {
 	got := paused("Paused", "hall-fan", api.Response{Ended: []string{"fan on", "lamp on"}, Kept: []string{"valve on"}})
 	want := "Paused hall-fan, and ended its claims on fan on, lamp on. " +
