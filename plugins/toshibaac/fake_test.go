@@ -64,8 +64,8 @@ type fakeCloud struct {
 	connects [][2]string
 	// answers are the topics the plugin answered method calls on.
 	answers []string
-	// sent are the messages the plugin sent the cloud, as topic, QoS and payload, each recorded
-	// before the hub acknowledges it.
+	// sent are the messages the hub received from the plugin, as topic, QoS and payload, each
+	// recorded before the hub acknowledges it, so one whose PUBACK is lost counts too.
 	sent []string
 	rid  int
 }
