@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"slices"
 	"strings"
 	"testing"
 
@@ -16,7 +15,7 @@ import (
 func TestSetupRunsAPluginsSetupFromTheCommandLine(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)
-	r.until("quiet to need its setup", func() bool { return slices.Contains(r.status().NeedsSetup, "quiet") })
+	r.until("quiet to need its setup", func() bool { return pluginIn(r.status(), "quiet").NeedsSetup })
 	const named = "Plugin quiet needs setup: run oikade setup quiet"
 	if stderr, err := r.oikade(nil, "status"); err != nil || !strings.Contains(stderr, named) {
 		t.Errorf("status doesn't name the setup: %v: %s", err, stderr)
@@ -69,7 +68,7 @@ func TestSetupRunsAPluginsSetupFromTheCommandLine(t *testing.T) {
 	if strings.Contains(r.dump(), "pairing-code-7c1f") {
 		t.Error("the host logged the pairing code")
 	}
-	r.until("quiet to be set up", func() bool { return !slices.Contains(r.status().NeedsSetup, "quiet") })
+	r.until("quiet to be set up", func() bool { return !pluginIn(r.status(), "quiet").NeedsSetup })
 
 	// The other plugin has none.
 	if stderr, err := r.oikade(nil, "setup", "relays"); err == nil || !strings.Contains(stderr, "relays has no setup") {

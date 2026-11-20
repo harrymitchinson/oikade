@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/harrymitchinson/oikade/internal/capability"
 	"github.com/harrymitchinson/oikade/internal/control"
@@ -228,5 +229,29 @@ func TestStoreLogsADeviceGoingOffline(t *testing.T) {
 	}
 	if want := []string{"study-heater false", "study-heater true", "porch-lamp false"}; !slices.Equal(went, want) {
 		t.Errorf("Went heard %q, want %q", went, want)
+	}
+}
+
+// A device offline says since when, which another report of the same doesn't move, and one back
+// online has no such time (OIK-355).
+func TestStoreSaysSinceWhenADeviceIsOffline(t *testing.T) {
+	s := NewStore(testkit.Logs(t).Logger)
+	key := driver.InstanceKey{Driver: driver.Plugin, Name: "ewelink"}
+	fan := ident.ID{Name: "loft-fan"}
+	s.SetDevices(key, map[ident.ID]Meta{fan: {Instance: key}})
+	before := time.Now()
+	s.Availability(fan, false)
+	snap, _ := s.Get(fan)
+	went := snap.OfflineSince
+	if went.Before(before) || went.After(time.Now()) {
+		t.Fatalf("offline since %v, want between %v and now", went, before)
+	}
+	s.Availability(fan, false)
+	if snap, _ := s.Get(fan); !snap.OfflineSince.Equal(went) {
+		t.Errorf("a second report moved it from %v to %v", went, snap.OfflineSince)
+	}
+	s.Availability(fan, true)
+	if snap, _ := s.Get(fan); !snap.OfflineSince.IsZero() {
+		t.Errorf("back online, it's still offline since %v", snap.OfflineSince)
 	}
 }

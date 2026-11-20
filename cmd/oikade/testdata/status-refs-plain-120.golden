@@ -1,0 +1,42 @@
+office-ac: not in your code
+
+CAPABILITY   VALUE    WHY
+mode         cool
+on           true     case/office-ac/on/too-warm wants true, on for its MinimumOn until 14:04
+setpoint     21.5°C
+temperature  24.25°C
+
+Tue 17 Nov, yesterday
+12:00:00  device/office-ac  came back online
+Wed 18 Nov, today
+13:52:00  device/office-ac/on  wrote true  by case/office-ac/on/too-warm
+13:52:01  device/office-ac/on  true  was false
+13:59:00  device/office-ac/temperature  24.25°C
+
+study-blind in study: went offline today 12:25
+
+CAPABILITY  VALUE  WHY
+position    40%
+
+No events of device/study-blind/position in the host's event log.
+
+room/hall
+NAME       ROOM  VALUES    STATE
+hall-lamp  hall  on false
+
+case/office-ac/on/too-warm  case  active since 13:52
+device/office-ac/on is true: case/office-ac/on/too-warm wants true, on for its MinimumOn until 14:04
+
+flow/morning  flow
+
+plugin/overkiz: login refused: check secret/overkiz
+NAME         ROOM   VALUES                                          STATE
+study-blind  study  position 40%, target-position 40, moving false  offline
+
+Matter bridge: serving on UDP port 5540
+To add another controller, run oikade matter open, or share the bridge from one that's paired.
+
+Paired controllers
+  fabric 1: Home, vendor 0x0000
+--- stderr
+office-ac isn't in your code: oikade devices shows how to declare it

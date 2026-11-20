@@ -307,7 +307,7 @@ func TestHistoryAsJSONIsALineAnEvent(t *testing.T) {
 // A tail of something the host has no record of says so once it's following, rather than follow in
 // silence for good. One of something it has says nothing more.
 func TestTailSaysARefNamesNothing(t *testing.T) {
-	st := api.Status{Process: true, Devices: []api.Device{{Name: "porch-light", Room: "porch"}}}
+	st := api.Status{Home: api.Home{Process: true}, Devices: []api.Device{{Name: "porch-light", Room: "porch"}}}
 	dir, _ := aHost(t, api.EventLog{}, nil, st)
 	_, errs, _ := runOikade(t, cli.Plain, "tail", "porch-lihgt", "room/porch", "flow/morning", "--data-dir", dir)
 	want := "Following device/porch-lihgt, room/porch, flow/morning on this machine's host\n" +

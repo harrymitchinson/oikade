@@ -36,7 +36,17 @@ A call has 5 seconds to send its body, except a deploy, which may send its binar
 
 ## Status
 
-`GET /v1/status` answers with what `oikade status --json` prints: `version`, `deploying`, `process`, `since` (when your automations last connected or went down, or the host started), `devices`, `rules`, `pluginProblems`, what each plugin with a problem of its own says is wrong with it, by name (OIK-17), `needsSetup`, the plugins that say they need their [setup](#setup) run, and `unsetSecrets`, the secrets the running version uses that aren't set (OIK-297). Fields are added, never renamed. A capability's claims each have a `source`, the [ref](devices.md#refs) of who made it, such as `case/fan/on/humid` or `matter`. Each rule has its `name`, its `ref`, which `pause` and `resume` take, its `kind` (`case` or `flow`, or none for a paused rule no running code names), `safety` and `paused`. A hold that isn't paused also has its state, from what it last saved (OIK-215):
+`GET /v1/status` answers with what `oikade status --json` prints, one object (OIK-355):
+
+| Field | Means |
+|---|---|
+| `home` | The home: `version`, `deploying`, `process`, `since` (when your automations last connected or went down, or the host started), and `unsetSecrets`, the secrets the running version uses that aren't set (OIK-297). |
+| `devices` | Each device, with its `room`, `online`, its `capabilities`, its `plugin` if a plugin reports it, and `offlineSince` while it's offline: when the host first heard it was. |
+| `rules` | Each rule, below. |
+| `plugins` | Each plugin the running binary imports or that reports a device on record: its `name`, its `ref` (`plugin/NAME`), its `problem` if it says something's wrong with it as a whole (OIK-17), `needsSetup` if it says its [setup](#setup) needs running, and the `devices` it reports. |
+| `matter` | The Matter bridge, as `GET /v1/matter` has it, or `null` when the host has Matter turned off. |
+
+`oikade status REF --json` narrows it, and keeps its shape: `home` is always there, a kind no ref names is an empty array, and `matter` is `null` unless it's named. A capability's claims each have a `source`, the [ref](devices.md#refs) of who made it, such as `case/fan/on/humid` or `matter`. Each rule has its `name`, its `ref`, which `pause` and `resume` take, its `kind` (`case` or `flow`, or none for a paused rule no running code names), `safety` and `paused`. A hold that isn't paused also has its state, from what it last saved (OIK-215):
 
 | Field | Means |
 |---|---|

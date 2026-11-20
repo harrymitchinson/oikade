@@ -28,6 +28,9 @@ type Error struct {
 	Usage bool
 	// Err is the cause, such as a Go error chain.
 	Err error
+	// Silent is a failure the command has already printed, such as oikade status --check finding
+	// something wrong, which exits ExitFailed and prints nothing more.
+	Silent bool
 }
 
 func (e *Error) Error() string {
@@ -54,6 +57,12 @@ func UsageErrorf(format string, a ...any) *Error {
 	e := Errorf(format, a...)
 	e.Usage = true
 	return e
+}
+
+// Silent is a failure the command has already printed, which exits ExitFailed and prints nothing
+// more.
+func Silent() *Error {
+	return &Error{Message: "something needs fixing", Silent: true}
 }
 
 // WithHint is e with a hint.
@@ -101,6 +110,9 @@ func (p *Printer) fail(err error, debug, withHint bool) int {
 	code := ExitFailed
 	message, hint, full := err.Error(), "", ""
 	if e, ok := errors.AsType[*Error](err); ok {
+		if e.Silent {
+			return ExitFailed
+		}
 		message, hint = e.Message, e.Hint
 		if e.Usage {
 			code = ExitUsage

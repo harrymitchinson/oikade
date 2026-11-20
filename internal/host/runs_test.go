@@ -75,7 +75,7 @@ func TestAPauseWithNoProcessEndsTheFlowsRunOnceAsked(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !resp.Status.Process {
+		if !resp.Status.Home.Process {
 			break
 		}
 		time.Sleep(5 * time.Millisecond)
@@ -117,7 +117,7 @@ func TestAResumeWithNoProcessLeavesPausedTimesBehind(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !resp.Status.Process {
+		if !resp.Status.Home.Process {
 			break
 		}
 		time.Sleep(5 * time.Millisecond)

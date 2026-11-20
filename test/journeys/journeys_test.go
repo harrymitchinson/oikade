@@ -224,7 +224,7 @@ func TestANewHomeRunsOnAHost(t *testing.T) {
 	if out, err := deploy.CombinedOutput(); err != nil {
 		t.Fatalf("oikade deploy: %v\n%s", err, out)
 	}
-	until(t, "your process", func() bool { s, ok := h.status(); return ok && s.Process })
+	until(t, "your process", func() bool { s, ok := h.status(); return ok && s.Home.Process })
 
 	h.change("porch-sensor", "occupied", true)
 	until(t, "the porch light", func() bool { return h.value("porch-light", "on") == true })
@@ -236,8 +236,8 @@ func TestANewHomeRunsOnAHost(t *testing.T) {
 
 	h.stop()
 	h.launch()
-	until(t, "your process after a restart", func() bool { s, ok := h.status(); return ok && s.Process })
-	if s, _ := h.status(); s.Version == "" {
+	until(t, "your process after a restart", func() bool { s, ok := h.status(); return ok && s.Home.Process })
+	if s, _ := h.status(); s.Home.Version == "" {
 		t.Errorf("the deployed version didn't outlive the restart: %+v", s)
 	}
 }
@@ -329,8 +329,13 @@ func TestChipToolPairsAndDrivesADevice(t *testing.T) {
 
 	var bridge api.Matter
 	until(t, "the commissioning window", func() bool {
-		out, err := h.client("matter", "--json").Output()
-		return err == nil && json.Unmarshal(out, &bridge) == nil && bridge.Window
+		out, err := h.client("status", "matter", "--json").Output()
+		var st api.Status
+		if err != nil || json.Unmarshal(out, &st) != nil || st.Matter == nil {
+			return false
+		}
+		bridge = *st.Matter
+		return bridge.Window
 	})
 	until(t, "chip-tool to pair", func() bool {
 		out := chip(container, "pairing", "code", chipNode, bridge.ManualCode)

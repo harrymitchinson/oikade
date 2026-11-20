@@ -123,6 +123,8 @@ func TestFailExitsTwoForUsageAndShowsTheCauseOnlyWithDebug(t *testing.T) {
 				"Debug: replaying: there's no home here: fork/exec /var/folders/x/home: permission denied\n",
 		},
 		{cause, false, ExitFailed, "Error: fork/exec /var/folders/x/home: permission denied\n"},
+		// The command has said what's wrong.
+		{fmt.Errorf("checking: %w", Silent()), true, ExitFailed, ""},
 	} {
 		var b bytes.Buffer
 		if code := Plain(&b, 80).Fail(tc.err, tc.debug); code != tc.code || b.String() != tc.want {

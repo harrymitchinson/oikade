@@ -375,9 +375,19 @@ type Fabric struct {
 	Label    string `json:"label,omitempty"`
 }
 
-// Status is what the host knows now. Its JSON is what oikade status --json prints, so scripts rely on
-// it: add to it, and don't rename.
+// Status is what the host knows now. Its JSON is what oikade status --json prints, narrowed to what
+// the refs it's given name, so scripts rely on it: add to it, and don't rename.
 type Status struct {
+	Home    Home     `json:"home"`
+	Devices []Device `json:"devices"`
+	Rules   []Rule   `json:"rules"`
+	Plugins []Plugin `json:"plugins"`
+	// Matter is the Matter bridge, or nil if the host has Matter turned off.
+	Matter *Matter `json:"matter"`
+}
+
+// Home is what the host knows of your home as a whole.
+type Home struct {
 	// Version is the running version, if known. A deploy under way hides it, and says so in Deploying.
 	Version   string `json:"version,omitempty"`
 	Deploying bool   `json:"deploying,omitempty"`
@@ -385,24 +395,38 @@ type Status struct {
 	// went, or the host started.
 	Process bool       `json:"process"`
 	Since   *time.Time `json:"since,omitempty"`
-	Devices []Device   `json:"devices"`
-	Rules   []Rule     `json:"rules"`
-	// PluginProblems are what plugins say is wrong with them as a whole, such as a login their
-	// account refused, by plugin name.
-	PluginProblems map[string]string `json:"pluginProblems,omitempty"`
-	// NeedsSetup are the plugins that say they can't serve their devices until oikade setup runs.
-	NeedsSetup []string `json:"needsSetup,omitempty"`
 	// UnsetSecrets are the secrets the running version uses that aren't set.
 	UnsetSecrets []string `json:"unsetSecrets,omitempty"`
+}
+
+// Undeployed is a host that has never had a home deployed.
+func (h Home) Undeployed() bool { return h.Version == "" && !h.Process && !h.Deploying }
+
+// Plugin is a plugin the host knows of: one the running version imports, one that's running, or one
+// that reports a device on record.
+type Plugin struct {
+	Name string `json:"name"`
+	// Ref is its ref, such as plugin/overkiz.
+	Ref string `json:"ref"`
+	// Problem is what it says is wrong with it as a whole, such as a login its account refused.
+	Problem string `json:"problem,omitempty"`
+	// NeedsSetup is a plugin that says it can't serve its devices until oikade setup runs.
+	NeedsSetup bool `json:"needsSetup,omitempty"`
+	// Devices are the devices on record that it reports, by name.
+	Devices []string `json:"devices"`
 }
 
 // Device is one device.
 type Device struct {
 	Name string `json:"name"`
 	// Ref is its ref, such as device/desk-plug.
-	Ref          string       `json:"ref"`
-	Room         string       `json:"room,omitempty"`
-	Online       *bool        `json:"online,omitempty"`
+	Ref    string `json:"ref"`
+	Room   string `json:"room,omitempty"`
+	Online *bool  `json:"online,omitempty"`
+	// OfflineSince is when it went offline, while it's offline, if the host heard it go.
+	OfflineSince *time.Time `json:"offlineSince,omitempty"`
+	// Plugin is the plugin that reports it.
+	Plugin       string       `json:"plugin,omitempty"`
 	Capabilities []Capability `json:"capabilities"`
 	// DeviceTypes are what it is.
 	DeviceTypes []devicetype.Type `json:"deviceTypes,omitempty"`

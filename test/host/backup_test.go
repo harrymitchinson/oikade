@@ -82,7 +82,7 @@ func TestARestoredDataDirectoryBringsTheHomeBackWithNoPairing(t *testing.T) {
 	}
 	before, endpoint := r.matter(), c.endpoint("fan")
 	unique := c.info(endpoint, uniqueIDAttribute)
-	version := r.status().Version
+	version := r.status().Home.Version
 	if version == "" {
 		t.Fatal("no version running")
 	}
@@ -133,7 +133,7 @@ func TestARestoredDataDirectoryBringsTheHomeBackWithNoPairing(t *testing.T) {
 		t.Errorf("unique ID %v became %v", unique, got)
 	}
 	c.reaches("fan")
-	if got := r.status().Version; got != version {
+	if got := r.status().Home.Version; got != version {
 		t.Errorf("version %s became %s", version, got)
 	}
 	if !strings.Contains(string(r.stdout(nil, "secret", "list")), "api-key") {
@@ -230,13 +230,13 @@ func TestADeployNamesTheSecretsThatArentSet(t *testing.T) {
 		}
 		return &st
 	}
-	if got := status().UnsetSecrets; !slices.Equal(got, []string{"fixture-secret"}) {
+	if got := status().Home.UnsetSecrets; !slices.Equal(got, []string{"fixture-secret"}) {
 		t.Errorf("status has unset %q", got)
 	}
 	if err := r.setSecret("fixture-secret"); err != nil {
 		t.Fatal(err)
 	}
-	if got := status().UnsetSecrets; len(got) != 0 {
+	if got := status().Home.UnsetSecrets; len(got) != 0 {
 		t.Errorf("once it's set, status has unset %q", got)
 	}
 }

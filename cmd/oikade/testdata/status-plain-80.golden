@@ -9,6 +9,7 @@ study-blind  position 40%, target-pos…  offline
 case/office-ac/on/too-warm  case  active since 13:52
 flow/morning  flow
 --- stderr
+Plugin overkiz: login refused: check secret/overkiz
 Devices with a problem: porch-light. oikade devices says what's wrong.
 Hint: --wide shows ROOM
 office-ac isn't in your code: oikade devices shows how to declare it

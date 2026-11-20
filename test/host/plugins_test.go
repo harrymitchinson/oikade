@@ -150,8 +150,8 @@ func TestAPluginSaysWhatsWrongWithItUntilItsFixed(t *testing.T) {
 		stderr, err := r.oikade(nil, "status")
 		return err == nil && strings.Contains(stderr, problem)
 	})
-	if got := r.status().PluginProblems; len(got) != 1 || got["quiet"] == "" {
-		t.Errorf("status --json: plugin problems %v", got)
+	if got := withProblems(r.status()); len(got) != 1 || got[0].Name != "quiet" {
+		t.Errorf("status --json: plugins with a problem %+v", got)
 	}
 
 	if err := os.WriteFile(filepath.Join(r.dir, "plugin-down.fixed"), nil, 0o600); err != nil {
@@ -161,8 +161,8 @@ func TestAPluginSaysWhatsWrongWithItUntilItsFixed(t *testing.T) {
 		stderr, err := r.oikade(nil, "status")
 		return err == nil && !strings.Contains(stderr, problem)
 	})
-	if got := r.status().PluginProblems; got != nil {
-		t.Errorf("status --json once fixed: plugin problems %v", got)
+	if got := withProblems(r.status()); got != nil {
+		t.Errorf("status --json once fixed: plugins with a problem %+v", got)
 	}
 }
 

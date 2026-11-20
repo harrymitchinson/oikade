@@ -97,11 +97,11 @@ func (r *rig) launchAttached(args ...string) {
 // matter asks the host about its bridge.
 func (r *rig) matter() api.Matter {
 	r.t.Helper()
-	var m api.Matter
-	if err := json.Unmarshal(r.stdout(nil, "matter", "--json"), &m); err != nil {
-		r.t.Fatal(err)
+	st := r.status("matter")
+	if st.Matter == nil {
+		r.t.Fatal("status matter --json has no bridge")
 	}
-	return m
+	return *st.Matter
 }
 
 func (r *rig) until(what string, cond func() bool) {
@@ -448,7 +448,7 @@ func TestUnreadableMatterStateLeavesTheHomeRunning(t *testing.T) {
 			r.change("leak-sensor", "open", true)
 			r.wrote("valve", false)
 			if m := r.matter(); m.Serving || m.Problem == "" || len(m.Fabrics) != 0 {
-				t.Errorf("oikade matter --json says %+v", m)
+				t.Errorf("oikade status matter --json says %+v", m)
 			}
 			if out := string(r.stdout(nil, "matter")); !strings.Contains(out, "down: ") {
 				t.Errorf("oikade matter says: %s", out)
