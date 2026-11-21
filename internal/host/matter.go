@@ -75,8 +75,8 @@ type identity struct {
 	Key []byte `json:"key"`
 }
 
-// loadIdentity reads the bridge's identity, or makes one if it never had one. An unreadable one is an
-// error rather than a new one, which would quietly make every controller lose the bridge.
+// loadIdentity reads the bridge's identity, or makes one if it never had one. An unreadable one is
+// an error rather than a new one, which would quietly make every controller lose the bridge.
 func loadIdentity(values *store.Namespace) (identity, error) {
 	var id identity
 	raw, ok, err := values.Get(identityKey)
@@ -172,8 +172,8 @@ func (m *matterBridge) windowChanged(open bool) {
 	m.record(api.MatterWindowClosed, nil)
 }
 
-// stopped records that a window still open has closed, once the bridge has stopped for good: nothing
-// can pair through it now, and the next host opens its own.
+// stopped records that a window still open has closed, once the bridge has stopped for good:
+// nothing can pair through it now, and the next host opens its own.
 func (m *matterBridge) stopped() {
 	if m.window.Load() {
 		m.windowChanged(false)
@@ -212,10 +212,9 @@ func (m *matterBridge) fabricsChanged() {
 	}
 }
 
-// openMatter makes the bridge, serving nothing until run. State it can't read leaves it broken rather
-// than making new state, which would quietly lose every controller: that's the home's Matter gone,
-// and not worth its automations too.
-// name is its NodeLabel, which the home gives.
+// openMatter makes the bridge, serving nothing until run, with name, which the home gives, as its
+// NodeLabel. State it can't read leaves it broken rather than making new state, which would quietly
+// lose every controller: that's the home's Matter gone, and not worth its automations too.
 func (h *Host) openMatter(data *store.Store, name string, exported *metrics.Set) *matterBridge {
 	if h.Matter == nil {
 		return nil
@@ -267,8 +266,8 @@ func (m *matterBridge) open(c *Matter, name string, values, subscriptions *store
 	return nil
 }
 
-// rename renames the bridge in place, as the home now names it. A controller reads its new name from
-// Basic Information, and a new commissioning window advertises it.
+// rename renames the bridge in place, as the home now names it. A controller reads its new name
+// from Basic Information, and a new commissioning window advertises it.
 func (m *matterBridge) rename(name string) {
 	if m.working() && m.node.Rename(name) {
 		m.log.Info("Renamed Matter bridge", "name", name)
@@ -358,7 +357,6 @@ func (m *matterBridge) apply() <-chan time.Time {
 	return nil
 }
 
-// run serves the bridge until ctx ends.
 func (m *matterBridge) run(ctx context.Context) {
 	m.Writes.Start(logging.NewContext(ctx, m.log))
 	retry := m.apply()
@@ -403,9 +401,9 @@ func (m *matterBridge) serve(ctx context.Context) {
 	}
 }
 
-// matterWrites is how a controller's write reaches a device: through arbitration, as on the bus
-// before. The write doesn't wait for your process, and a Safety claim refuses it, because a valve
-// shouldn't open for the moment it takes to write it back.
+// matterWrites is how a controller's write reaches a device: through arbitration. The write doesn't
+// wait for your process, and a Safety claim refuses it, because a valve shouldn't open for the
+// moment it takes to write it back.
 type matterWrites struct {
 	engine  *engine.Engine
 	devices *hub.Store
@@ -481,8 +479,8 @@ func (s *apiServer) matter() api.Response {
 	return api.Response{Matter: out}
 }
 
-// matterOpen answers oikade pair matter: it opens the bridge's commissioning window, with its own code
-// while nothing is paired, and a code made for the window once something is.
+// matterOpen answers oikade pair matter: it opens the bridge's commissioning window, with its own
+// code while nothing is paired, and a code made for the window once something is.
 func (s *apiServer) matterOpen(req api.Request) api.Response {
 	m := s.bridge
 	switch {

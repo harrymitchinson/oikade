@@ -40,10 +40,9 @@ type Client struct {
 	conn *Conn
 	next atomic.Uint64
 
-	mu      sync.Mutex
-	pending map[uint64]chan Message
-	holds   map[string]engine.HoldState
-	// averages are the saved averages, as holds are.
+	mu       sync.Mutex
+	pending  map[uint64]chan Message
+	holds    map[string]engine.HoldState
 	averages map[string]engine.AverageState
 
 	done chan struct{}
@@ -149,7 +148,6 @@ func (c *Client) Listen(ev Events) {
 	}
 }
 
-// Pong answers a ping.
 func (c *Client) Pong(id uint64) {
 	if err := c.conn.Write(Message{Type: TypePong, ID: id}); err != nil {
 		c.fail(err)
@@ -197,7 +195,6 @@ func (c *Client) Done() <-chan struct{} { return c.done }
 // Err says why the session ended, once Done has closed.
 func (c *Client) Err() error { return c.err }
 
-// Close ends the session.
 func (c *Client) Close() { c.fail(nil) }
 
 func (c *Client) fail(err error) {

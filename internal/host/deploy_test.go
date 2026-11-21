@@ -621,7 +621,8 @@ func TestAStaleConnectionNeverAttaches(t *testing.T) {
 	}
 }
 
-// Claims released under a confirmed version stay on record until they've ended, whatever deploys follow.
+// Claims released under a confirmed version stay on record until they've ended, whatever deploys
+// follow.
 func TestReleasedClaimsAreKeptUntilTheyEnd(t *testing.T) {
 	dir := t.TempDir()
 	v, closeStore := openTestVersions(t, dir)

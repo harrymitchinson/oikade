@@ -18,7 +18,6 @@ import (
 )
 
 const (
-	// Version is the protocol's version.
 	Version = pluginwire.Version
 	// RoleAutomations is the one process that runs a home's cases and flows.
 	RoleAutomations = "automations"
@@ -44,13 +43,13 @@ const (
 	VarsFromEnvironment = "OIKADE_VARS_FROM_ENVIRONMENT"
 )
 
-// Type is a message's type.
 type Type = pluginwire.Type
 
-// Message types. Hello and Welcome, or Rejected, open a session, and Ping, Pong, Change and
-// Discovered flow for as long as it lasts, as do Pause and Resume from the host, and RuleRun,
-// RoomReads, Stopped, WhyNot and Metrics from your process. The rest are requests, each answered by a Reply with its ID. A plugin's
-// session has only Hello, Welcome or Rejected, Ping, Pong and Publish, which flows both ways.
+// Message types. Hello and Welcome, or Rejected, open a session, and Ping, Pong, Change, Discovered
+// and Seen flow for as long as it lasts, as do Pause and Resume from the host, and RuleRun,
+// RoomReads, Stopped, WhyNot and Metrics from your process. The rest are requests, each answered by
+// a Reply with its ID. A plugin's session has only Hello, Welcome or Rejected, Ping, Pong and
+// Publish, which flows both ways.
 const (
 	TypeHello           = pluginwire.TypeHello
 	TypeWelcome         = pluginwire.TypeWelcome
@@ -61,15 +60,14 @@ const (
 	TypeChange     Type = "change"
 	TypeDiscovered Type = "discovered"
 	// TypeSeen is a device reporting, which a value that didn't change doesn't show.
-	TypeSeen       Type = "seen"
-	TypeClaim      Type = "claim"
-	TypeRelease    Type = "release"
-	TypeReleaseAll Type = "releaseAll"
-	TypeSet        Type = "set"
-	TypeSaveHold   Type = "saveHold"
-	TypeDeleteHold Type = "deleteHold"
-	TypeSaveFire   Type = "saveFire"
-	// TypeSaveAverage saves a rolling average a condition reads.
+	TypeSeen        Type = "seen"
+	TypeClaim       Type = "claim"
+	TypeRelease     Type = "release"
+	TypeReleaseAll  Type = "releaseAll"
+	TypeSet         Type = "set"
+	TypeSaveHold    Type = "saveHold"
+	TypeDeleteHold  Type = "deleteHold"
+	TypeSaveFire    Type = "saveFire"
 	TypeSaveAverage Type = "saveAverage"
 	TypeJournal     Type = "journal"
 	TypeFinish      Type = "finish"
@@ -173,7 +171,6 @@ type DeviceControl struct {
 	Entry       control.Entry     `json:"entry"`
 }
 
-// RuleInfo is one rule of a home.
 type RuleInfo struct {
 	Name string `json:"name"`
 	// Kind is KindCase or KindFlow.
@@ -207,7 +204,6 @@ type Change struct {
 	Previous   any    `json:"previous,omitempty"`
 }
 
-// Device is one device as the host knows it.
 type Device struct {
 	Name string `json:"name"`
 	Room string `json:"room,omitempty"`
@@ -327,7 +323,6 @@ type Message struct {
 // Conn reads and writes Messages. One goroutine may Read while others Write.
 type Conn = pluginwire.Conn[Message]
 
-// NewConn wraps a socket.
 func NewConn(c net.Conn) *Conn { return pluginwire.NewConn[Message](c) }
 
 // ErrRejected is a session the host refused.

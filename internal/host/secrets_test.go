@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-// eWeLink LAN keeps a device's key under the device's ID, which starts with a digit, and a name that
-// would leave the directory is refused.
+// A setup can keep a device's key under the device's ID, which may start with a digit, and a name
+// that would leave the directory is refused.
 func TestASetupKeepsASecretUnderAPluginsName(t *testing.T) {
 	s := secrets{dir: t.TempDir()}
 	if err := s.set("1000aabbcc", "v"); err != nil {

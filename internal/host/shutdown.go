@@ -15,8 +15,7 @@ const (
 	// writesStopTimeout bounds waiting for the last writes. With apiStopTimeout and the automations
 	// process's stopTimeout, it leaves plugins part of DefaultStopTimeout however badly those go.
 	writesStopTimeout = 2 * time.Second
-	// writePoll is how often the host looks whether the last writes have finished.
-	writePoll = 10 * time.Millisecond
+	writePoll         = 10 * time.Millisecond
 )
 
 // stage is the goroutines one phase of stopping ends.
@@ -34,13 +33,11 @@ func newStage(parent context.Context) *stage {
 
 func (s *stage) run(f func(context.Context)) { s.running.Go(func() { f(s.ctx) }) }
 
-// stop ends the stage's context, and returns once its goroutines have.
 func (s *stage) stop() {
 	s.cancel()
 	s.running.Wait()
 }
 
-// stopPhase is one step of stopping the host. name is what the log calls it.
 type stopPhase struct {
 	name string
 	run  func(ctx context.Context)
@@ -106,7 +103,6 @@ func (h *Host) killProcesses() {
 	}
 }
 
-// finishWrites waits until nothing is busy, or writesStopTimeout passes, or ctx ends.
 func finishWrites(ctx context.Context, busy func() bool) {
 	ctx, cancel := context.WithTimeout(ctx, writesStopTimeout)
 	defer cancel()

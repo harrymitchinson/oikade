@@ -1,6 +1,6 @@
 // Package host is the long-lived process that owns a home's state: the devices, arbitration, the
 // store and the socket your process talks to. It stays up across deploys and supervises your code,
-// which runs apart so that it can die without touching any of this (OIK-143).
+// which runs apart so that it can die without touching any of this.
 package host
 
 import (
@@ -30,12 +30,10 @@ import (
 
 const (
 	// SocketName is the socket your process uses, in the data directory.
-	SocketName = "host.sock"
-	// pausedNamespace is where the store keeps paused rules.
+	SocketName      = "host.sock"
 	pausedNamespace = "paused"
 )
 
-// Host configures a host.
 type Host struct {
 	// DataDir holds the store and the socket.
 	DataDir string
@@ -43,8 +41,7 @@ type Host struct {
 	// it, for good. The host runs either as "<binary> automations".
 	Home string
 	// Settle is how long a new version must stay up. It defaults to DefaultSettle.
-	Settle time.Duration
-	// Devices are simulated, until drivers come to the host.
+	Settle  time.Duration
 	Devices []SimulatedDevice
 	// Simulate, if set, changes simulated devices from lines of JSON.
 	Simulate io.Reader
@@ -77,8 +74,7 @@ type Host struct {
 	Log         *slog.Logger
 
 	plugins *plugins
-	// vars is the file of your values each process from your binary reads.
-	vars *varsFile
+	vars    *varsFile
 	// secretsDir holds what plugins' setups keep, SecretsDir in DataDir, which they read.
 	secretsDir string
 
@@ -108,7 +104,7 @@ func (h *Host) versionsOnRecord(data *store.Store) (*versions, error) {
 	return kept, nil
 }
 
-// Run serves until ctx ends, then stops everything in order: see stopping.
+// Run serves until ctx ends, then stops each part in turn (stopInOrder).
 func (h *Host) Run(ctx context.Context) error {
 	h.setDefaults()
 	data, err := store.Open(h.DataDir)
@@ -223,8 +219,7 @@ func (h *Host) Run(ctx context.Context) error {
 		default:
 		}
 	}
-	// One stage for each phase of stopping, so that each part ends when its turn comes and not when ctx
-	// does.
+	// A stage for each phase of stopping, so each part ends when its turn comes, not when ctx does.
 	apiCalls, automations, pluginProcesses, matterServing, background :=
 		newStage(ctx), newStage(ctx), newStage(ctx), newStage(ctx), newStage(ctx)
 	calls := &apiServer{
@@ -318,7 +313,6 @@ func (h *Host) Run(ctx context.Context) error {
 	return nil
 }
 
-// setDefaults fills in what wasn't set.
 func (h *Host) setDefaults() {
 	h.Log = logging.OrDiscard(h.Log)
 	if h.HeartbeatTimeout <= 0 {

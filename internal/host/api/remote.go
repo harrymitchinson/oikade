@@ -33,7 +33,7 @@ type Remote struct {
 }
 
 // Dial implements Transport. A host without the pin is refused before anything is sent. A host
-// named in .local is found over mDNS, which Go's own resolver doesn't do on Linux (OIK-328).
+// named in .local is found over mDNS, which Go's own resolver doesn't do on Linux.
 func (r Remote) Dial(ctx context.Context) (net.Conn, error) {
 	if r.Pin == "" {
 		return nil, errors.New("no pin for the host")

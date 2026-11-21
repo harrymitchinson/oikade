@@ -33,7 +33,6 @@ type matterMetrics struct {
 	panics series.Vec
 }
 
-// newMatterMetrics adds the bridge's metrics to set.
 func newMatterMetrics(set *metrics.Set, bridge *matterBridge) *matterMetrics {
 	m := &matterMetrics{
 		bridge:       bridge,

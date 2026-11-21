@@ -94,7 +94,8 @@ func TestADataDirectoryTheHostMayNotWriteSaysHowToRunIt(t *testing.T) {
 	}
 }
 
-// Nothing sets the broker's password for the host, so a host without it stops and says where it goes.
+// Nothing sets the broker's password for the host, so a host without it stops and says where it
+// goes.
 func TestAHostWithoutItsBrokerPasswordSaysWhereToPutIt(t *testing.T) {
 	dir := t.TempDir()
 	_, stderr, code := runHostCommand(t, "--data-dir", dir, "--outside-plugins", "kettle",

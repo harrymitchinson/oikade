@@ -27,7 +27,6 @@ import (
 )
 
 const (
-	// helloTimeout is how long a new connection has to say who it is.
 	helloTimeout = 5 * time.Second
 	// outgoing bounds what's waiting for a process. One that falls this far behind is cut off, and
 	// starts again from a fresh Welcome.
@@ -46,10 +45,9 @@ type server struct {
 	// emitting orders the log and the feed: emit.
 	emitting sync.Mutex
 	// setter makes every write to a device, and logs whose it is.
-	setter driver.Setter
-	holds  *engine.Stored[engine.HoldState]
-	fires  *engine.Stored[time.Time]
-	// averages are the rolling averages the process's conditions read.
+	setter   driver.Setter
+	holds    *engine.Stored[engine.HoldState]
+	fires    *engine.Stored[time.Time]
 	averages *engine.Stored[engine.AverageState]
 	journal  *store.Journal
 	// paused are the rules paused, with when.
@@ -68,15 +66,13 @@ type server struct {
 	attached bool
 	// closed refuses new sessions, once the host is stopping.
 	closed bool
-	// pong is when the session last answered a ping.
-	pong time.Time
+	pong   time.Time
 	// generation counts disconnects.
 	generation uint64
 
 	// connected, if set, hears of each session. It must not block.
 	connected func()
-	// plugins takes the connections of plugins.
-	plugins *plugins
+	plugins   *plugins
 	// settings, if set, takes up what a connecting process declares, and confirmedSettings replaces
 	// them with what a version that has settled declares.
 	settings, confirmedSettings func([]wire.DeviceControl) error
@@ -89,7 +85,8 @@ type server struct {
 	// what a version's would do.
 	declare      func(decls []wire.DeviceDeclaration, keys []string) error
 	planDeclared func([]wire.DeviceDeclaration) (registry.Declared, error)
-	// leavingSafety, if set, names the devices a version's declared rooms and types take out of Safety rules.
+	// leavingSafety, if set, names the devices a version's declared rooms and types take out of
+	// Safety rules.
 	leavingSafety func(decls []wire.DeviceDeclaration, old, next []wire.RuleInfo) []string
 	// declaring, if set, says what a version's declarations would change of the hub's devices, and
 	// which devices they put in a room whose decision they don't take, under old and next control.
@@ -126,13 +123,12 @@ type session struct {
 	// that no rules is known rather than unsaid.
 	rules    []wire.RuleInfo
 	ruleless bool
-	// reads are the rooms each hold has read, by rule, from RoomReads. The server's mu guards them.
-	reads map[string][]engine.RoomRead
-	// stopped is why each hold couldn't tell whether it should be active, by rule, from Stopped. The
-	// server's mu guards it.
+	// reads are the rooms each hold has read, from RoomReads, stopped why each hold couldn't tell
+	// whether it should be active, from Stopped, and whyNot why each case is inactive, from WhyNot.
+	// Each is by rule, and the server's mu guards them.
+	reads   map[string][]engine.RoomRead
 	stopped map[string]string
-	// whyNot is why each case is inactive, by rule, from WhyNot.
-	whyNot map[string]string
+	whyNot  map[string]string
 }
 
 func (s *session) end() {
@@ -142,7 +138,6 @@ func (s *session) end() {
 	})
 }
 
-// serve accepts connections until the listener closes.
 func (s *server) serve(l net.Listener) {
 	for {
 		c, err := l.Accept()
@@ -407,7 +402,6 @@ func (s *server) turningAway(generation uint64) bool {
 	return s.session != nil || s.closed || generation != s.generation
 }
 
-// takeSettings takes up a process's device settings.
 func (s *server) takeSettings(settings []wire.DeviceControl) error {
 	if s.settings == nil {
 		return nil
@@ -415,7 +409,6 @@ func (s *server) takeSettings(settings []wire.DeviceControl) error {
 	return s.settings(settings)
 }
 
-// takeMatterName takes up the Matter bridge's name a process declares.
 func (s *server) takeMatterName(name string) error {
 	if s.options == nil {
 		return nil
@@ -423,7 +416,6 @@ func (s *server) takeMatterName(name string) error {
 	return s.options.takeMatterName(name)
 }
 
-// takeHidden takes up the plugins a process's home hides from Matter.
 func (s *server) takeHidden(hidden []wire.HiddenPlugin) error {
 	if s.options == nil {
 		return nil
@@ -456,7 +448,6 @@ func (s *server) confirmSettings(settings []wire.DeviceControl) error {
 	return s.confirmedSettings(settings)
 }
 
-// safetyHeld says a Safety claim holds a capability.
 func (s *server) safetyHeld(device, name string) bool {
 	return slices.ContainsFunc(s.engine.ControlOf(key(device)), func(c control.Status) bool {
 		return c.Capability == name && slices.ContainsFunc(c.Claims, func(o control.ClaimStatus) bool {
@@ -525,10 +516,11 @@ func (s *server) disconnect() {
 	}
 }
 
-// reconcile ends what's left of rules not named, their claims, Safety ones too, and their saved state,
-// and the runs of flows not named. A flow can become another kind of rule, so a rule's name isn't a
-// flow's. Nothing else would end any of it, because its code has gone. Only a deploy calls it, so a
-// Safety rule goes only past the check that refuses that. An error means it should be tried again.
+// reconcile ends what's left of rules not named, their claims, Safety ones too, and their saved
+// state, and the runs of flows not named. A flow can become another kind of rule, so a rule's name
+// isn't a flow's. Nothing else would end any of it, because its code has gone. Only a deploy calls
+// it, so a Safety rule goes only past the check that refuses that. An error means it should be tried
+// again.
 func (s *server) reconcile(rules, flows []string) error {
 	if fault.Drop(fault.HostRemovals) {
 		return errors.New("dropped by a fault point")
@@ -629,8 +621,9 @@ func (s *server) resetHolds(recorded []heldRelease) {
 	}
 }
 
-// hold reports whether a release was held back. Only a flow's release is, which is the only one over
-// the socket that stops short of Safety claims. Everything else ends what the running code decided to.
+// hold reports whether a release was held back. Only a flow's release is, which is the only one
+// over the socket that stops short of Safety claims. Everything else ends what the running code
+// decided to.
 func (s *server) hold(source string, below control.Level) bool {
 	s.heldMu.Lock()
 	defer s.heldMu.Unlock()
@@ -716,7 +709,6 @@ func (s *server) leftovers() ([]string, error) {
 	return slices.Compact(names), nil
 }
 
-// shutdown disconnects the session and refuses any more.
 func (s *server) shutdown() {
 	s.mu.Lock()
 	s.closed = true
@@ -724,7 +716,6 @@ func (s *server) shutdown() {
 	s.disconnect()
 }
 
-// write sends the session's messages in order until it ends.
 func (s *server) write(sess *session) {
 	for {
 		select {
@@ -752,7 +743,6 @@ func (s *server) send(sess *session, m wire.Message) {
 	}
 }
 
-// broadcast sends a message to the session, if there is one.
 func (s *server) broadcast(m wire.Message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -879,7 +869,6 @@ func (s *server) Seen(dev ident.ID, t time.Time) {
 	s.broadcast(wire.Message{Type: wire.TypeSeen, Device: dev.Name, Time: t})
 }
 
-// answer carries out a request and returns its Reply.
 func (s *server) answer(m wire.Message) wire.Message {
 	reply := wire.Message{Type: wire.TypeReply, ID: m.ID}
 	var err error

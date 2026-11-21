@@ -128,7 +128,6 @@ func reason(err error) string {
 	return err.Error()
 }
 
-// errHeartbeat is a process that stopped answering.
 var errHeartbeat = errors.New("stopped answering heartbeats")
 
 // runProcess starts the process and returns when it has gone, having killed it if it stopped
@@ -205,7 +204,6 @@ func (h *Host) watch(ctx context.Context, cmd *exec.Cmd, kind string,
 	}
 }
 
-// stop asks the process to stop, and kills it if it doesn't.
 func (h *Host) stop(cmd *exec.Cmd, exited <-chan error) error {
 	_ = cmd.Process.Signal(syscall.SIGTERM)
 	select {

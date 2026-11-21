@@ -161,8 +161,8 @@ func dataDirError(err error, dataDir string) error {
 	return err
 }
 
-// removed are flags that described the home rather than the machine, and the field that replaced
-// each. A unit file that still passes one fails loudly rather than being quietly ignored.
+// removed are flags that described the home rather than the machine, each with what to use
+// instead. A unit file that still passes one fails loudly rather than being quietly ignored.
 var removed = map[string]string{
 	"matter-name": "the bridge's name is MatterName in your home's oikade.Options now: set it there and deploy",
 	"secrets-dir": "the secrets directory, where --broker-password-secret's file goes, is always secrets in --data-dir, " +
@@ -242,7 +242,7 @@ func printLogin(name string, resp api.Response) {
 		ident.NewRef(ident.Client, name))
 }
 
-// runInstall installs this binary as the host under systemd, or upgrades the one there (OIK-277).
+// runInstall installs this binary as the host under systemd, or upgrades the one there.
 func runInstall(ctx context.Context, args []string) error {
 	fs := newFlags(installCommand)
 	apiAddr := fs.String("api-addr", install.DefaultAPIAddr,
@@ -322,8 +322,8 @@ func runInstall(ctx context.Context, args []string) error {
 }
 
 // runtimeDir is the first of the runtime directories systemd made for the unit, listed in
-// $RUNTIME_DIRECTORY, which is where the host keeps your values for its processes. It's in memory, so
-// they're never on disk there. Outside systemd there's none.
+// $RUNTIME_DIRECTORY, which is where the host keeps your values for its processes. It's in memory,
+// so they're never on disk there. Outside systemd there's none.
 func runtimeDir(listed string) string {
 	first, _, _ := strings.Cut(listed, ":")
 	return first

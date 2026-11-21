@@ -39,8 +39,7 @@ type inventory struct {
 	mu        sync.Mutex
 	instances map[string]driver.InstanceKey
 	// home is the device settings your home declares, which win over any on record.
-	home []wire.DeviceControl
-	// declarations keeps the devices your home declares, from declaredNamespace.
+	home         []wire.DeviceControl
 	declarations *store.Namespace
 	// renamed, if set, moves what's on record for cases and averages to the keys its function gives
 	// them, before the registry renames their devices.
@@ -49,7 +48,6 @@ type inventory struct {
 	emit func(api.Event)
 }
 
-// record puts an event in the event log, if there is one.
 func (i *inventory) record(e api.Event) {
 	if i.emit != nil {
 		e.Time = time.Now()
@@ -260,8 +258,8 @@ func (i *inventory) announce(dev ident.ID) {
 	}
 }
 
-// claimed says who holds a device: every claim's source, by its ref, and whether one is at Safety. A device with no
-// arbiters can still have claims on record, waiting for it.
+// claimed says who holds a device: every claim's source, by its ref, and whether one is at Safety.
+// A device with no arbiters can still have claims on record, waiting for it.
 func (i *inventory) claimed(name string) (holders []string, safety bool) {
 	status := i.engine.ControlOf(key(name))
 	for _, c := range status {

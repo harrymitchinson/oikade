@@ -257,8 +257,8 @@ func (s *apiServer) set(ctx context.Context, req api.Request) api.Response {
 	return api.Response{Outcome: s.settled(ctx, dev, req.Capability, value, events)}
 }
 
-// settleTimes are how long a set waits for the device to answer (wait), how long it then waits for
-// nothing more to change, such as ExternalRevert writing it back (quiet).
+// settleTimes are how long a set waits for the device to answer (wait), and then for nothing more
+// to change, such as ExternalRevert writing it back (quiet).
 type settleTimes struct {
 	wait, quiet time.Duration
 }
@@ -333,10 +333,10 @@ func awaitAnswer(ctx context.Context, events <-chan api.Event, dev, name string,
 	}
 }
 
-// heldAtSafety finds what holds a capability at Safety against value, if anything does: a write would
-// only be written back. It returns who holds it and what they want. A claim counts from the moment the
-// host starts, before there's an arbiter for it, unless the capability is known not to be arbitrated
-// any more. Claims that can't be read count as Safety, with nothing to say what they want.
+// heldAtSafety finds what holds a capability at Safety against value, if anything does: a write
+// would only be written back. It returns who holds it and what they want. A claim counts from the
+// moment the host starts, before there's an arbiter for it, unless the capability is known not to be
+// arbitrated any more. Claims that can't be read count as Safety, with nothing to say what they want.
 func heldAtSafety(eng *engine.Engine, devices *hub.Store, dev ident.ID, name string, value any) (string, any) {
 	if c, ok := eng.UnreadableClaim(dev); ok {
 		return c.Source, nil
@@ -446,8 +446,8 @@ func (s *apiServer) pause(ctx context.Context, req api.Request) api.Response {
 }
 
 // ruleKey is the key the host keeps a rule under, from the ref a pause or a resume names it by. A
-// rule's key on its own, as these took before refs, is refused with the rule's ref, which rules
-// is only asked for then.
+// ref that doesn't parse is refused, with the rule's ref in the error if it's a rule's bare key.
+// rules is asked for only when the ref doesn't parse and names no paused rule.
 func (s *apiServer) ruleKey(ref string, rules func() []wire.RuleInfo) (string, error) {
 	rule, err := control.RuleKey(ref)
 	if err == nil {
@@ -468,8 +468,8 @@ func (s *apiServer) ruleKey(ref string, rules func() []wire.RuleInfo) (string, e
 	return "", err
 }
 
-// claimsOf lists the capabilities a rule claims, by their refs: the claims a pause ends, and the Safety
-// ones it keeps.
+// claimsOf lists the capabilities a rule claims, by their refs: the claims a pause ends, and the
+// Safety ones it keeps.
 func (s *apiServer) claimsOf(rule string) (ended, kept []string) {
 	source := control.SourceRule + rule
 	for dev := range s.srv.devices.List() {

@@ -96,7 +96,6 @@ type Route struct {
 	Public bool
 }
 
-// Routes are the API's routes.
 var Routes = []Route{
 	{TypeInfo, http.MethodGet, Prefix + "/info", false, false},
 	{TypeDeploy, http.MethodPost, Prefix + "/deploy", false, false},
@@ -131,7 +130,6 @@ func routeOf(requestType string) (Route, bool) {
 	return Route{}, false
 }
 
-// Request is one call.
 type Request struct {
 	// Type says which call. A route sets it, so it isn't in the body.
 	Type string `json:"-"`
@@ -168,9 +166,7 @@ type Request struct {
 	Answer string `json:"answer,omitempty"`
 }
 
-// Response is its answer.
 type Response struct {
-	// Error says why it failed.
 	Error string `json:"error,omitempty"`
 	// Findings are what stopped a version going ahead.
 	Findings []string `json:"findings,omitempty"`
@@ -180,7 +176,7 @@ type Response struct {
 	// and the version started again with them. Without, nothing changed.
 	Unchanged bool `json:"unchanged,omitempty"`
 	// VarsChanged are a deploy's or a rollback's: the names of the values it added, changed or
-	// removed, and never a value (OIK-365).
+	// removed, and never a value.
 	VarsChanged []string `json:"varsChanged,omitempty"`
 	// MissingVars are a refused deploy's or rollback's: the values its version uses that its set
 	// lacks.
@@ -256,14 +252,13 @@ type Response struct {
 // the Matter bridge, offline, until oikade forget takes it.
 type Unimported struct {
 	Device string `json:"device"`
-	// Ref is the device's ref.
 	Ref    string `json:"ref"`
 	Plugin string `json:"plugin"`
 	// Safety is a device a Safety claim holds, which forgetting it would end.
 	Safety bool `json:"safety,omitempty"`
 }
 
-// PluginOf names the plugin that reports a device on record, if one does, and is empty if none does.
+// PluginOf names the plugin that reports a device on record, if one does.
 func PluginOf(d registry.Device) (string, bool) {
 	name, ok := strings.CutPrefix(d.Driver, driver.Plugin+"/")
 	if !ok {
@@ -278,8 +273,8 @@ func Bridgeable(d registry.Device) bool {
 	return d.ID != "" && !d.Removed && len(d.DeviceTypes()) > 0
 }
 
-// HiddenFromMatter says whether hidden, a home's plugins hidden from Matter, keeps a device the bridge
-// would show off it.
+// HiddenFromMatter says whether hidden, a home's plugins hidden from Matter, keeps a device the
+// bridge would show off it.
 func HiddenFromMatter(hidden []wire.HiddenPlugin, d registry.Device) bool {
 	plugin, ok := PluginOf(d)
 	return ok && Bridgeable(d) && wire.Hidden(hidden, plugin, d.Name)
@@ -437,7 +432,6 @@ type Plugin struct {
 	Devices []string `json:"devices"`
 }
 
-// Device is one device.
 type Device struct {
 	Name string `json:"name"`
 	// Ref is its ref, such as device/desk-plug.
@@ -445,12 +439,10 @@ type Device struct {
 	Room   string `json:"room,omitempty"`
 	Online *bool  `json:"online,omitempty"`
 	// OfflineSince is when it went offline, while it's offline, if the host heard it go.
-	OfflineSince *time.Time `json:"offlineSince,omitempty"`
-	// Plugin is the plugin that reports it.
-	Plugin       string       `json:"plugin,omitempty"`
-	Capabilities []Capability `json:"capabilities"`
-	// DeviceTypes are what it is.
-	DeviceTypes []devicetype.Type `json:"deviceTypes,omitempty"`
+	OfflineSince *time.Time        `json:"offlineSince,omitempty"`
+	Plugin       string            `json:"plugin,omitempty"`
+	Capabilities []Capability      `json:"capabilities"`
+	DeviceTypes  []devicetype.Type `json:"deviceTypes,omitempty"`
 	// PluginNotImported is a device whose plugin the running version doesn't import, so it stays
 	// offline until it's imported again or you remove the device.
 	PluginNotImported bool `json:"pluginNotImported,omitempty"`
@@ -466,7 +458,8 @@ type Capability struct {
 	// Ref is its ref, such as device/desk-plug/on.
 	Ref   string `json:"ref"`
 	Value any    `json:"value,omitempty"`
-	// Level is the winning level: Default, Normal, Override or Safety. Empty means it isn't arbitrated.
+	// Level is the winning level: Default, Normal, Override or Safety. Empty means it isn't
+	// arbitrated.
 	Level string `json:"level,omitempty"`
 	// Wanted is the value that level wants.
 	Wanted any `json:"wanted,omitempty"`
@@ -479,7 +472,6 @@ type Capability struct {
 	LimitUntil *time.Time `json:"limitUntil,omitempty"`
 }
 
-// Claim is one claim on a capability.
 type Claim struct {
 	// Source is the ref of who made it: a case's, such as case/fan/on/humid, a flow's, such as
 	// flow/morning, or matter, device or command (oikade set).
@@ -493,7 +485,6 @@ type Claim struct {
 	Expires *time.Time `json:"expires,omitempty"`
 }
 
-// Rule is one rule of your home.
 type Rule struct {
 	Name string `json:"name"`
 	// Ref is the rule's ref, a case's or a flow's, which oikade pause and resume take.
@@ -522,8 +513,8 @@ type Rule struct {
 	// keeps its state, or its budget couldn't be planned, so its device stays off. Only a connected
 	// process says.
 	Stopped string `json:"stopped,omitempty"`
-	// WhyNot is why an inactive case's conditions are false, such as "device/pool-water/temperature is 5,
-	// not below 3", or a ConditionFunc's label.
+	// WhyNot is why an inactive case's conditions are false, such as
+	// "device/pool-water/temperature is 5, not below 3", or a ConditionFunc's label.
 	WhyNot string `json:"whyNot,omitempty"`
 	// Budget is a budget hold's day.
 	Budget *RuleBudget `json:"budget,omitempty"`
@@ -707,11 +698,10 @@ func Call(ctx context.Context, t Transport, req Request) (Response, error) {
 	return resp, nil
 }
 
-// Deploy sends the binary at path to the host, which runs it as your home's new version, with vars as
-// your values, which replace the host's whole, or, if vars is nil, the host's own. It waits for as
-// long as that takes, as Call does.
-// progress, if it isn't nil, hears the binary's bytes sent of the total as the upload goes, from the
-// goroutine sending them; sent reaches total once it's done.
+// Deploy sends the binary at path to the host, which runs it as your home's new version with vars as
+// your values, which replace all of the host's, or with the host's own if vars is nil. It waits as
+// Call does. progress, if not nil, hears the binary's bytes sent of the total as the upload goes,
+// from the goroutine sending them, and sent reaches total once it's done.
 func Deploy(ctx context.Context, t Transport, path string, vars map[string]string, allowSafety bool,
 	progress func(sent, total int64)) (Response, error) {
 	f, err := os.Open(path)
@@ -754,8 +744,8 @@ func Deploy(ctx context.Context, t Transport, path string, vars map[string]strin
 }
 
 // deployParts are what goes around a deploy's binary in its body: the values' part, unless vars is
-// nil, and the binary's part's header before it, and the closing boundary after it. Knowing them first
-// gives the body its length, so the binary needn't be read twice.
+// nil, and the binary's part's header before it, and the closing boundary after it. Knowing them
+// first gives the body its length, so the binary needn't be read twice.
 func deployParts(vars map[string]string) (head, tail []byte, contentType string, err error) {
 	var b bytes.Buffer
 	parts := multipart.NewWriter(&b)
@@ -917,7 +907,6 @@ func open(ctx context.Context, t Transport, req Request) (io.ReadCloser, error) 
 	return send(ctx, t, route, route.Path, body, length, ContentType)
 }
 
-// openFiltered starts a stream of events narrowed by f.
 func openFiltered(ctx context.Context, t Transport, kind string, f EventFilter) (io.ReadCloser, error) {
 	route, _ := routeOf(kind)
 	target := route.Path

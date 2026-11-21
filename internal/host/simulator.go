@@ -29,7 +29,6 @@ type SimulatedDevice struct {
 	Control []control.Entry `json:"control,omitempty"`
 }
 
-// ReadSimulated reads the devices from a JSON file.
 func ReadSimulated(path string) ([]SimulatedDevice, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -55,8 +54,6 @@ type simulator struct {
 	mu    sync.Mutex
 }
 
-// simChange is one line of the simulator's input: a change, a device going offline or coming back,
-// or a device being paired.
 type simChange struct {
 	Device     string           `json:"device"`
 	Capability string           `json:"capability"`
@@ -76,7 +73,6 @@ func (s *simulator) start(devices []SimulatedDevice) error {
 	return nil
 }
 
-// pair reports a device as a driver would when it's paired.
 func (s *simulator) pair(d SimulatedDevice) error {
 	dev, err := s.known.paired(simInstance, driver.AppDevice{
 		ID: d.Name, Name: d.Name, Room: d.Room, Capabilities: d.Capabilities,
@@ -93,7 +89,6 @@ func (s *simulator) pair(d SimulatedDevice) error {
 	return nil
 }
 
-// read applies changes from r until it ends.
 func (s *simulator) read(r io.Reader) {
 	lines := bufio.NewScanner(r)
 	for lines.Scan() {
@@ -125,7 +120,6 @@ func (s *simulator) read(r io.Reader) {
 	}
 }
 
-// report records a device's new value.
 func (s *simulator) report(dev ident.ID, name string, value any) error {
 	v, err := capability.Validate(name, value)
 	if err != nil {

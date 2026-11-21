@@ -16,8 +16,8 @@ import (
 	"github.com/harrymitchinson/oikade/internal/store"
 )
 
-// aHouse is a home of 50 devices, as events a day. It's an estimate, as no real home runs on a host
-// yet: Zigbee2MQTT's defaults for sensors and plugs, and a family's use of the rest.
+// aHouse is a home of 50 devices, as events a day. It's an estimate, which no real home has
+// measured yet: Zigbee2MQTT's defaults for sensors and plugs, and a family's use of the rest.
 var aHouse = []struct {
 	name       string
 	devices    int
@@ -252,8 +252,8 @@ func TestTheLogGivesBackWhatWasReported(t *testing.T) {
 	}
 }
 
-// Events reach the store every 5 seconds, so a crash loses at most that long, as docs/architecture.md
-// says: one added just after a flush is on disk by the next, and not before.
+// Events reach the store every 5 seconds, so a crash loses at most that long, as
+// docs/architecture.md says: one added just after a flush is on disk by the next, and not before.
 func TestEventsReachTheStoreWithinAFlush(t *testing.T) {
 	const promised = 5 * time.Second
 	data, err := store.Open(t.TempDir())

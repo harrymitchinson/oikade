@@ -62,8 +62,8 @@ func (i *inventory) planDeclared(decls []wire.DeviceDeclaration) (registry.Decla
 }
 
 // planLocked refuses declarations the registry can't take. A renamed device's claims go with it,
-// but hardware a declared name takes over keeps none, and a reserved name that goes
-// would leave its claims behind, so either is refused while something holds it. Call with mu held.
+// but hardware a declared name takes over keeps none, and a reserved name that goes would leave its
+// claims behind, so either is refused while something holds it. Call with mu held.
 func (i *inventory) planLocked(decls []wire.DeviceDeclaration) (registry.Declared, error) {
 	plan, err := i.registry.Plan(wire.Declarations(decls))
 	if err != nil {
@@ -134,7 +134,8 @@ func (i *inventory) applyDeclared(decls []wire.DeviceDeclaration, keys []string,
 	maps.Copy(live, done.Absorbed)
 	i.moveLive(live)
 	for _, from := range slices.Sorted(maps.Keys(live)) {
-		// Hardware a declared name takes over counts: what it did under its own name is the device's past.
+		// Hardware a declared name takes over counts: what it did under its own name is the device's
+		// past.
 		i.record(api.Event{Type: api.EventRename, Device: live[from], Previous: from})
 	}
 	for _, name := range done.Touched {
@@ -260,8 +261,9 @@ func renameKeys[T any](values *engine.Stored[T], rename func(string) string) err
 	return nil
 }
 
-// leavingSafety names the Safety rules a device would drop out of under decls: a room write it's in now,
-// as one of the device types it's limited to, and wouldn't be once its declared room or type is.
+// leavingSafety names the Safety rules a device would drop out of under decls: a room write it's in
+// now, as one of the device types it's limited to, and wouldn't be once its declared room or type
+// is.
 func (i *inventory) leavingSafety(decls []wire.DeviceDeclaration, old, next []wire.RuleInfo) []string {
 	i.mu.Lock()
 	before := i.registry.List()
@@ -292,9 +294,9 @@ func (i *inventory) leavingSafety(decls []wire.DeviceDeclaration, old, next []wi
 }
 
 // declaring is what a version's declarations would change of the hub's devices: their members now
-// and once decls are applied, and what each device a declared room or type puts in a room that
-// decides a capability it has its own decision on keeps of it, under the version's control next
-// rather than the running one's, old.
+// and once decls are applied, and a line for each device a declared room or type puts in a room
+// whose decision it won't take, as it has its own under next, the version's control. old, the
+// running one's, says what a device retyped in its own room kept already.
 func (i *inventory) declaring(decls []wire.DeviceDeclaration, old, next []wire.DeviceControl) (members, []string, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()

@@ -83,8 +83,8 @@ func (l *eventLog) run(ctx context.Context) {
 	}
 }
 
-// flush commits what's queued, and applies the bound even if nothing is. A failure loses those events
-// and nothing else: the log is history, and a home runs without it.
+// flush commits what's queued, and applies the bound even if nothing is. A failure loses those
+// events and nothing else: the log is history, and a home runs without it.
 func (l *eventLog) flush() {
 	l.flushing.Lock()
 	defer l.flushing.Unlock()
@@ -112,7 +112,6 @@ func (l *eventLog) flushedAt(at func(take func())) (uint64, error) {
 	return last, nil
 }
 
-// take empties the queue.
 func (l *eventLog) take() (queue []api.Event, dropped int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -170,8 +169,8 @@ func decodeEvent(r store.Record) (api.Event, error) {
 	return e, nil
 }
 
-// foldBaseline keeps the last value of everything being dropped, because a device that hasn't changed
-// since still has it.
+// foldBaseline keeps the last value of everything being dropped, because a device that hasn't
+// changed since still has it.
 func foldBaseline(baseline []byte, dropped []store.Record) ([]byte, error) {
 	values := map[string]map[string]any{}
 	if baseline != nil {
@@ -202,9 +201,9 @@ type lineWriter interface {
 	flush() bool
 }
 
-// stream writes the log's events that pass to out, a page at a time, until it catches up or ctx ends,
-// which its last line says if the client was revoked. Events added meanwhile are included. A nil
-// pass lets every event through. A log that can't be read goes to fail instead, before any line.
+// stream writes the log's events that pass to out, a page at a time, until it catches up or ctx
+// ends, which its last line says if the client was revoked. Events added meanwhile are included. A
+// nil pass lets every event through. A log that can't be read goes to fail instead, before any line.
 func (l *eventLog) stream(ctx context.Context, out lineWriter, fail func(error), pass func(api.Event) bool) {
 	l.flush()
 	now := time.Now()
@@ -237,8 +236,8 @@ func endLines(out lineWriter, short string) {
 	}
 }
 
-// history writes the log's events that pass to out, up to the record at upTo, which flushedAt gave. It
-// says why it stopped short, if it did, and told is false if there's nobody to tell, as send's is.
+// history writes the log's events that pass to out, up to the record at upTo, which flushedAt gave.
+// It says why it stopped short, if it did, and told is false if there's nobody to tell, as send's is.
 func (l *eventLog) history(ctx context.Context, out lineWriter, upTo uint64, pass func(api.Event) bool) (short string, told bool) {
 	if upTo == 0 {
 		return "", true

@@ -52,8 +52,8 @@ func (n deviceNames) has(name string, at time.Time) bool {
 	})
 }
 
-// namesOf follows a device back through the log's renames, oldest first, to the names it had before,
-// from the name it has now, or, for one that isn't onRecord, the name it last had.
+// namesOf follows a device back through the log's renames, oldest first, to the names it had
+// before, from the name it has now, or, for one that isn't onRecord, the name it last had.
 func namesOf(name string, onRecord bool, renames []api.Event) deviceNames {
 	var names deviceNames
 	var until time.Time
@@ -96,9 +96,7 @@ func (m *eventMatcher) renamed(e api.Event) {
 
 // home is what a matcher needs of the home as it is now.
 type home struct {
-	// rooms gives the devices in a room.
-	rooms func(room string) []ident.ID
-	// onRecord says a device has this name.
+	rooms    func(room string) []ident.ID
 	onRecord func(name string) bool
 	// renames gives the log's rename events, oldest first. It's only asked if a ref names a device.
 	renames func() ([]api.Event, error)

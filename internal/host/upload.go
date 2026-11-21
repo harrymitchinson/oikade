@@ -22,10 +22,8 @@ import (
 const (
 	// uploadsDir holds deploys on their way in, in the data directory.
 	uploadsDir = "uploads"
-	// maxUpload bounds a deploy's body.
-	maxUpload = 1 << 30
-	// maxVars bounds a deploy's values.
-	maxVars = 1 << 20
+	maxUpload  = 1 << 30
+	maxVars    = 1 << 20
 	// uploadIdle is how long an upload may send nothing, on a slow link.
 	uploadIdle = 30 * time.Second
 )
@@ -84,9 +82,9 @@ func deployBoundary(contentType string) (string, bool) {
 	return params["boundary"], true
 }
 
-// spool reads the body: the values, and the binary, which it writes to a file of its own in the data
-// directory, which the caller removes. A body that stops, or a ctx that ends first, leaves nothing
-// behind.
+// spool reads the body: the values, and the binary, which it writes to a file of its own in the
+// data directory, which the caller removes. A body that stops, or a ctx that ends first, leaves
+// nothing behind.
 func (s *apiServer) spool(ctx context.Context, w http.ResponseWriter, r *http.Request, boundary string) (
 	map[string]string, string, error,
 ) {
@@ -108,9 +106,9 @@ func (s *apiServer) spool(ctx context.Context, w http.ResponseWriter, r *http.Re
 	return vars, path, nil
 }
 
-// receive reads a deploy's parts in order: the values, if it sends them, then the binary, into a file
-// whose path it returns even if it fails after making it. Values it doesn't send are nil, so that the
-// host keeps its own. Its errors never quote a value.
+// receive reads a deploy's parts in order: the values, if it sends them, then the binary, into a
+// file whose path it returns even if it fails after making it. Values it doesn't send are nil, so
+// that the host keeps its own. Its errors never quote a value.
 func (s *apiServer) receive(parts *multipart.Reader) (map[string]string, string, error) {
 	part, err := nextPart(parts, api.DeployVarsPart, api.DeployBinaryPart)
 	if err != nil {

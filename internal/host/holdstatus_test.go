@@ -12,7 +12,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
-// OIK-215: a hold's state shows only as a claim on a device otherwise, and why it stopped not at all.
+// Without these in status, a hold shows only as a claim on a device, and why it stopped not at all.
 func TestStatusHasEachHoldsStateAndWhyItStopped(t *testing.T) {
 	dir := tempDir(t)
 	socket, _ := startHost(t, dir)
