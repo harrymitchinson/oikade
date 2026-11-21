@@ -83,7 +83,7 @@ func start(t *testing.T, hub *fakeHub, declared ...string) *bench {
 	return startWith(t, hub, Local{Address: hub.address(), Token: token + "\n", PIN: hubPIN, roots: hub.ca}, fast, declared...)
 }
 
-// cloudFast is fast, with the cloud's limit waits.
+// cloudFast is fast, with a longer retryMax, as the cloud's is.
 var cloudFast = func() timing { t := fast; t.retryMax = 50 * time.Millisecond; return t }()
 
 // startCloud starts the plugin on the fake Cozytouch cloud, as Thermor's, with password as its

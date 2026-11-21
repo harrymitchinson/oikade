@@ -62,7 +62,7 @@ type fakeHub struct {
 	written []map[string]any
 	// magellanRuns is how many reads of an execution it's in progress for, 0 for done at once. A
 	// write to a device while one of its executions is in progress is refused, state 4, and
-	// changes nothing, as a real account's was (OIK-339).
+	// changes nothing, as a real account's was.
 	magellanRuns int
 	executing    map[string]*fakeExecution
 	// magellanWritesFail answers each write with a 500.
@@ -226,7 +226,6 @@ func (h *fakeHub) count(path string) int {
 	return h.requests[path]
 }
 
-// total counts every request.
 func (h *fakeHub) total() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()

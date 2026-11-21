@@ -73,7 +73,7 @@ func (f *follower) follow(ctx context.Context, l link) {
 			l.pause()
 			continue
 		}
-		// A cloud still without an account for the login, asked again, had nothing to lose.
+		// A cloud that still has no account for the login had nothing online to lose.
 		if classify(err) != absent || !live.IsZero() {
 			l.lost(ctx)
 		}
@@ -136,7 +136,6 @@ func (f *follower) setProblem(ctx context.Context, problem string) {
 	f.check(f.out.SetError(ctx, problem), "Could not report the plugin's problem", "")
 }
 
-// backoff waits d after a failure.
 func (f *follower) backoff(ctx context.Context, d time.Duration) {
 	if f.timing.backoff != nil {
 		f.timing.backoff(ctx, d)
@@ -149,7 +148,6 @@ func (f *follower) backoff(ctx context.Context, d time.Duration) {
 // connection, not the hub's.
 var errReport = errors.New("could not report to Oikade")
 
-// reporting marks err as errReport.
 func reporting(err error) error {
 	if err == nil {
 		return nil
@@ -157,7 +155,6 @@ func reporting(err error) error {
 	return fmt.Errorf("%w: %w", errReport, err)
 }
 
-// sleep waits for d, or until ctx ends.
 func sleep(ctx context.Context, d time.Duration) {
 	t := time.NewTimer(d)
 	defer t.Stop()

@@ -52,9 +52,9 @@ type kind struct {
 	read func(params map[string]any) report
 }
 
-// kinds is keyed on the TXT record's type. Models that share a type are handled identically. Each
-// entry is one a real device has confirmed: th_plug on a THR320D. A type such as plug, which
-// sonoff-lan has but nobody has checked, waits for a device to check it against.
+// kinds is keyed on the TXT record's type, and models that share a type are handled identically.
+// Each entry is one a real device has confirmed, th_plug on a THR320D, so another type waits for a
+// device to check it against.
 var kinds = map[string]kind{
 	"th_plug": {
 		path: "/zeroconf/switch",

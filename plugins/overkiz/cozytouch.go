@@ -25,10 +25,10 @@ const (
 	Sauter   Brand = "Sauter"
 )
 
-// Cozytouch is an account in Atlantic's, Thermor's or Sauter's Cozytouch app, over the cloud: those
-// devices have no local API. Its devices are on Overkiz, on Atlantic's own cloud, Magellan, or on
-// both, and the plugin serves them all. The APIs aren't published, and work with a client ID from
-// Atlantic's app, which Atlantic can change.
+// Cozytouch is an account in Atlantic's, Thermor's or Sauter's Cozytouch app, over the cloud, since
+// those devices have no local API. Its devices are on Overkiz, on Magellan or on both, and the
+// plugin serves them all. The APIs aren't published, and take a client ID from Atlantic's app,
+// which Atlantic can change.
 type Cozytouch struct {
 	Brand Brand
 	// Username is the account's email address, such as oikade.Var("COZYTOUCH_USER").
@@ -52,10 +52,9 @@ const (
 )
 
 // cloudTiming keeps well inside the cloud's limits, which pyoverkiz gives as one event fetch a
-// second and one full device read a day per session. The setup is read at login and when a device
-// changes, so that holds for a home that doesn't change hourly. Magellan, which has no events, is
-// read once a minute: its setup gives a rateLimit of 30, which that's inside whether it's seconds
-// or requests a minute.
+// second and one full device read a day per session: the setup is read at login and when a device
+// changes, which holds for a home that doesn't change hourly. Magellan, with no events, is read
+// once a minute, inside the rateLimit of 30 its setup gives, in seconds or requests a minute.
 var cloudTiming = timing{
 	poll: 30 * time.Second, busy: 2 * time.Second, read: time.Minute, retry: 30 * time.Second, retryMax: 5 * time.Minute,
 	limited: 10 * time.Minute, refused: time.Hour,
@@ -257,7 +256,8 @@ func send(ctx context.Context, httpc *http.Client, method, to string, form url.V
 	return resp.StatusCode, raw, err
 }
 
-// overkizError is an answer that failed, with Overkiz's errorCode and message if it has them.
+// overkizError is an answer that failed, with Overkiz's errorCode and message if it has them. A 2xx
+// with no message, as a login that answers success false, is a refused login.
 func overkizError(status int, body []byte) error {
 	e := &apiError{Status: status}
 	if json.Unmarshal(body, e) != nil && strings.Contains(string(body), "is down for maintenance") {

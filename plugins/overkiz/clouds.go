@@ -12,9 +12,9 @@ import (
 	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
 
-// clouds is a Cozytouch account, on both of Atlantic's clouds: Overkiz, and Magellan. Each is
-// followed on its own, after one login between them, and an account has its devices on one or
-// both. A cloud that has no account for the login reports nothing, and isn't a problem.
+// clouds is a Cozytouch account on both of Atlantic's clouds, Overkiz and Magellan, each followed
+// on its own after one login between them. An account has its devices on one or both, and a cloud
+// that has no account for the login reports nothing and isn't a problem.
 type clouds struct {
 	overkiz  *bridge
 	magellan *magellan
@@ -27,7 +27,8 @@ func newClouds(c Cozytouch, declared []contractv1.DeclaredDevice, t timing, log 
 	return &clouds{overkiz: newBridge(c, declared, t, log), magellan: newMagellan(c, t, log)}
 }
 
-// Serve implements plugin.Handler. It follows both clouds until ctx ends, or either fails to report.
+// Serve implements plugin.Handler. It follows both clouds until ctx ends, or until the devices on
+// record can't be reported as it starts.
 func (c *clouds) Serve(ctx context.Context, p *plugin.Plugin) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()

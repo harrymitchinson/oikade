@@ -116,7 +116,7 @@ func (c *fakeCloud) serve(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, c.limitedBody)
 		return
 	case r.Header.Get("Device-ID") == "":
-		// As the real cloud has answered a login without one since 2026-07.
+		// As the real cloud answers a login without one.
 		c.t.Errorf("%s with no Device-ID", r.URL.Path)
 		w.WriteHeader(http.StatusTooManyRequests)
 		return
