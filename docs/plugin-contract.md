@@ -196,7 +196,7 @@ Relays don't know what they switch, and they don't have to: a relay reports `on`
 
 ## Environment
 
-An outside plugin runs with these, which you set when you start it, and so does one under the conformance suite. A plugin your home imports is given only `OIKADE_SECRETS_DIR`, and has its topic root from the host as its session opens.
+An outside plugin runs with these, which you set when you start it, and so does one under the conformance suite. A plugin your home imports runs with the environment the host gives every process it starts from your binary ([host-protocol.md](host-protocol.md#sessions)), which has `OIKADE_SECRETS_DIR` of these, and gets its topic root from the host as its session opens.
 
 | Variable | Value |
 |---|---|

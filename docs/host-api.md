@@ -73,7 +73,7 @@ Only the closing boundary says it's all there. The host keeps the upload in `upl
 |---|---|
 | `version` | The version running now |
 | `unchanged` | A deploy of the version already running. With `varsChanged`, its processes started again with the new values. Without, nothing changed |
-| `restored` | The new version failed once it started, and the last one came back |
+| `restored` | The last version came back: the new one failed once it started, or a rule the new one doesn't have made a Safety claim while the old one stopped, which `findings` names |
 | `findings` | What would remove Safety protection, which refused it unless it said `allowSafety` |
 | `varsChanged` | The names of the values it added, changed or removed |
 | `missingVars` | The values a refused version uses that its set lacks |
@@ -97,7 +97,7 @@ Only the closing boundary says it's all there. The host keeps the upload in `upl
 
 `oikade status REF --json` narrows it, and keeps its shape: `home` is always there, a kind no ref names is an empty array, and `matter` is `null` unless it's named.
 
-A capability has its `value`, and, if it's arbitrated, its winning `level` and the value it `wanted`, the `case` that wins, a `limit` holding the winner back until `limitUntil`, and its `claims`, highest first. Each claim has a `source`, the [ref](devices.md#refs) of who made it, such as `case/fan/on/humid` or `matter`, its `level` and `value`, and `winner`, `latched` and `expires` where they apply.
+A capability has its `name`, its `ref`, such as `device/desk-plug/on`, and its `value`, and, if it's arbitrated, its winning `level` and the value it `wanted`, the `case` that wins, a `limit` holding the winner back until `limitUntil`, and its `claims`, highest first. Each claim has a `source`, the [ref](devices.md#refs) of who made it, such as `case/fan/on/humid` or `matter`, the `case` that made it if one did, its `level` and `value`, and `winner`, `latched` and `expires` where they apply.
 
 Each rule has its `name`, its `ref`, which `pause` and `resume` take, its `kind` (`case` or `flow`, or none for a paused rule no running code names), `safety` and `paused`, and a case's `device`, `capability` and `case`. A case that isn't paused also has its state, from what it last saved (OIK-215):
 

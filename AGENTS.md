@@ -78,7 +78,7 @@ make test                # Unit and integration tests, with a real host and simu
 make test-conformance    # The plugin contract
 make test-race           # The tests in this process, under the race detector
 make test-race-binaries  # test/host and test/cli, with the race detector in every binary (nightly in CI)
-make test-hack           # The hack/ scripts, and no denied gh writes or Linear in skills and AGENTS.md
+make test-hack           # The hack/ scripts, no denied gh writes in skills and AGENTS.md, and no links to Linear anywhere
 make fuzz                # Every fuzz target for 30 s (FUZZTIME), as the nightly Fuzz workflow does
 make cover-binaries      # Coverage of the binaries test/host and test/cli run
 make test-journeys       # From oikade init to a running host, and chip-tool (Docker, linux/arm64)

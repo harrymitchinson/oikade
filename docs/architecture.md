@@ -75,7 +75,7 @@ A write's context says whose it is (`driver.WithWriter`). The engine marks a rul
 
 ### Supervision
 
-The host starts your process, restarts it with backoff, and kills one that stops answering. Exactly one automations process runs at a time, and the host refuses any other. [host-protocol.md](host-protocol.md#heartbeats) has the timings, and [what happens to claims](host-protocol.md#claims-when-a-process-goes-away) when a process goes.
+The host starts your process, restarts it with backoff, and kills one that stops answering. Exactly one automations process runs at a time, and the host refuses any other. [host-protocol.md](host-protocol.md#heartbeats) has the heartbeat's timings, [when a session ends](host-protocol.md#when-a-session-ends) the restart backoff, and [what happens to claims](host-protocol.md#claims-when-a-process-goes-away) when a process goes.
 
 ### Times of day
 

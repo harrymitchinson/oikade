@@ -6,11 +6,12 @@ The host creates the socket with mode `0600`, and whoever can reach it can run t
 
 ## Sessions
 
-The host starts your binary as `<binary> automations`, with:
+The host starts your binary as `<binary> automations`, with its own environment and these (`Host.processEnv`):
 
 | Variable | Value |
 |---|---|
 | `OIKADE_SOCKET` | The socket's path |
+| `OIKADE_SECRETS_DIR` | The directory of what plugins' setups kept, one file each |
 | `OIKADE_VARS_FILE` | Your values' file: a JSON object of names to values, which `oikade.Var` reads, and which only the host's user can read. The host writes it before each process it starts from your binary, plugins' too, from the values the last deploy sent (OIK-365) |
 
 A process has 5 seconds to send its `hello`:
@@ -106,7 +107,7 @@ Each request has an `id`, and gets a `reply` with the same one. Requests are car
 
 ## Plugins
 
-A plugin your home imports has its own session on the same socket. The host starts your binary as `<binary> plugin <name>`, and `<name>` comes from `plugins` in what [check mode](#check-mode) prints. The process says who it is:
+A plugin your home imports has its own session on the same socket. The host starts your binary as `<binary> plugin <name>`, with the same environment as your automations, and `<name>` comes from `plugins` in what [check mode](#check-mode) prints. The process says who it is:
 
 ```json
 {"type":"hello","version":7,"role":"plugin","plugin":"ewelink-lan"}
