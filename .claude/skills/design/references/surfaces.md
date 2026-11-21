@@ -45,7 +45,7 @@ Losing any of these means re-pairing. Then the Home app forgets rooms, scenes an
 
 - The host's data directory: the Matter bridge's identity and fabrics, the registry with its endpoint IDs, claims, latches and journals.
 - Endpoint ID allocations: never reused or reordered, and kept for removed devices.
-- The Zigbee network key and database, which belong to the user's Zigbee2MQTT, and aren't Oikade's to touch.
+- A Zigbee network's key and database, which belong to the home's own Zigbee2MQTT, and aren't Oikade's to touch.
 - Anything new that would be painful to lose goes in the store, and is listed in "State that must survive" in `docs/running-a-home.md` and in the Pi guide's backup section.
 
 ## 4. Component boundaries
@@ -62,7 +62,7 @@ The host, your process, plugins and the data path are in `docs/architecture.md`.
 
 - The target is **one small arm64 or amd64 Linux machine**, such as a Raspberry Pi, on systemd or in Docker. Memory and CPU are tight. There's no Kubernetes target.
 - The Matter bridge needs **L2 adjacency, mDNS and IPv6** with controllers. In-process node tests and chip-tool cover the protocol; how the Home app shows things can only be checked manually, against real devices.
-- The user runs Zigbee2MQTT and an MQTT broker. The host only connects to them.
+- A home that uses Zigbee2MQTT or an MQTT broker runs them itself. The host only connects to them, and starts neither.
 
 ## 6. Verification layers
 
