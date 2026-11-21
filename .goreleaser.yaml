@@ -1,7 +1,7 @@
 # GoReleaser builds what a release ships: oikade and oikade-host as archives, their checksums and
-# the image (OIK-170). release-please makes the tag and the GitHub Release first, and the publish job
-# in .github/workflows/release.yml runs this on that tag, adding to the Release rather than writing
-# its notes.
+# the image. release-please makes the tag and the GitHub Release first, and the publish job in
+# .github/workflows/release.yml runs this on that tag, adding to the Release rather than writing its
+# notes.
 version: 2
 
 project_name: oikade
@@ -31,7 +31,7 @@ builds:
     goos: [linux]
 
 # One archive per binary and platform, so a laptop downloads only oikade and a host only
-# oikade-host. Room for shell completions later.
+# oikade-host.
 archives:
   - id: oikade
     ids: [oikade]

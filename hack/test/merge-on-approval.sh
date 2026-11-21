@@ -84,7 +84,8 @@ fx() { cat >"$tmp/fx/$1"; }
 plan_init
 fx repo.json <<<'{"nameWithOwner":"o/r"}'
 
-# feature LABEL...: OIK-9, in FEATURE_STATE (default In Progress), with steps OIK-10 (PR #11) and OIK-11 (PR #12).
+# feature LABEL...: OIK-9, in FEATURE_STATE (default In Progress), with steps
+# OIK-10 (PR #11) and OIK-11 (PR #12).
 feature() {
 	local st
 	st=$(tr '[:upper:] ' '[:lower:]-' <<<"${FEATURE_STATE:-In Progress}")
@@ -239,8 +240,8 @@ gate pass
 merge || fail "merge refused an approved PR on a feature labelled needs-review: $(cat "$tmp/out")"
 
 # With no hold at all it merges labelled agent-merged, whatever it changes:
-# no path is held for the user. The label reruns the gate,
-# so GitHub refuses the merge until that run ends, and merge retries.
+# no path is held for the user. The label reruns the gate, so GitHub refuses
+# the merge until that run ends, and merge retries.
 feature
 reviews
 export PLAN_MERGE_TRIES=3 PLAN_MERGE_SLEEP=0

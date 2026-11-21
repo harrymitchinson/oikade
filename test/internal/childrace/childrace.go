@@ -20,8 +20,8 @@ import (
 // The race detector in this process, which read GORACE before Main changed it, is left as it was.
 //
 // A binary built with -race sleeps for a second as it exits (atexit_sleep_ms, 1000 by default),
-// which a host stopping within --stop-timeout=1s can't wait for (OIK-325). Children exit straight
-// away instead, as they do without it, unless GORACE already says otherwise.
+// which a host stopping within --stop-timeout=1s can't wait for. Children exit straight away
+// instead, as they do without it, unless GORACE already says otherwise.
 func Main(m *testing.M) int {
 	if !Enabled {
 		return m.Run()

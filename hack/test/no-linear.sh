@@ -7,8 +7,8 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$root"
 
-# linear.app covers links, uploads, its API and its MCP server. The rest are
-# the ways this repo used to reach it. .claude/settings.json is the user's to
+# linear.app covers links, uploads, its API and its MCP server, and the rest
+# its token, MCP tools and API key. .claude/settings.json is the user's to
 # change (AGENTS.md), so its deny rules for Linear's MCP tools aren't counted.
 hits=$(git grep -n -I -E 'linear\.app|linear-token|mcp__linear|LINEAR_API' -- . \
 	':!hack/test/no-linear.sh' ':!.claude/settings.json' || true)

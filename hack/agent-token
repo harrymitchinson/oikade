@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # agent-token: print a one-hour installation token for the oikade-agent GitHub
 # App, so agents act on GitHub as oikade-agent[bot] rather than as the user.
-# hack/plan uses it for its issue and PR writes when it runs inside Claude
-# Code. Why, and what still acts as the user, is in
-# docs/planning.md.
+# hack/plan uses it for its PR writes when it runs inside Claude Code.
+# docs/planning.md says why, and what still acts as the user.
 #
 # The App's ID and private key live in the macOS Keychain, under the service
 # "oikade-agent". The key is stored base64-encoded, because the Keychain prints

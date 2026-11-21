@@ -1,23 +1,19 @@
-# Image URL to use all building/pushing image targets
+# IMG is the image docker-build builds and docker-push pushes.
 IMG ?= oikade:latest
-# VERSION is baked into oikade and oikade-host (`oikade version`, `oikade-host version`). Releases set it to the tag.
+# VERSION is the version make build and make docker-build bake into the binaries they build. A
+# release's binaries get their tag from GoReleaser instead.
 VERSION ?= dev
 
-# Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
 GOBIN=$(shell go env GOPATH)/bin
 else
 GOBIN=$(shell go env GOBIN)
 endif
 
-# CONTAINER_TOOL defines the container tool to be used for building images.
-# Be aware that the target commands are only tested with Docker which is
-# scaffolded by default. However, you might want to replace it to use other
-# tools. (i.e. podman)
+# CONTAINER_TOOL builds and pushes the images. Only docker is tested.
 CONTAINER_TOOL ?= docker
 
-# Setting SHELL to bash allows bash commands to be executed by recipes.
-# Options are set to exit when a recipe line exits non-zero or a piped command fails.
+# Recipes run in bash, and stop at a line that fails, or a pipe with a command that fails.
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
@@ -26,17 +22,7 @@ all: build
 
 ##@ General
 
-# The help target prints out all targets with their descriptions organized
-# beneath their categories. The categories are represented by '##@' and the
-# target descriptions by '##'. The awk command is responsible for reading the
-# entire set of makefiles included in this invocation, looking for lines of the
-# file as xyz: ## something, and then pretty-format the target and help. Then,
-# if there's a line with ##@ something, that gets pretty-printed as a category.
-# More info on the usage of ANSI control characters for terminal formatting:
-# https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_parameters
-# More info on the awk command:
-# http://linuxcommand.org/lc3_adv_awk.php
-
+# help prints each target's ## text, under the ##@ category above it.
 .PHONY: help
 help: ## Display this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
@@ -105,7 +91,7 @@ simswitch: ## Build the simulated-relay test fixture into bin/.
 	go build -o bin/simhome ./test/fixtures/simswitch/home
 
 .PHONY: test-conformance
-test-conformance: simswitch ## Drive a plugin through the oikade/v1 contract and the Go API (default: the simswitch fixture).
+test-conformance: simswitch ## Drive a plugin through the oikade/v1 contract, over MQTT and the host's socket (default: the simswitch fixture).
 	OIKADE_CONFORMANCE_PLUGIN="$(CONFORMANCE_PLUGIN)" go test ./test/conformance/ -v -count=1
 	OIKADE_CONFORMANCE_PLUGIN=bin/simhome OIKADE_CONFORMANCE_IMPORTED=simswitch go test ./test/conformance/ -v -count=1
 
@@ -117,7 +103,7 @@ fuzz: ## Run every fuzz target for FUZZTIME (30s) each, one at a time.
 	hack/fuzz $(FUZZTIME)
 
 .PHONY: test-hack
-test-hack: ## Check the hack/ scripts: shellcheck, hack/plan's agent identity, merge on approval, plugin-repo and checklist steps with gh stubbed, hack/plan's writes to plan/, no raw gh writes in skills, and no links into Linear or calls to it.
+test-hack: ## Shellcheck the hack/ scripts and run their tests.
 	shellcheck -x hack/plan hack/fuzz hack/agent-token hack/owner-approval hack/test/*.sh
 	hack/test/agent-identity.sh
 	hack/test/merge-on-approval.sh
@@ -128,15 +114,15 @@ test-hack: ## Check the hack/ scripts: shellcheck, hack/plan's agent identity, m
 	hack/test/no-linear.sh
 
 .PHONY: lint
-lint: golangci-lint ## Run golangci-lint linter
+lint: golangci-lint ## Run golangci-lint.
 	"$(GOLANGCI_LINT)" run
 
 .PHONY: lint-fix
-lint-fix: golangci-lint ## Run golangci-lint linter and perform fixes
+lint-fix: golangci-lint ## Run golangci-lint and apply its fixes.
 	"$(GOLANGCI_LINT)" run --fix
 
 .PHONY: lint-config
-lint-config: golangci-lint ## Verify golangci-lint linter configuration
+lint-config: golangci-lint ## Check golangci-lint's configuration.
 	"$(GOLANGCI_LINT)" config verify
 
 ##@ Build
@@ -173,16 +159,13 @@ docker-push: ## Push the oikade image.
 
 ##@ Dependencies
 
-## Location to install dependencies to
 LOCALBIN ?= $(shell pwd)/bin
 $(LOCALBIN):
 	mkdir -p "$(LOCALBIN)"
 
-## Tool Binaries
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
 GORELEASER = $(LOCALBIN)/goreleaser
 
-## Tool Versions
 GOLANGCI_LINT_VERSION ?= v2.15.0
 # The newest GoReleaser that builds with go.mod's Go, as CI runs with GOTOOLCHAIN=local. Raise both together.
 GORELEASER_VERSION ?= v2.18.0
@@ -198,10 +181,8 @@ goreleaser: $(GORELEASER) ## Download GoReleaser locally if necessary.
 $(GORELEASER): | $(LOCALBIN)
 	$(call go-install-tool,$(GORELEASER),github.com/goreleaser/goreleaser/v2,$(GORELEASER_VERSION))
 
-# go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
-# $1 - target path with name of binary
-# $2 - package url which can be installed
-# $3 - specific version of package
+# go-install-tool installs package $(2) at version $(3) as $(1)-$(3), unless it's there, and points
+# the link $(1) at it.
 define go-install-tool
 @[ -f "$(1)-$(3)" ] && [ "$$(readlink -- "$(1)" 2>/dev/null)" = "$(1)-$(3)" ] || { \
 set -e; \

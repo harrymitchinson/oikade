@@ -65,8 +65,6 @@ mkdir "$KEYCHAIN_DIR"
 . "$root/hack/test/plan-fixture.sh"
 plan_init
 
-# --- GitHub ------------------------------------------------------------------
-
 note() { : >"$STUB_LOG"; "$root/hack/plan" note 7 "hello" >/dev/null 2>"$tmp/err"; }
 
 # No key inside Claude Code: fails, names the fix, and calls gh not at all.
@@ -108,8 +106,6 @@ run() { : >"$STUB_LOG"; plan_mark; CLAUDECODE=1 "$root/hack/plan" "$@" >"$tmp/ou
 run label 7 +a +b -gone || fail "label on a PR failed: $(cat "$tmp/err")"
 grep -qx 'ghs_agent|api repos/o/r/issues/7/labels -f labels\[\]=a -f labels\[\]=b' "$STUB_LOG" ||
 	fail "label didn't add both labels in one request as the App: $(cat "$STUB_LOG")"
-
-# --- The plan ----------------------------------------------------------------
 
 # issue ID FOLDER [DESCRIPTION]: write OIK-ID into a status folder.
 issue() { plan_issue "$2" "$1" T "${3:-}" "${HISTORY:-}"; }
@@ -160,7 +156,7 @@ HISTORY=$(moved "" "Design Review" "Oikade Agent" "Design Review" Todo "the user
 may_build | grep -qx 'May build:  approved' || fail "show doesn't count the user's move to Todo: $(may_build)"
 may_build | grep -qx 'Approved:   by the user' || fail "show doesn't say who approved it: $(may_build)"
 
-# Only "the user" counts: a name the export didn't map to the user doesn't.
+# Only "the user" counts, not a person's name.
 HISTORY=$(moved "Design Review" Todo Harry) issue OIK-1 todo
 may_build | grep -q '^May build:  no' || fail "show counts a move by a name that isn't the user's: $(may_build)"
 

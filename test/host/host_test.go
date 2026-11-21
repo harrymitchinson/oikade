@@ -196,7 +196,7 @@ func prepare(t *testing.T) *rig {
 	return &rig{t: t, dir: dir, grew: make(chan struct{})}
 }
 
-// launch starts a host on the rig's data directory.
+// launch starts a host with the fixture's home and simulated devices.
 func (r *rig) launch(args ...string) {
 	t := r.t
 	t.Helper()
@@ -517,8 +517,8 @@ func TestLatchedSafetyHoldSurvivesAKillMidWay(t *testing.T) {
 	}
 }
 
-// The design's decisions in OIK-298 keep their lingers and latches across a kill: the porch light's
-// motion, the pool pump's frost run and the garage heater's overheat.
+// Decisions keep their lingers and latches across a kill: the entry light's motion, the pool pump's
+// frost run and the garage heater's overheat.
 func TestDecisionsKeepTheirLingersAndLatchesAcrossAKill(t *testing.T) {
 	t.Parallel()
 	r := start(t)

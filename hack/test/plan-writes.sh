@@ -3,7 +3,8 @@
 # changed under the plan's lock: new issues get IDs nobody else gets, even
 # when created at once, and never one used before; changes made by hand are
 # committed apart; and titles, labels, blockers, releases and ideas land where
-# OIK-350 says. The plan is a scratch plan/, and gh a stub. Run by make test-hack.
+# docs/planning.md says. The plan is a scratch plan/, and gh a stub. Run by
+# make test-hack.
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -35,7 +36,7 @@ echo "Why." >"$tmp/body.md"
 
 # Five issues created at once get five IDs, after the highest there is. On a
 # machine whose mkdir isn't atomic, as Ubuntu 26.04's isn't, a lock made with
-# it lets two of them in now and then (OIK-359).
+# it lets two of them in now and then.
 plan_issue "done" OIK-7 Seven ""
 plan_mark
 for i in 1 2 3 4 5; do "$plan" issue "Idea $i" "$tmp/body.md" --state Triage >"$tmp/id-$i" 2>"$tmp/err-$i" & done
@@ -151,11 +152,11 @@ kill "$holder" && { wait "$holder" 2>/dev/null || true; }
 rm -f "$PLAN_DIR/.git/plan.lock"
 
 # A writer slow to act on who holds the lock never takes it from the next
-# holder (OIK-357). A writer that finds the lock held reads who holds it, and
-# takes the lock over if that process has gone. Here the writer is held up just
-# after reading, as a busy machine holds a process up, until the holder it read
-# has gone and another process has the lock: it must not take that one's lock
-# for the dead one's.
+# holder. A writer that finds the lock held reads who holds it, and takes the
+# lock over if that process has gone. Here the writer is held up just after
+# reading, as a busy machine holds a process up, until the holder it read has
+# gone and another process has the lock: it must not take that one's lock for
+# the dead one's.
 lock="$PLAN_DIR/.git/plan.lock"
 real_cat=$(command -v cat)
 cat >"$tmp/bin/cat" <<STUB

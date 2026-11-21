@@ -45,7 +45,6 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// oikade is the CLI.
 func oikade(t *testing.T) string {
 	t.Helper()
 	return binary(t, "oikade")
@@ -249,7 +248,7 @@ func TestCheckFailsOn(t *testing.T) {
 }
 
 // A home whose code uses a value that neither its .env nor the environment has isn't deployed: that's
-// found before anything is sent, so it needs no host (OIK-365).
+// found before anything is sent, so it needs no host.
 func TestADeployMissingAValueStopsBeforeItReachesAHost(t *testing.T) {
 	t.Parallel()
 	bin := oikade(t)
@@ -291,7 +290,7 @@ func TestADeployMissingAValueStopsBeforeItReachesAHost(t *testing.T) {
 
 // Your code gets your values in oikade check and oikade dev, as on the host: from .env, or the file
 // --env-file names, so a plugin's config is as it will be there. A new home's first check passes
-// without them, as a pull request's does, with a warning (OIK-365).
+// without them, as a pull request's does, with a warning.
 func TestCheckAndDevGiveYourCodeYourValues(t *testing.T) {
 	t.Parallel()
 	bin := oikade(t)
@@ -385,7 +384,6 @@ func thrownAway(g oikade.Bool) {
 }
 `
 
-// duskFlow is a flow for oikade init's home.
 var duskFlow = withFlow(`home.Flow("porch-at-dusk", func(r *oikade.FlowRun) {` +
 	`r.Set(PorchLight.On.To(true).For(time.Hour)) }).At(oikade.Sunset(-20*time.Minute))`)
 
@@ -478,8 +476,6 @@ func TestDevShowsAHoldStartingAndEnding(t *testing.T) {
 	}
 }
 
-// Hosts are reached over their API: there's no SSH, and no installer, left to call. Running a host,
-// and trusting a client on its machine, are oikade-host's.
 func TestHelpPrintsTheUsage(t *testing.T) {
 	t.Parallel()
 	bin := oikade(t)
@@ -506,7 +502,7 @@ func TestHelpPrintsTheUsage(t *testing.T) {
 	}
 }
 
-// exitCode is the code a command that ran exited with.
+// exitCode is the code a command exited with, or -1 if it didn't run.
 func exitCode(err error) int {
 	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 		return exitErr.ExitCode()
@@ -566,7 +562,7 @@ func TestOikadeHostHasOnlyItsOwnCommands(t *testing.T) {
 	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
 		t.Errorf("it started a host, which left %v", entries)
 	}
-	// A flag about the home rather than the machine has moved into the home's code, and says where.
+	// A flag about the home rather than the machine is refused, naming where in your code it goes.
 	for args, want := range map[string]string{
 		"--matter-name=Cottage":       "oikade.Options",
 		"--broker mqtt://broker:1883": "zigbee2mqtt.Config",
@@ -602,7 +598,7 @@ func TestOikadeHostHasOnlyItsOwnCommands(t *testing.T) {
 	if err == nil || !strings.Contains(out, "oikade-host add client/NAME") {
 		t.Errorf("oikade add should point at oikade-host: %v: %s", err, out)
 	}
-	// client add is add now, and says so.
+	// client add, a slip for add, names it.
 	out, err = run(t, bin, dir, "", "client", "add", "laptop")
 	if err == nil || !strings.Contains(out, "oikade-host add client/NAME") {
 		t.Errorf("oikade-host client add should name add: %v: %s", err, out)

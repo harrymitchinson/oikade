@@ -14,8 +14,8 @@ import (
 	"testing"
 )
 
-// Your values, as the fixture's variants "vars" and "vars-more" use them (OIK-365). Each is told
-// apart in the log only by a digest, as the fixture never logs a value.
+// Your values, as the fixture's variants "vars" and "vars-more" use them. Each is told apart in
+// the log only by a digest, as the fixture never logs a value.
 const (
 	tokenVar = "FIXTURE_TOKEN"
 	extraVar = "FIXTURE_EXTRA"
@@ -84,7 +84,6 @@ func (r *rig) awaitVar(n int, name, value string) {
 	}
 }
 
-// noValueIn fails if any of values is in what.
 func noValueIn(t *testing.T, where, what string, values ...string) {
 	t.Helper()
 	for _, v := range values {
@@ -207,7 +206,7 @@ func TestARollbackKeepsTheValuesAndRefusesAVersionWhoseNamesTheyLack(t *testing.
 }
 
 // A deploy from somewhere without your values, such as CI or a clean clone, keeps the host's, and
-// is refused for a value they lack, by name (OIK-365).
+// is refused for a value they lack, by name.
 func TestADeployThatKeepsTheHostsValuesRunsTheVersionWithThem(t *testing.T) {
 	t.Parallel()
 	r := start(t, settle)

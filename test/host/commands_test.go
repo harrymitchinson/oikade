@@ -180,10 +180,10 @@ func TestSetReportsWhatTheDeviceWasLeftAt(t *testing.T) {
 	}
 }
 
-// A set that a case holds at another value fails, with exit 1, naming the case and what lets go of
-// it: the garage heater's overheat latches it off, and its decision has no override line, which makes
-// that a safety line, so the host refuses the set before it writes anything, and only its release, the
-// garage door opening, ends the claim.
+// A set that a case holds at another value fails with exit 1, naming the case and what lets go of
+// it. The garage heater's overheat latches it off, and its decision has no override line, which
+// makes that a safety line: the host refuses the set before it writes anything, and only the
+// release, the garage door opening, ends the claim.
 func TestSetFailsWhenACaseHoldsItElsewhere(t *testing.T) {
 	t.Parallel()
 	r := start(t)
@@ -341,7 +341,7 @@ func TestStatusNamesTheCaseAndWhyOneDoesntApply(t *testing.T) {
 		t.Fatal("no rule valve on leak-shutoff")
 		return api.Rule{}
 	}
-	// Your process sends why after it evaluates, which sync waits for.
+	// Your process sends why a case doesn't apply in its own time, which sync doesn't wait for.
 	r.until("a why-not", func() bool { return rule().WhyNot != "" })
 	if got := rule(); got.Kind != "case" || got.Ref != "case/valve/on/leak-shutoff" || got.Device != "valve" ||
 		got.Case != "leak-shutoff" ||
@@ -372,7 +372,7 @@ func TestPausingASafetyRuleNeedsAskingAndKeepsItsClaim(t *testing.T) {
 	r.wrote("valve", false)
 	r.sync()
 
-	// Three words, as pause took before refs, are refused with the case's ref.
+	// The case as three words is refused, with its ref.
 	stderr, err := r.oikade(nil, "pause", "valve", "on", "leak-shutoff")
 	if err == nil || !strings.Contains(stderr, "oikade pause case/valve/on/leak-shutoff") {
 		t.Errorf("paused by three words: %v: %s", err, stderr)

@@ -106,8 +106,8 @@ jobs:
           key: ${{ steps.cache.outputs.prefix }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: ${{ steps.cache.outputs.prefix }}-
 
-      # A slow Ubuntu mirror once hung this for 44 minutes (OIK-300), so each
-      # try gets three minutes, and a third failure fails the job.
+      # A slow Ubuntu mirror once hung this for 44 minutes, so each try gets
+      # three minutes, and a third failure fails the job.
       - name: Install the arm64 emulator
         timeout-minutes: 10
         run: |
@@ -247,7 +247,8 @@ jobs:
       - name: Run the conformance suite against the simswitch fixture
         run: make test-conformance
 
-      # Plugins run on arm64 Pis from static distroless images, so the SDK must build that way.
+      # A plugin runs on an arm64 or amd64 host with cgo off, built into a home or on its own, so
+      # the SDK must build that way for both.
       - name: Build the simswitch fixture static for linux/arm64 and linux/amd64
         run: |
           for arch in arm64 amd64; do

@@ -173,7 +173,7 @@ func killAt(t *testing.T, r *rig, point string, step int) {
 	case resumed > 0:
 	case notStarted:
 		// It died before the run's first entry, so no run exists, and the trigger is gone with
-		// it. This is the one place a crash can lose work, and it's what a moment does too.
+		// it. This is the one place a crash can lose work.
 		// A restarted host's device is back to false, and your process's stays true.
 		r.contact("flow-go", inHost)
 	default:
@@ -285,8 +285,6 @@ func TestClaimInAFlowSurvivesAKillAndIsReleased(t *testing.T) {
 	r.waitFor(func(l line) bool { return l.is(finished, "rule", "flow/claiming") })
 }
 
-// TestClaimSurvivesTheHostDyingRightAfterItsAnswer is the gap a save behind the answer leaves open:
-// a moment doesn't run twice, so a lost claim wouldn't come back.
 // claimsOf reads the claims of the rule "failing" saved for a device's switch, and frees the store
 // for the next host.
 func (r *rig) claimsOf(device string) []control.Claim {
@@ -374,9 +372,11 @@ func TestFailedRunReleasesItsNormalClaimAndKeepsItsSafetyOne(t *testing.T) {
 	})
 }
 
+// The host saves a claim before it answers it, so a claim it answered survives the host dying
+// straight after.
 func TestClaimSurvivesTheHostDyingRightAfterItsAnswer(t *testing.T) {
 	t.Parallel()
-	// No hold has started, so this moment's is the first claim the host sees.
+	// No hold has started, so the flow's is the first claim the host sees.
 	r := flowRig(t, fault.HostClaimReplied+" 1 kill\n")
 	r.launch()
 	r.awaitLoaded()

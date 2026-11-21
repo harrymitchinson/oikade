@@ -218,7 +218,7 @@ func TestASafetyClaimIsEnforcedBeforeItsDeviceReports(t *testing.T) {
 	}
 }
 
-// inRooms is the simulated devices, with some of them in rooms.
+// inRooms writes the simulated devices with some of them in rooms, and returns the file's path.
 func inRooms(t *testing.T, rooms map[string]string) string {
 	t.Helper()
 	raw, err := os.ReadFile(devicesFile(t))
@@ -262,7 +262,7 @@ func TestRemovingARoomsLastSensorWarnsOfTheHoldsThatReadIt(t *testing.T) {
 		}
 	}
 
-	// The last one out warns, in --json as warning (OIK-214).
+	// The last one out warns, in --json as warning.
 	var removed struct {
 		OK        bool            `json:"ok"`
 		Warning   string          `json:"warning"`

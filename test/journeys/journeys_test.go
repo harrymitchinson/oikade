@@ -58,7 +58,7 @@ func binary(t *testing.T, name string, env ...string) string {
 	return path
 }
 
-// newHome makes a home with oikade init, in a directory short enough for the host's socket.
+// newHome makes a home with oikade init, from this checkout, with nothing to fetch.
 func newHome(t *testing.T, bin string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -66,7 +66,6 @@ func newHome(t *testing.T, bin string) string {
 	return dir
 }
 
-// until polls cond.
 func until(t *testing.T, what string, cond func() bool) {
 	t.Helper()
 	for deadline := time.Now().Add(waitLimit); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
@@ -77,8 +76,7 @@ func until(t *testing.T, what string, cond func() bool) {
 	t.Fatalf("timed out waiting for %s", what)
 }
 
-// host is a running oikade-host. command is how it's started, and client how anything else talks
-// to it.
+// host is a running oikade-host. start starts it, and client runs oikade against it.
 type host struct {
 	t      *testing.T
 	start  func() *exec.Cmd
@@ -88,7 +86,7 @@ type host struct {
 	done   chan struct{}
 }
 
-// launch starts the host.
+// launch starts the host, and logs what it prints in the test's log.
 func (h *host) launch() {
 	t := h.t
 	t.Helper()
