@@ -8,9 +8,9 @@ import (
 	"syscall"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/internal/logging"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/logging"
 )
 
 const (
@@ -151,7 +151,7 @@ func (h *Host) runProcess(ctx context.Context, srv *server, socket, path string,
 // it talks to the host on, where to read what plugins' setups kept, and your values, which it writes
 // now so that the process gets them as they are.
 func (h *Host) processEnv(socket string) ([]string, error) {
-	env := append(os.Environ(), wire.SocketEnv+"="+socket, contractv1.EnvSecretsDir+"="+h.secretsDir)
+	env := append(os.Environ(), wire.SocketEnv+"="+socket, contract.EnvSecretsDir+"="+h.secretsDir)
 	if h.vars == nil {
 		return env, nil
 	}

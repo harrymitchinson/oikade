@@ -3,9 +3,9 @@ package engine
 import (
 	vm "github.com/VictoriaMetrics/metrics"
 
-	"github.com/harrymitchinson/oikade/internal/control"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/series"
+	"oikade.dev/internal/control"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/series"
 )
 
 // The engine's metric families. docs/metrics.md says what each one is.

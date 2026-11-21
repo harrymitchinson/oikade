@@ -10,7 +10,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
+	"oikade.dev/internal/matter/tlv"
 )
 
 // Size limits (Core spec, 6.5): the largest certificate Matter sends, and the largest X.509

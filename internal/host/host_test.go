@@ -13,12 +13,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/engine"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/registry"
-	"github.com/harrymitchinson/oikade/internal/store"
+	"oikade.dev/internal/engine"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/registry"
+	"oikade.dev/internal/store"
 )
 
 // startHost runs a host with no process to supervise, for tests that speak the protocol themselves.

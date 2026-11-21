@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/matter/cert"
-	"github.com/harrymitchinson/oikade/internal/matter/im"
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"oikade.dev/internal/matter/cert"
+	"oikade.dev/internal/matter/im"
+	"oikade.dev/internal/matter/transport"
 )
 
 // ca is a commissioner's root CA.

@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/devicetype"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/devicetype"
 )
 
 // on is bound once, to the first property, so a second can't flip it.

@@ -1,4 +1,4 @@
-package hometest_test
+package oikadetest_test
 
 import (
 	"fmt"
@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade"
-	"github.com/harrymitchinson/oikade/hometest"
+	"oikade.dev"
+	"oikade.dev/oikadetest"
 )
 
 // home is the home the examples test, with the devices devices_test.go declares, as oikade types
@@ -56,7 +56,7 @@ func TestMain(m *testing.M) {
 
 // A test sets a device as its sensor would, moves the clock on and expects what the home does.
 func Example() {
-	h := hometest.New(t, home(), hometest.Options{Types: "devices_test.go"})
+	h := oikadetest.New(t, home(), oikadetest.Options{Types: "devices_test.go"})
 
 	h.Set(PorchSensor.Occupied, true)
 	h.ExpectValue(PorchLight.On, true)
@@ -74,7 +74,7 @@ func Example() {
 
 // A restart in the middle of a flow is one call, and the flow carries on from where it had got to.
 func ExampleHome_Restart() {
-	h := hometest.New(t, home(), hometest.Options{Types: "devices_test.go"})
+	h := oikadetest.New(t, home(), oikadetest.Options{Types: "devices_test.go"})
 	h.Advance(22*time.Hour + 40*time.Minute) // Into the flow's 30-minute wait.
 	h.Restart()
 	h.Advance(21 * time.Minute)
@@ -88,7 +88,7 @@ func ExampleHome_Restart() {
 // A report sends several of one device's values at once, and the home sees all of them before
 // anything acts.
 func ExampleHome_Report() {
-	h := hometest.New(t, home(), hometest.Options{Types: "devices_test.go"})
+	h := oikadetest.New(t, home(), oikadetest.Options{Types: "devices_test.go"})
 	h.Report(Hall.Humidity.To(72), Hall.Occupied.To(true))
 	h.ExpectValue(HallFan.On, true)
 

@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/matter/contain"
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/matter/contain"
+	"oikade.dev/internal/testkit"
 )
 
 var echo = ProtocolID{Vendor: 0xFFF1, ID: 0x0042}

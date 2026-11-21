@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/simhome"
+	"oikade.dev/internal/simhome"
 )
 
 // moduleEnv builds the fixture's module with nothing to fetch.

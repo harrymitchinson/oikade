@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/control"
-	"github.com/harrymitchinson/oikade/internal/engine"
-	"github.com/harrymitchinson/oikade/internal/fault"
-	"github.com/harrymitchinson/oikade/internal/store"
+	"oikade.dev/internal/control"
+	"oikade.dev/internal/engine"
+	"oikade.dev/internal/fault"
+	"oikade.dev/internal/store"
 )
 
 const (

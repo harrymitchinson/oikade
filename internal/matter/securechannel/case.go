@@ -21,9 +21,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/matter/cert"
-	mcrypto "github.com/harrymitchinson/oikade/internal/matter/crypto"
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"oikade.dev/internal/matter/cert"
+	mcrypto "oikade.dev/internal/matter/crypto"
+	"oikade.dev/internal/matter/transport"
 )
 
 // CASE establishes a session between two nodes of a fabric, each proving itself with its node

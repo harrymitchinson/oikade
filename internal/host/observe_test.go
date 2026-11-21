@@ -11,11 +11,11 @@ import (
 
 	"github.com/VictoriaMetrics/metrics"
 
-	"github.com/harrymitchinson/oikade/internal/driver"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/hub"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/logging"
+	"oikade.dev/internal/driver"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/hub"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/logging"
 )
 
 func TestTheHostExportsTheExistingMetricNames(t *testing.T) {

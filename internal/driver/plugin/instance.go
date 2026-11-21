@@ -15,13 +15,13 @@ import (
 	"time"
 	"unicode"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/devicetype"
-	"github.com/harrymitchinson/oikade/internal/driver"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/mqtt"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/driver"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/mqtt"
 )
 
 // Reasons a plugin message is rejected, as counted in Stats.
@@ -38,7 +38,7 @@ const (
 // Instance follows one plugin on the bus.
 type Instance struct {
 	Key  ident.ID
-	Root contractv1.Root
+	Root contract.Root
 	Bus  mqtt.Bus
 	Sink driver.Sink
 	Now  func() time.Time
@@ -59,13 +59,13 @@ type Instance struct {
 	// tell one from a device it hasn't been told of, so their messages are dropped but not counted.
 	removed map[string]bool
 	// status is nil until the plugin's status topic is seen.
-	status *contractv1.Status
+	status *contract.Status
 	// told is the problem OnProblem last heard.
 	told string
 	// announced is nil until the devices topic is seen.
 	announced map[string]driver.Info
 	// discovered is nil unless the plugin sends a discovered list.
-	discovered []contractv1.DiscoveredDevice
+	discovered []contract.DiscoveredDevice
 	// undeclared is the plugin's own count, used while it sends no discovered list.
 	undeclared int
 	// last holds each id's latest state and availability, so they can be replayed once the id is
@@ -77,7 +77,7 @@ type Instance struct {
 	logged   map[string]bool // reason/id pairs already logged
 	// needsSetup is the devices report's, and sessions the setup sessions running, by name.
 	needsSetup bool
-	sessions   map[string]chan contractv1.SetupStep
+	sessions   map[string]chan contract.SetupStep
 }
 
 type lastSeen struct {
@@ -152,7 +152,7 @@ func (i *Instance) sendUndeclared(n int) { i.Sink.Undeclared(i.key(), n) }
 
 // DiscoveredProduct is what a plugin's discovered list says a device is, cleaned, so that a field
 // that's only space is one it leaves out.
-func DiscoveredProduct(d contractv1.DiscoveredDevice) driver.Product {
+func DiscoveredProduct(d contract.DiscoveredDevice) driver.Product {
 	return driver.Product{
 		Manufacturer: d.Manufacturer, Model: d.Model, SerialNumber: d.SerialNumber,
 		FirmwareVersion: d.FirmwareVersion, HardwareVersion: d.HardwareVersion,
@@ -160,7 +160,7 @@ func DiscoveredProduct(d contractv1.DiscoveredDevice) driver.Product {
 }
 
 // ReportProduct is DiscoveredProduct, for a device's report.
-func ReportProduct(d contractv1.DeviceReport) driver.Product {
+func ReportProduct(d contract.DeviceReport) driver.Product {
 	return driver.Product{
 		Manufacturer: d.Manufacturer, Model: d.Model, SerialNumber: d.SerialNumber,
 		FirmwareVersion: d.FirmwareVersion, HardwareVersion: d.HardwareVersion,
@@ -185,13 +185,13 @@ func (i *Instance) inventoryLocked() []driver.AppDevice {
 
 // Discovered returns a copy of the devices the plugin sees in its app, validated, and false if it
 // sends no discovered list.
-func (i *Instance) Discovered() ([]contractv1.DiscoveredDevice, bool) {
+func (i *Instance) Discovered() ([]contract.DiscoveredDevice, bool) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	if i.discovered == nil {
 		return nil, false
 	}
-	out := make([]contractv1.DiscoveredDevice, len(i.discovered))
+	out := make([]contract.DiscoveredDevice, len(i.discovered))
 	for n, d := range i.discovered {
 		d.Capabilities = slices.Clone(d.Capabilities)
 		out[n] = d
@@ -265,16 +265,16 @@ func (i *Instance) Set(ctx context.Context, dev ident.ID, name string, value any
 	switch {
 	case id == "":
 		return fmt.Errorf("device %s is not declared on plugin %s", dev, i.Key)
-	case status != nil && status.Contract != contractv1.Contract:
-		return fmt.Errorf("plugin %s speaks contract %d, not %d", i.Key, status.Contract, contractv1.Contract)
-	case status != nil && status.State != contractv1.Online:
+	case status != nil && status.Contract != contract.Contract:
+		return fmt.Errorf("plugin %s speaks contract %d, not %d", i.Key, status.Contract, contract.Contract)
+	case status != nil && status.State != contract.Online:
 		return fmt.Errorf("plugin %s is offline", i.Key)
 	case !announced || !info.Found:
 		return fmt.Errorf("device %s is not found by plugin %s", dev, i.Key)
 	case !slices.Contains(info.Capabilities, name):
 		return fmt.Errorf("device %s has no capability %s", dev, name)
 	}
-	payload, err := contractv1.SetCommand{ID: id, Capability: name, Value: value}.Payload()
+	payload, err := contract.SetCommand{ID: id, Capability: name, Value: value}.Payload()
 	if err != nil {
 		return err
 	}
@@ -303,7 +303,7 @@ func (i *Instance) handle(m mqtt.Message) {
 		return
 	}
 	i.mu.Lock()
-	wrong := i.status != nil && i.status.Contract != contractv1.Contract
+	wrong := i.status != nil && i.status.Contract != contract.Contract
 	if wrong {
 		i.rejectLocked(ReasonWrongContract, "", m.Topic)
 	}
@@ -323,8 +323,8 @@ func (i *Instance) handle(m mqtt.Message) {
 }
 
 func (i *Instance) handleStatus(topic string, payload []byte) {
-	var s contractv1.Status
-	if err := json.Unmarshal(payload, &s); err != nil || (s.State != contractv1.Online && s.State != contractv1.Offline) {
+	var s contract.Status
+	if err := json.Unmarshal(payload, &s); err != nil || (s.State != contract.Online && s.State != contract.Offline) {
 		i.mu.Lock()
 		i.rejectLocked(ReasonMalformed, "", topic)
 		i.mu.Unlock()
@@ -349,7 +349,7 @@ func (i *Instance) handleStatus(topic string, payload []byte) {
 		events = append(events, func() { i.OnProblem(problem) })
 	}
 	switch {
-	case s.Contract != contractv1.Contract:
+	case s.Contract != contract.Contract:
 		i.rejectLocked(ReasonWrongContract, "", topic)
 		// Forget everything learned under a contract we may have misread. An empty, non-nil
 		// announcement reports every device as not found.
@@ -383,7 +383,7 @@ func (i *Instance) handleStatus(topic string, payload []byte) {
 }
 
 func (i *Instance) handleDevices(topic string, payload []byte) {
-	var msg contractv1.Devices
+	var msg contract.Devices
 	if err := json.Unmarshal(payload, &msg); err != nil {
 		i.mu.Lock()
 		i.rejectLocked(ReasonMalformed, "", topic)
@@ -395,7 +395,7 @@ func (i *Instance) handleDevices(topic string, payload []byte) {
 	i.mu.Lock()
 	i.announced = map[string]driver.Info{}
 	for _, d := range msg.Devices {
-		if _, seen := i.announced[d.ID]; seen || !contractv1.ValidID(d.ID) {
+		if _, seen := i.announced[d.ID]; seen || !contract.ValidID(d.ID) {
 			// The first entry for an ID wins. Logged once per plugin, not per id: an invalid id may
 			// be anything, and new each time.
 			i.rejectLocked(ReasonMalformed, "", topic)
@@ -437,7 +437,7 @@ func (i *Instance) handleDevices(topic string, payload []byte) {
 func (i *Instance) handleState(id, topic string, payload []byte) {
 	now := i.Now()
 	i.mu.Lock()
-	var state contractv1.State
+	var state contract.State
 	if err := json.Unmarshal(payload, &state); err != nil {
 		i.rejectLocked(ReasonMalformed, id, topic)
 		i.mu.Unlock()
@@ -460,13 +460,13 @@ func (i *Instance) handleState(id, topic string, payload []byte) {
 func (i *Instance) handleAvailability(id, topic string, payload []byte) {
 	state := string(payload)
 	i.mu.Lock()
-	if state != contractv1.Online && state != contractv1.Offline {
+	if state != contract.Online && state != contract.Offline {
 		i.rejectLocked(ReasonMalformed, id, topic)
 		i.mu.Unlock()
 		return
 	}
 	l := i.lastLocked(id)
-	l.online, l.hasOnline = state == contractv1.Online, true
+	l.online, l.hasOnline = state == contract.Online, true
 	dev, declared := i.declared[id]
 	if !declared {
 		i.rejectUndeclaredLocked(id, topic)
@@ -481,7 +481,7 @@ func (i *Instance) handleAvailability(id, topic string, payload []byte) {
 
 // applyStateLocked diffs a state object against the last values and returns the events to send
 // after unlocking. topic is empty for replays, which neither count rejections again nor log.
-func (i *Instance) applyStateLocked(id string, state contractv1.State, at time.Time, topic string) func() {
+func (i *Instance) applyStateLocked(id string, state contract.State, at time.Time, topic string) func() {
 	dev := i.declared[id]
 	info, announced := i.announced[id]
 	if !announced {
@@ -537,7 +537,7 @@ func (i *Instance) replayLocked() func() {
 			events = append(events, func() { i.Sink.Availability(dev, online) })
 		}
 		if l.hasState {
-			var state contractv1.State
+			var state contract.State
 			if json.Unmarshal(l.state, &state) == nil {
 				if e := i.applyStateLocked(id, state, l.stateAt, ""); e != nil {
 					events = append(events, e)
@@ -576,14 +576,14 @@ func (i *Instance) discoveryLocked() func() {
 
 // validDiscoveredLocked drops discovered devices with an invalid or repeated ID, and capabilities
 // not in the registry, counting each as rejected. It keeps nil apart from empty.
-func (i *Instance) validDiscoveredLocked(discovered []contractv1.DiscoveredDevice, topic string) []contractv1.DiscoveredDevice {
+func (i *Instance) validDiscoveredLocked(discovered []contract.DiscoveredDevice, topic string) []contract.DiscoveredDevice {
 	if discovered == nil {
 		return nil
 	}
-	valid := make([]contractv1.DiscoveredDevice, 0, len(discovered))
+	valid := make([]contract.DiscoveredDevice, 0, len(discovered))
 	seen := map[string]bool{}
 	for _, d := range discovered {
-		if !contractv1.ValidID(d.ID) || seen[d.ID] {
+		if !contract.ValidID(d.ID) || seen[d.ID] {
 			// Logged once per plugin, not per id: an invalid id may be anything, and new each time.
 			i.rejectLocked(ReasonMalformed, "", topic)
 			continue
@@ -609,7 +609,7 @@ func (i *Instance) validDiscoveredLocked(discovered []contractv1.DiscoveredDevic
 // deviceTypeLocked is a device type the contract allows, or empty, counting any other as rejected.
 // The device itself stays: only what it is falls back to what its capabilities say.
 func (i *Instance) deviceTypeLocked(id, t, topic string) devicetype.Type {
-	if !contractv1.ValidDeviceType(t) {
+	if !contract.ValidDeviceType(t) {
 		i.rejectLocked(ReasonUnknownDeviceType, id, topic)
 		return ""
 	}
@@ -641,7 +641,7 @@ func (i *Instance) allAvailabilityLocked(online bool) func() {
 }
 
 func (i *Instance) upLocked() bool {
-	return i.status != nil && i.status.State == contractv1.Online && i.status.Contract == contractv1.Contract
+	return i.status != nil && i.status.State == contract.Online && i.status.Contract == contract.Contract
 }
 
 // maxUnseen bounds what's kept per ID that no Device has, since anything on the broker can publish

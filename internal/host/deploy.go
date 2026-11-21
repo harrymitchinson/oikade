@@ -14,12 +14,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/control"
-	"github.com/harrymitchinson/oikade/internal/fault"
-	"github.com/harrymitchinson/oikade/internal/flow"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/internal/registry"
+	"oikade.dev/internal/control"
+	"oikade.dev/internal/fault"
+	"oikade.dev/internal/flow"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/registry"
 )
 
 const (

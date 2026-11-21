@@ -15,17 +15,17 @@ import (
 	"sync/atomic"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/devicetype"
-	"github.com/harrymitchinson/oikade/internal/driver"
-	pluginDriver "github.com/harrymitchinson/oikade/internal/driver/plugin"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/internal/hub"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/mqtt"
-	"github.com/harrymitchinson/oikade/internal/registry"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/driver"
+	pluginDriver "oikade.dev/internal/driver/plugin"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/hub"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/mqtt"
+	"oikade.dev/internal/registry"
 )
 
 // DefaultPluginSetTimeout is how long a plugin's Set may run before the plugin counts as hung.
@@ -71,7 +71,7 @@ type plugins struct {
 type hosted struct {
 	name   string
 	key    driver.InstanceKey
-	root   contractv1.Root
+	root   contract.Root
 	driver *pluginDriver.Instance
 	// socket is nil for an outside plugin.
 	socket *socketBus
@@ -118,7 +118,7 @@ func (p *plugins) get(name string) *hosted {
 		return h
 	}
 	h = &hosted{
-		name: name, key: pluginKey(name), root: contractv1.NewRoot(name),
+		name: name, key: pluginKey(name), root: contract.NewRoot(name),
 		socket: &socketBus{log: p.log.With("plugin", name)},
 	}
 	p.follow(context.Background(), h, h.socket)
@@ -424,7 +424,7 @@ func (p *plugins) startOutside(ctx context.Context) {
 		}
 	}
 	for _, name := range p.host.Outside {
-		h := &hosted{name: name, key: pluginKey(name), root: contractv1.NewRoot(name)}
+		h := &hosted{name: name, key: pluginKey(name), root: contract.NewRoot(name)}
 		p.follow(ctx, h, bus)
 		p.mu.Lock()
 		p.running[name] = h
@@ -532,12 +532,12 @@ func (p *plugins) serve(conn *wire.Conn, hello wire.Message) {
 }
 
 // declared is what a plugin's Factory gets.
-func (p *plugins) declared(h *hosted) []contractv1.DeclaredDevice {
+func (p *plugins) declared(h *hosted) []contract.DeclaredDevice {
 	driverName := instanceName(h.key)
-	var out []contractv1.DeclaredDevice
+	var out []contract.DeclaredDevice
 	for _, d := range p.known.registry.List().Devices {
 		if d.Driver == driverName && !d.Removed && d.ID != "" {
-			out = append(out, contractv1.DeclaredDevice{ID: d.ID, Name: d.Name, DisplayName: d.Name, Room: d.Room})
+			out = append(out, contract.DeclaredDevice{ID: d.ID, Name: d.Name, DisplayName: d.Name, Room: d.Room})
 		}
 	}
 	return out
@@ -615,11 +615,11 @@ func (b *socketBus) attach(sess *pluginSession) bool {
 
 // detach ends a session. Its process can't say so itself after a crash, so this does what a Last
 // Will does.
-func (b *socketBus) detach(root contractv1.Root) {
+func (b *socketBus) detach(root contract.Root) {
 	b.mu.Lock()
 	b.session = nil
 	b.mu.Unlock()
-	offline, _ := json.Marshal(contractv1.Status{State: contractv1.Offline, Contract: contractv1.Contract})
+	offline, _ := json.Marshal(contract.Status{State: contract.Offline, Contract: contract.Contract})
 	b.deliver(mqtt.Message{Topic: root.Status(), Payload: offline, Retained: true})
 }
 

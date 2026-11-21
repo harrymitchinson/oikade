@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/matter/im"
+	"oikade.dev/internal/matter/im"
 )
 
 // A controller locks and unlocks over a session, only in a timed interaction, and LockState follows

@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade"
-	"github.com/harrymitchinson/oikade/internal/simhome"
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev"
+	"oikade.dev/internal/simhome"
+	"oikade.dev/internal/testkit"
 )
 
 // flowSim runs a home with one flow, f, on the sensor's humidity, and sets the sensor off.

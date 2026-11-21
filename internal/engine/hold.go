@@ -7,8 +7,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/devicetype"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/devicetype"
 )
 
 // hold is a compiled Hold.

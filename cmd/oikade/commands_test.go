@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/host/api"
+	"oikade.dev/internal/cli"
+	"oikade.dev/internal/host/api"
 )
 
 // cli.Parse keeps a negative number as an argument, which internal/cli tests. parseValue reads it.

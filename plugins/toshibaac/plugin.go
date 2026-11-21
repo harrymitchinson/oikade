@@ -17,8 +17,8 @@ import (
 	"sync"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/sdk/plugin"
+	"oikade.dev/contract/v1"
+	"oikade.dev/sdk/plugin"
 )
 
 // Config is a Toshiba Home AC Control account.
@@ -102,13 +102,13 @@ var cloudTiming = timing{
 }
 
 // capabilities are what every unit reports, sorted.
-var capabilities = []string{contractv1.Mode, contractv1.On, contractv1.Setpoint, contractv1.Temperature}
+var capabilities = []string{contract.Mode, contract.On, contract.Setpoint, contract.Temperature}
 
 // New returns the plugin's Factory, for home.Plugin.
 func New(c Config) plugin.Factory {
 	// Space around it, as the environment can leave, is no part of a password.
 	c.Password = strings.TrimSpace(c.Password)
-	return func(_ plugin.Environment, declared []contractv1.DeclaredDevice) (plugin.Handler, error) {
+	return func(_ plugin.Environment, declared []contract.DeclaredDevice) (plugin.Handler, error) {
 		switch {
 		case c.Username == "":
 			return nil, errors.New("toshibaac.Config has no Username")
@@ -125,7 +125,7 @@ type device struct {
 	id string
 	// cloudID is the unit's ID in the cloud's API, and uniqueID the one its messages carry.
 	cloudID, uniqueID string
-	info              contractv1.DiscoveredDevice
+	info              contract.DiscoveredDevice
 	// modes are the modes it does, by raw value.
 	modes []byte
 	state fcuState
@@ -136,7 +136,7 @@ type device struct {
 	// intentUntil is when intent stops counting.
 	intentUntil time.Time
 	// values are what was last reported.
-	values contractv1.State
+	values contract.State
 }
 
 // bridge is the plugin.
@@ -167,7 +167,7 @@ type bridge struct {
 
 var _ plugin.Handler = (*bridge)(nil)
 
-func newBridge(c Config, declared []contractv1.DeclaredDevice, t timing, log *slog.Logger) (*bridge, error) {
+func newBridge(c Config, declared []contract.DeclaredDevice, t timing, log *slog.Logger) (*bridge, error) {
 	groups, outdoor, err := c.outdoorUnits()
 	if err != nil {
 		return nil, err
@@ -398,8 +398,8 @@ func (b *bridge) take(units []unit) {
 			continue
 		}
 		d := &device{
-			id: id, cloudID: u.ID, uniqueID: u.UniqueID, modes: unitModes(u.Merit), state: newFCUState(), values: contractv1.State{},
-			info: contractv1.DiscoveredDevice{ID: id, Manufacturer: "Toshiba", Capabilities: slices.Clone(capabilities), Name: u.Name},
+			id: id, cloudID: u.ID, uniqueID: u.UniqueID, modes: unitModes(u.Merit), state: newFCUState(), values: contract.State{},
+			info: contract.DiscoveredDevice{ID: id, Manufacturer: "Toshiba", Capabilities: slices.Clone(capabilities), Name: u.Name},
 		}
 		if u.State != "" {
 			b.apply(d, "listed", func(s *fcuState) error { return s.update(u.State) })
@@ -429,13 +429,13 @@ func deviceID(unique string) (string, bool) {
 	if len(s) > 63 {
 		s = s[:63]
 	}
-	return s, contractv1.ValidID(s)
+	return s, contract.ValidID(s)
 }
 
 // apply changes a device's state, works out its values and returns those that changed. A report it
 // can't read changes nothing, and is logged with what sent it. A mode the plugin doesn't know is
 // logged once.
-func (b *bridge) apply(d *device, from string, change func(*fcuState) error) contractv1.State {
+func (b *bridge) apply(d *device, from string, change func(*fcuState) error) contract.State {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if err := change(&d.state); err != nil {
@@ -451,7 +451,7 @@ func (b *bridge) apply(d *device, from string, change func(*fcuState) error) con
 		b.unknownModes[unknown] = true
 		b.log.Info("Skipped Toshiba mode the plugin doesn't know", "mode", fmt.Sprintf("0x%02x", unknown), "device", d.id)
 	}
-	changed := contractv1.State{}
+	changed := contract.State{}
 	for c, v := range values {
 		if old, had := d.values[c]; !had || old != v {
 			d.values[c], changed[c] = v, v
@@ -483,7 +483,7 @@ func (b *bridge) call(hub *mqttConn, topic string, payload []byte) (methodCall, 
 }
 
 // message applies a call from the hub to the unit it's from, and returns what changed.
-func (b *bridge) message(call methodCall) (string, contractv1.State) {
+func (b *bridge) message(call methodCall) (string, contract.State) {
 	b.mu.Lock()
 	d := b.byUnique[call.SourceID]
 	b.mu.Unlock()
@@ -568,11 +568,11 @@ func (b *bridge) check(err error, msg, id string) {
 func (b *bridge) publishAll(ctx context.Context) error {
 	type report struct {
 		id     string
-		values contractv1.State
+		values contract.State
 	}
 	b.mu.Lock()
 	ids := slices.Sorted(maps.Keys(b.devices))
-	discovered := make([]contractv1.DiscoveredDevice, 0, len(ids))
+	discovered := make([]contract.DiscoveredDevice, 0, len(ids))
 	reports := make([]report, 0, len(ids))
 	for _, id := range ids {
 		d := b.devices[id]
@@ -606,17 +606,17 @@ func (b *bridge) publishDevices(ctx context.Context) error {
 	return b.plugin.SetDevices(ctx, reports, 0)
 }
 
-func (b *bridge) reportsLocked() []contractv1.DeviceReport {
-	reports := make([]contractv1.DeviceReport, 0, len(b.devices)+len(b.declared))
+func (b *bridge) reportsLocked() []contract.DeviceReport {
+	reports := make([]contract.DeviceReport, 0, len(b.devices)+len(b.declared))
 	for _, id := range slices.Sorted(maps.Keys(b.devices)) {
 		d := b.devices[id]
-		reports = append(reports, contractv1.DeviceReport{
+		reports = append(reports, contract.DeviceReport{
 			ID: id, Found: true, Manufacturer: d.info.Manufacturer, Capabilities: d.info.Capabilities,
 		})
 	}
 	for _, id := range b.declared {
 		if _, ok := b.devices[id]; !ok {
-			reports = append(reports, contractv1.DeviceReport{ID: id})
+			reports = append(reports, contract.DeviceReport{ID: id})
 		}
 	}
 	return reports
@@ -658,7 +658,7 @@ func sleep(ctx context.Context, d time.Duration) {
 // Set implements plugin.Handler. It sends the unit the change, and returns once the hub has taken
 // it, before the unit has changed: the unit's report then shows it. It fails at once while there's
 // no session.
-func (b *bridge) Set(ctx context.Context, _ *plugin.Plugin, cmd contractv1.SetCommand) error {
+func (b *bridge) Set(ctx context.Context, _ *plugin.Plugin, cmd contract.SetCommand) error {
 	b.mu.Lock()
 	d, hub, device := b.devices[cmd.ID], b.hub, b.hubDevice
 	var (

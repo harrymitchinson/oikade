@@ -25,7 +25,7 @@ func homeWith(body string) string {
 import (
 	"time"
 
-	"github.com/harrymitchinson/oikade"
+	"oikade.dev"
 )
 
 func main() {

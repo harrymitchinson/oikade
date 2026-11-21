@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/devicetype"
-	"github.com/harrymitchinson/oikade/internal/engine"
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/engine"
+	"oikade.dev/internal/ident"
 )
 
 // oikade types names a handle's field and its type from the registry, so each constant here must

@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/registry"
+	"oikade.dev/internal/cli"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/registry"
 )
 
 func TestUnimportedDevicesSayHowToRemoveThemAndCallOutSafety(t *testing.T) {
@@ -198,7 +198,7 @@ func TestDeclarationsAreReadFromTheSource(t *testing.T) {
 	dir := t.TempDir()
 	code := `package main
 
-import "github.com/harrymitchinson/oikade"
+import "oikade.dev"
 
 func declare(home *oikade.Home, name string) {
 	home.Device("study-blind").Hardware("overkiz", "io://1").Room("study").Is(oikade.WindowCovering)

@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/sun"
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/sun"
+	"oikade.dev/internal/testkit"
 )
 
 var (

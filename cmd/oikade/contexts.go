@@ -10,8 +10,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/host/api"
+	"oikade.dev/internal/cli"
+	"oikade.dev/internal/host/api"
 )
 
 // tokenEnv is the variable with the token of a context saved without one, as CI's is.

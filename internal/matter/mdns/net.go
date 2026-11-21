@@ -1,6 +1,6 @@
 package mdns
 
-import mdnsnet "github.com/harrymitchinson/oikade/internal/mdns"
+import mdnsnet "oikade.dev/internal/mdns"
 
 // The responder's sockets are internal/mdns's, which knows nothing of Matter.
 

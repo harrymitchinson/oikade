@@ -3,8 +3,8 @@ package clusters
 import (
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/matter/im"
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
+	"oikade.dev/internal/matter/im"
+	"oikade.dev/internal/matter/tlv"
 )
 
 // Cluster IDs of the clusters every root node and bridged device has.

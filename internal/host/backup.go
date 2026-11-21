@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/host/api"
+	"oikade.dev/internal/host/api"
 )
 
 const (

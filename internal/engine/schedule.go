@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/sun"
+	"oikade.dev/internal/sun"
 )
 
 // Trigger types, as a condition sees them in Vars["trigger"].

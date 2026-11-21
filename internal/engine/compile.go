@@ -5,8 +5,8 @@ package engine
 import (
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/devicetype"
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/ident"
 )
 
 // Compiled is a validated rule, ready to run.

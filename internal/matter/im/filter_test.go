@@ -6,9 +6,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/matter/tlv"
+	"oikade.dev/internal/matter/transport"
 )
 
 // readFiltered reads every attribute of endpoint 1's On/Off cluster, telling the server which

@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/clock"
-	"github.com/harrymitchinson/oikade/internal/matter/clusters"
-	"github.com/harrymitchinson/oikade/internal/matter/nodetest"
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev/internal/clock"
+	"oikade.dev/internal/matter/clusters"
+	"oikade.dev/internal/matter/nodetest"
+	"oikade.dev/internal/matter/tlv"
+	"oikade.dev/internal/testkit"
 )
 
 // TestOwnersWindow: once the initial window has closed, OpenWindow opens it again with the node's

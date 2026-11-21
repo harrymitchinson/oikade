@@ -1,8 +1,8 @@
 package clusters
 
 import (
-	"github.com/harrymitchinson/oikade/internal/matter/im"
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
+	"oikade.dev/internal/matter/im"
+	"oikade.dev/internal/matter/tlv"
 )
 
 // groupKeyManagement is Group Key Management with only each fabric's IPK keyset, 0, which AddNOC

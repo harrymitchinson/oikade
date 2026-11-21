@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/simhome"
+	"oikade.dev"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/simhome"
 )
 
 const (

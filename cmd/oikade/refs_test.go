@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/internal/ident"
 )
 
 func TestACommandTakesARefOrABareName(t *testing.T) {

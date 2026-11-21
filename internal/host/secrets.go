@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/fault"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/fault"
 )
 
 // SecretsDir is the secrets' directory inside the data directory, so a backup has them.
@@ -25,7 +25,7 @@ type secrets struct {
 // set keeps value as the secret name, on disk before it returns.
 func (s secrets) set(name, value string) error {
 	// The contract holds a setup to this too, so a name can't leave the directory.
-	if !contractv1.ValidSecretName(name) {
+	if !contract.ValidSecretName(name) {
 		return fmt.Errorf("%q isn't a secret's name", name)
 	}
 	f, err := os.CreateTemp(s.dir, ".new-*")
@@ -61,7 +61,7 @@ func WithBrokerPassword(broker, dir, name string) (string, error) {
 	if err != nil || u.User == nil || u.User.Username() == "" {
 		return "", errors.New("--broker-password-secret needs a user in --broker, such as mqtt://oikade@broker:1883")
 	}
-	if !contractv1.ValidSecretName(name) {
+	if !contract.ValidSecretName(name) {
 		return "", fmt.Errorf("%q isn't a secret's name", name)
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, name))

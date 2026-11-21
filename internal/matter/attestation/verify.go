@@ -8,7 +8,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
+	"oikade.dev/internal/matter/tlv"
 )
 
 // Trust is what a commissioner trusts to verify a node's attestation.

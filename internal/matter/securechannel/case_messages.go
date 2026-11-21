@@ -3,9 +3,9 @@ package securechannel
 import (
 	"fmt"
 
-	"github.com/harrymitchinson/oikade/internal/matter/cert"
-	mcrypto "github.com/harrymitchinson/oikade/internal/matter/crypto"
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
+	"oikade.dev/internal/matter/cert"
+	mcrypto "oikade.dev/internal/matter/crypto"
+	"oikade.dev/internal/matter/tlv"
 )
 
 const (

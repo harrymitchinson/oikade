@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/ident"
 )
 
 // aLog is one of each thing a log holds, each named by a word a test asks for it by.

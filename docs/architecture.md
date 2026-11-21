@@ -79,7 +79,7 @@ The host starts your process, restarts it with backoff, and kills one that stops
 
 ### Times of day
 
-Sunrise and sunset are worked out in your process by `internal/sun`, for the location in the home's `oikade.Options`, which `oikade` gives `Engine.Site`. `internal/simhome` takes the same `Site`, so `oikade dev`, `oikade replay` and `hometest` agree with the house. The host's engine only arbitrates, so it has none.
+Sunrise and sunset are worked out in your process by `internal/sun`, for the location in the home's `oikade.Options`, which `oikade` gives `Engine.Site`. `internal/simhome` takes the same `Site`, so `oikade dev`, `oikade replay` and `oikadetest` agree with the house. The host's engine only arbitrates, so it has none.
 
 `Compiled.Since` comes from the host, which saves when each rule's timers were last accounted for (`saveFire`). So a time missed while no process ran fires when one starts, within the same limit as a late flow. A save lost to a crash means catching up once more.
 
@@ -221,7 +221,7 @@ Claims are keyed by a device's name.
 
 `oikade types` renders the registry to Go (`internal/registry/types.go`), as the home's declarations would make it (`registry.Declaring`). It reads the declarations from the manifest of the home it builds, or from its source when it doesn't build, as when it names a handle only the new file has.
 
-The file has a value per device, with its name and an `oikade.Bool`, `oikade.Number` or `oikade.Choice` for each capability, named by the capability registry's `Go` name, so the compiler checks what a home names. Nothing else is in it: `oikade dev` and `hometest` read the handles back from its Go (`registry.Handles`), with rooms and types from the home's declarations.
+The file has a value per device, with its name and an `oikade.Bool`, `oikade.Number` or `oikade.Choice` for each capability, named by the capability registry's `Go` name, so the compiler checks what a home names. Nothing else is in it: `oikade dev` and `oikadetest` read the handles back from its Go (`registry.Handles`), with rooms and types from the home's declarations.
 
 ## Plugins
 
@@ -418,7 +418,7 @@ Only writes that can reach the same device wait for each other: in one room, or 
 
 ### `simhome`
 
-`internal/simhome` runs a home in one process: one `Engine` with both rules and arbiters on a fake clock, with its states and journal in memory. `oikade dev` is your binary's `dev` role reading commands from standard input, and `hometest` is the same thing in a test. `oikade` fills in `simhome.FromHome` when it loads, because a public package can't name a home's compiled form.
+`internal/simhome` runs a home in one process: one `Engine` with both rules and arbiters on a fake clock, with its states and journal in memory. `oikade dev` is your binary's `dev` role reading commands from standard input, and `oikadetest` is the same thing in a test. `oikade` fills in `simhome.FromHome` when it loads, because a public package can't name a home's compiled form.
 
 `Sim.settle` needs to know the engine has caught up, and `Engine.Idle` says so exactly:
 

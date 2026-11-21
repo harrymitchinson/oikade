@@ -11,10 +11,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/control"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/store"
+	"oikade.dev/internal/control"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/store"
 )
 
 func manifest(rules ...wire.RuleInfo) wire.Manifest {

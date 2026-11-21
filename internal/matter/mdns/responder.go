@@ -23,9 +23,9 @@ import (
 
 	"golang.org/x/net/dns/dnsmessage"
 
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/matter/contain"
-	mdnsnet "github.com/harrymitchinson/oikade/internal/mdns"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/matter/contain"
+	mdnsnet "oikade.dev/internal/mdns"
 )
 
 // Errors from a Responder.

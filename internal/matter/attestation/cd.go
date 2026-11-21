@@ -10,7 +10,7 @@ import (
 	"io"
 	"slices"
 
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
+	"oikade.dev/internal/matter/tlv"
 )
 
 // Declaration is a Certification Declaration's content (Core spec, 6.3.1).

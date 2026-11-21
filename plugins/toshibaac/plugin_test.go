@@ -15,11 +15,11 @@ import (
 	"testing"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/mqtt"
-	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
-	"github.com/harrymitchinson/oikade/internal/testkit"
-	"github.com/harrymitchinson/oikade/sdk/plugin"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/mqtt"
+	"oikade.dev/internal/mqtt/mqtttest"
+	"oikade.dev/internal/testkit"
+	"oikade.dev/sdk/plugin"
 )
 
 const (
@@ -34,7 +34,7 @@ const (
 	study         = "0a0b0c0d0e0f"
 )
 
-var root = contractv1.NewRoot("toshiba")
+var root = contract.NewRoot("toshiba")
 
 // fast keeps the real timing's order, in less time. The hub's keep-alive is whole seconds, and mochi
 // allows one of 1 s only 1 s, so a ping can come too late.
@@ -118,9 +118,9 @@ func start(t *testing.T, cloud *fakeCloud, pass string, timings timing, declared
 	}
 
 	env := plugin.Environment{MQTTURL: broker, Root: root}
-	devices := make([]contractv1.DeclaredDevice, 0, len(declared))
+	devices := make([]contract.DeclaredDevice, 0, len(declared))
 	for _, id := range declared {
-		devices = append(devices, contractv1.DeclaredDevice{ID: id, Name: id, DisplayName: id})
+		devices = append(devices, contract.DeclaredDevice{ID: id, Name: id, DisplayName: id})
 	}
 	c := cloud.config()
 	c.Password = pass
@@ -180,9 +180,9 @@ func (b *bench) eventually(what string, ok func() bool) {
 	testkit.Eventually(b.t, what, ok)
 }
 
-func (b *bench) devices() contractv1.Devices {
+func (b *bench) devices() contract.Devices {
 	b.t.Helper()
-	var d contractv1.Devices
+	var d contract.Devices
 	if raw := b.topic(root.Devices()); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &d); err != nil {
 			b.t.Fatal(err)
@@ -191,9 +191,9 @@ func (b *bench) devices() contractv1.Devices {
 	return d
 }
 
-func (b *bench) status() contractv1.Status {
+func (b *bench) status() contract.Status {
 	b.t.Helper()
-	var s contractv1.Status
+	var s contract.Status
 	if raw := b.topic(root.Status()); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &s); err != nil {
 			b.t.Fatal(err)
@@ -227,7 +227,7 @@ func TestTheAccountsUnitsAreReportedByTheirUniqueID(t *testing.T) {
 	b.waitAvailability(study, "online")
 
 	caps := []string{"mode", "on", "setpoint", "temperature"}
-	want := []contractv1.DeviceReport{
+	want := []contract.DeviceReport{
 		{ID: study, Found: true, Manufacturer: "Toshiba", Capabilities: caps},
 		{ID: bedroom, Found: true, Manufacturer: "Toshiba", Capabilities: caps},
 		// On record and not in the account: not found, and kept.
@@ -240,7 +240,7 @@ func TestTheAccountsUnitsAreReportedByTheirUniqueID(t *testing.T) {
 	if len(got.Discovered) != 2 || got.Discovered[0].Name != "Study" || got.Discovered[1].Name != "Bedroom" {
 		t.Errorf("discovered: %+v", got.Discovered)
 	}
-	if s := b.status(); s.State != contractv1.Online || s.Error != "" {
+	if s := b.status(); s.State != contract.Online || s.Error != "" {
 		t.Errorf("status: %+v", s)
 	}
 
@@ -313,7 +313,7 @@ func TestTheCloudGoingAwayLeavesEveryUnitOfflineUntilItsBack(t *testing.T) {
 	b.waitAvailability(bedroom, "offline")
 	b.waitAvailability(study, "offline")
 	b.waitProblem("could not reach Toshiba's cloud")
-	if s := b.status(); s.State != contractv1.Online {
+	if s := b.status(); s.State != contract.Online {
 		t.Errorf("the plugin went %s with the cloud", s.State)
 	}
 	// Its units stay on record, and it says it can't see the account's list rather than that it's empty.
@@ -537,7 +537,7 @@ func TestAWriteIsACommandTheHubTakes(t *testing.T) {
 	// Set returns once the hub has it.
 	setpoint := newCommand()
 	setpoint.setpoint = 26
-	if err := b.handler.Set(t.Context(), nil, contractv1.SetCommand{ID: study, Capability: contractv1.Setpoint, Value: 26.0}); err != nil {
+	if err := b.handler.Set(t.Context(), nil, contract.SetCommand{ID: study, Capability: contract.Setpoint, Value: 26.0}); err != nil {
 		t.Fatal(err)
 	}
 	if got := cloud.messages(); !slices.Contains(got, message(setpoint.encode())) {
@@ -560,12 +560,12 @@ func TestAWriteTheUnitCantHoldFails(t *testing.T) {
 		{"mode", "cool", "could not set mode on " + bedroom + ": the unit doesn't do cool: it does heat"},
 		{"setpoint", 21.5, "whole degrees"},
 	} {
-		err := b.handler.Set(t.Context(), nil, contractv1.SetCommand{ID: bedroom, Capability: cmd.capability, Value: cmd.value})
+		err := b.handler.Set(t.Context(), nil, contract.SetCommand{ID: bedroom, Capability: cmd.capability, Value: cmd.value})
 		if err == nil || !strings.Contains(err.Error(), cmd.says) {
 			t.Errorf("%s %v: %v", cmd.capability, cmd.value, err)
 		}
 	}
-	if err := b.handler.Set(t.Context(), nil, contractv1.SetCommand{ID: "nothing", Capability: contractv1.On, Value: false}); err == nil {
+	if err := b.handler.Set(t.Context(), nil, contract.SetCommand{ID: "nothing", Capability: contract.On, Value: false}); err == nil {
 		t.Error("Set on no unit: no error")
 	}
 	if got := cloud.messages(); len(got) != 0 {
@@ -583,7 +583,7 @@ func TestAWriteWhileTheCloudIsDownFailsAtOnce(t *testing.T) {
 	b.waitAvailability(bedroom, "offline")
 
 	began := time.Now()
-	err := b.handler.Set(t.Context(), nil, contractv1.SetCommand{ID: bedroom, Capability: contractv1.On, Value: false})
+	err := b.handler.Set(t.Context(), nil, contract.SetCommand{ID: bedroom, Capability: contract.On, Value: false})
 	if err == nil || !strings.Contains(err.Error(), "can't reach Toshiba's cloud") {
 		t.Errorf("Set: %v", err)
 	}
@@ -674,9 +674,9 @@ func TestWritesSentTogetherSeeEachOther(t *testing.T) {
 	b.waitState(bedroom, `{"mode":"heat","on":true,"setpoint":8,"temperature":9}`)
 
 	// The Home app switches it to cooling at 24, before it has reported.
-	for _, cmd := range []contractv1.SetCommand{
-		{ID: bedroom, Capability: contractv1.Mode, Value: "cool"},
-		{ID: bedroom, Capability: contractv1.Setpoint, Value: 24.0},
+	for _, cmd := range []contract.SetCommand{
+		{ID: bedroom, Capability: contract.Mode, Value: "cool"},
+		{ID: bedroom, Capability: contract.Setpoint, Value: 24.0},
 	} {
 		if err := b.handler.Set(t.Context(), nil, cmd); err != nil {
 			t.Fatal(err)
@@ -698,7 +698,7 @@ func TestWritesSentTogetherSeeEachOther(t *testing.T) {
 		defer b.handler.mu.Unlock()
 		return b.handler.devices[bedroom].intent == nil
 	})
-	if err := b.handler.Set(t.Context(), nil, contractv1.SetCommand{ID: bedroom, Capability: contractv1.Setpoint, Value: 9.0}); err != nil {
+	if err := b.handler.Set(t.Context(), nil, contract.SetCommand{ID: bedroom, Capability: contract.Setpoint, Value: 9.0}); err != nil {
 		t.Fatal(err)
 	}
 	again := newCommand()
@@ -721,11 +721,11 @@ func TestAModeThatClashesOnASharedOutdoorUnitIsRefused(t *testing.T) {
 		t.Errorf("the missing unit isn't logged: %s", b.logs)
 	}
 	set := func(id, capability string, value any) error {
-		return b.handler.Set(t.Context(), nil, contractv1.SetCommand{ID: id, Capability: capability, Value: value})
+		return b.handler.Set(t.Context(), nil, contract.SetCommand{ID: id, Capability: capability, Value: value})
 	}
 
 	// Turning the study on would cool while the bedroom heats.
-	err := set(study, contractv1.On, true)
+	err := set(study, contract.On, true)
 	if want := "could not set on on " + study + ": it shares its outdoor unit with " + bedroom +
 		", which is running heat, and cool and heat can't run at once"; err == nil || err.Error() != want {
 		t.Errorf("on: %v, want %s", err, want)
@@ -734,41 +734,41 @@ func TestAModeThatClashesOnASharedOutdoorUnitIsRefused(t *testing.T) {
 	for _, w := range []struct {
 		capability string
 		value      any
-	}{{contractv1.Setpoint, 20.0}, {contractv1.Mode, "fan"}} {
+	}{{contract.Setpoint, 20.0}, {contract.Mode, "fan"}} {
 		if err := set(study, w.capability, w.value); err != nil {
 			t.Errorf("%s %v: %v", w.capability, w.value, err)
 		}
 	}
 	// Fan runs beside heating.
 	for _, on := range []bool{true, false} {
-		if err := set(study, contractv1.On, on); err != nil {
+		if err := set(study, contract.On, on); err != nil {
 			t.Errorf("on %v in fan while the bedroom heats: %v", on, err)
 		}
 	}
 	// Auto may pick either.
-	if err := set(study, contractv1.Mode, "auto"); err != nil {
+	if err := set(study, contract.Mode, "auto"); err != nil {
 		t.Fatal(err)
 	}
-	if err := set(study, contractv1.On, true); err == nil {
+	if err := set(study, contract.On, true); err == nil {
 		t.Error("on in auto while the bedroom heats: no error")
 	}
 	// Heating with it is fine, and then the bedroom can't cool.
 	for _, w := range []struct {
 		id, capability string
 		value          any
-	}{{study, contractv1.Mode, "heat"}, {study, contractv1.On, true}} {
+	}{{study, contract.Mode, "heat"}, {study, contract.On, true}} {
 		if err := set(w.id, w.capability, w.value); err != nil {
 			t.Errorf("%s %s %v: %v", w.id, w.capability, w.value, err)
 		}
 	}
-	if err := set(bedroom, contractv1.Mode, "cool"); err == nil || !strings.Contains(err.Error(), "with "+study+", which is running heat") {
+	if err := set(bedroom, contract.Mode, "cool"); err == nil || !strings.Contains(err.Error(), "with "+study+", which is running heat") {
 		t.Errorf("bedroom cooling while the study heats: %v", err)
 	}
 	// Once the study is off, it can.
 	for _, w := range []struct {
 		id, capability string
 		value          any
-	}{{study, contractv1.On, false}, {bedroom, contractv1.Mode, "cool"}} {
+	}{{study, contract.On, false}, {bedroom, contract.Mode, "cool"}} {
 		if err := set(w.id, w.capability, w.value); err != nil {
 			t.Errorf("%s %s %v: %v", w.id, w.capability, w.value, err)
 		}
@@ -783,7 +783,7 @@ func TestUnitsNotOnASharedOutdoorUnitDontClash(t *testing.T) {
 	cloud.set(home)
 	b := start(t, cloud, password, fast)
 	b.waitAvailability(study, "online")
-	if err := b.handler.Set(t.Context(), nil, contractv1.SetCommand{ID: study, Capability: contractv1.On, Value: true}); err != nil {
+	if err := b.handler.Set(t.Context(), nil, contract.SetCommand{ID: study, Capability: contract.On, Value: true}); err != nil {
 		t.Error(err)
 	}
 }
@@ -801,17 +801,17 @@ func TestAWriteTheUnitNeverReportsStopsCountingForItsOutdoorUnit(t *testing.T) {
 	b := start(t, cloud, password, timings)
 	b.waitAvailability(study, "online")
 	set := func(id, capability string, value any) error {
-		return b.handler.Set(t.Context(), nil, contractv1.SetCommand{ID: id, Capability: capability, Value: value})
+		return b.handler.Set(t.Context(), nil, contract.SetCommand{ID: id, Capability: capability, Value: value})
 	}
 	// The bedroom is turned on, heating, and loses its WiFi before it reports.
-	if err := set(bedroom, contractv1.On, true); err != nil {
+	if err := set(bedroom, contract.On, true); err != nil {
 		t.Fatal(err)
 	}
-	if err := set(study, contractv1.On, true); err == nil {
+	if err := set(study, contract.On, true); err == nil {
 		t.Error("the study cooling while the bedroom's write counts: no error")
 	}
 	// Once it stops counting, its last report is what's checked.
-	b.eventually("the bedroom's write to stop counting", func() bool { return set(study, contractv1.On, true) == nil })
+	b.eventually("the bedroom's write to stop counting", func() bool { return set(study, contract.On, true) == nil })
 }
 
 func TestAUnitWhoseModeIsntKnownCantTurnOnBesideARunningOne(t *testing.T) {
@@ -825,7 +825,7 @@ func TestAUnitWhoseModeIsntKnownCantTurnOnBesideARunningOne(t *testing.T) {
 	})
 	b := start(t, cloud, password, fast)
 	b.waitAvailability(study, "online")
-	err := b.handler.Set(t.Context(), nil, contractv1.SetCommand{ID: study, Capability: contractv1.On, Value: true})
+	err := b.handler.Set(t.Context(), nil, contract.SetCommand{ID: study, Capability: contract.On, Value: true})
 	if err == nil || !strings.Contains(err.Error(), "its mode isn't known yet") {
 		t.Errorf("on: %v", err)
 	}
@@ -833,8 +833,8 @@ func TestAUnitWhoseModeIsntKnownCantTurnOnBesideARunningOne(t *testing.T) {
 	for _, w := range []struct {
 		capability string
 		value      any
-	}{{contractv1.Mode, "heat"}, {contractv1.On, true}} {
-		if err := b.handler.Set(t.Context(), nil, contractv1.SetCommand{ID: study, Capability: w.capability, Value: w.value}); err != nil {
+	}{{contract.Mode, "heat"}, {contract.On, true}} {
+		if err := b.handler.Set(t.Context(), nil, contract.SetCommand{ID: study, Capability: w.capability, Value: w.value}); err != nil {
 			t.Errorf("%s %v: %v", w.capability, w.value, err)
 		}
 	}

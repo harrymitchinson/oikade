@@ -18,9 +18,9 @@ import (
 	"sync"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/mdns"
-	"github.com/harrymitchinson/oikade/sdk/plugin"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/mdns"
+	"oikade.dev/sdk/plugin"
 )
 
 // maxResponse is the most a device's answer to a command may be.
@@ -74,7 +74,7 @@ type lan interface {
 
 // New returns the plugin's Factory, for home.Plugin.
 func New(c Config) plugin.Factory {
-	return func(env plugin.Environment, declared []contractv1.DeclaredDevice) (plugin.Handler, error) {
+	return func(env plugin.Environment, declared []contract.DeclaredDevice) (plugin.Handler, error) {
 		return newBridge(c, env, declared, func() (lan, error) { return mdns.ListenMulticast() }, defaults, time.Now,
 			slog.New(slog.NewJSONHandler(os.Stderr, nil)).With("logger", "ewelink-lan")), nil
 	}
@@ -144,12 +144,12 @@ type bridge struct {
 	// settled is whether the first report has gone out, and dirty whether another is due.
 	settled, dirty bool
 	// early is what devices said before the first report, which goes out with it.
-	early map[string]contractv1.State
+	early map[string]contract.State
 }
 
 var _ plugin.Handler = (*bridge)(nil)
 
-func newBridge(c Config, env plugin.Environment, declared []contractv1.DeclaredDevice, listen func() (lan, error),
+func newBridge(c Config, env plugin.Environment, declared []contract.DeclaredDevice, listen func() (lan, error),
 	t timing, now func() time.Time, log *slog.Logger,
 ) *bridge {
 	humidity := map[string]bool{}
@@ -166,7 +166,7 @@ func newBridge(c Config, env plugin.Environment, declared []contractv1.DeclaredD
 		humidity: humidity, env: env, declared: ids, named: named, listen: listen, timing: t, now: now, log: log,
 		client: &http.Client{Timeout: t.http}, cloud: ewelink,
 		app:     app{id: strings.TrimSpace(c.AppID), secret: strings.TrimSpace(c.AppSecret)},
-		devices: map[string]*device{}, records: newRecords(), skipped: map[string]bool{}, early: map[string]contractv1.State{},
+		devices: map[string]*device{}, records: newRecords(), skipped: map[string]bool{}, early: map[string]contract.State{},
 	}
 }
 
@@ -256,7 +256,7 @@ func (b *bridge) check(err error, msg, id string) {
 // observed is what a report said that needs publishing.
 type observed struct {
 	id     string
-	values contractv1.State
+	values contract.State
 }
 
 func (b *bridge) take(packet []byte) {
@@ -390,7 +390,7 @@ func (b *bridge) repeated(d *device, heard time.Time) (observed, bool) {
 	if heard.After(d.relayAt) {
 		d.relayAt = heard
 	}
-	return observed{id: d.id, values: contractv1.State{}}, true
+	return observed{id: d.id, values: contract.State{}}, true
 }
 
 // apply takes a decoded report. Call with mu held.
@@ -399,7 +399,7 @@ func (b *bridge) apply(d *device, params map[string]any, heard time.Time) (obser
 		d.firmware, b.dirty = fw, true
 	}
 	r := d.kind.read(params)
-	values := contractv1.State{}
+	values := contract.State{}
 	switch {
 	case r.relay && r.bad:
 		d.relayAt = time.Time{}
@@ -408,7 +408,7 @@ func (b *bridge) apply(d *device, params map[string]any, heard time.Time) (obser
 		d.reports++
 		close(d.changed)
 		d.changed = make(chan struct{})
-		values[contractv1.On] = r.on
+		values[contract.On] = r.on
 	}
 	announced := capabilities(d)
 	for capability, value := range r.values {
@@ -417,7 +417,7 @@ func (b *bridge) apply(d *device, params map[string]any, heard time.Time) (obser
 		}
 	}
 	// A probe that can't measure humidity, such as a temperature-only one, says "unavailable".
-	if _, ok := r.values[contractv1.Humidity]; d.humidity && !ok && !d.warned {
+	if _, ok := r.values[contract.Humidity]; d.humidity && !ok && !d.warned {
 		d.warned = true
 		b.log.Info("Device listed for humidity sent no humidity reading", "device", d.id,
 			"humidity", fmt.Sprint(params[fieldHumidity]), "sensor", fmt.Sprint(params["sensorType"]))
@@ -434,7 +434,7 @@ func (b *bridge) relayFresh(d *device, now time.Time) bool {
 
 func capabilities(d *device) []string {
 	if d.humidity {
-		return append(slices.Clone(d.kind.capabilities), contractv1.Humidity)
+		return append(slices.Clone(d.kind.capabilities), contract.Humidity)
 	}
 	return d.kind.capabilities
 }
@@ -471,7 +471,7 @@ func (b *bridge) publish(heard []observed) {
 	if !b.settled {
 		for _, o := range heard {
 			if b.early[o.id] == nil {
-				b.early[o.id] = contractv1.State{}
+				b.early[o.id] = contract.State{}
 			}
 			maps.Copy(b.early[o.id], o.values)
 		}
@@ -482,7 +482,7 @@ func (b *bridge) publish(heard []observed) {
 		heard = append([]observed{{id: id, values: b.early[id]}}, heard...)
 	}
 	clear(b.early)
-	var reports []contractv1.DeviceReport
+	var reports []contract.DeviceReport
 	needs := false
 	if b.dirty {
 		b.dirty = false
@@ -518,7 +518,7 @@ func (b *bridge) publish(heard []observed) {
 }
 
 // offlineUnheard says the devices on record that haven't been heard are offline.
-func (b *bridge) offlineUnheard(reports []contractv1.DeviceReport) {
+func (b *bridge) offlineUnheard(reports []contract.DeviceReport) {
 	for _, r := range reports {
 		if !r.Found {
 			b.check(b.plugin.SetAvailability(b.ctx, r.ID, false), "Could not report availability", r.ID)
@@ -527,17 +527,17 @@ func (b *bridge) offlineUnheard(reports []contractv1.DeviceReport) {
 }
 
 // reportsLocked lists everything heard, and everything on record that hasn't been. Call with mu held.
-func (b *bridge) reportsLocked() []contractv1.DeviceReport {
-	reports := make([]contractv1.DeviceReport, 0, len(b.devices)+len(b.declared))
+func (b *bridge) reportsLocked() []contract.DeviceReport {
+	reports := make([]contract.DeviceReport, 0, len(b.devices)+len(b.declared))
 	for _, id := range slices.Sorted(maps.Keys(b.devices)) {
 		d := b.devices[id]
-		reports = append(reports, contractv1.DeviceReport{
+		reports = append(reports, contract.DeviceReport{
 			ID: id, Found: true, FirmwareVersion: d.firmware, Capabilities: capabilities(d), Error: d.problem,
 		})
 	}
 	for _, id := range b.declared {
 		if b.devices[id] == nil {
-			reports = append(reports, contractv1.DeviceReport{ID: id})
+			reports = append(reports, contract.DeviceReport{ID: id})
 		}
 	}
 	return reports
@@ -545,9 +545,9 @@ func (b *bridge) reportsLocked() []contractv1.DeviceReport {
 
 // Set implements plugin.Handler. It returns once a fresh report shows the relay where it was asked
 // to go, and that report is what's published.
-func (b *bridge) Set(ctx context.Context, _ *plugin.Plugin, cmd contractv1.SetCommand) error {
+func (b *bridge) Set(ctx context.Context, _ *plugin.Plugin, cmd contract.SetCommand) error {
 	on, ok := cmd.Value.(bool)
-	if cmd.Capability != contractv1.On || !ok {
+	if cmd.Capability != contract.On || !ok {
 		return fmt.Errorf("device %s can't set %s", cmd.ID, cmd.Capability)
 	}
 	b.mu.Lock()

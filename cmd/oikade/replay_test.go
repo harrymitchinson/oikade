@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/simhome"
+	"oikade.dev/internal/simhome"
 )
 
 func TestRenderShowsWritesInOrderWithTheirSign(t *testing.T) {

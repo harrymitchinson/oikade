@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/matter/mdns"
-	"github.com/harrymitchinson/oikade/internal/matter/nodetest"
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev/internal/matter/mdns"
+	"oikade.dev/internal/matter/nodetest"
+	"oikade.dev/internal/testkit"
 )
 
 func TestALostCommissionableNameIsAdvertisedUnderANewOne(t *testing.T) {

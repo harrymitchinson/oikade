@@ -1,4 +1,4 @@
-package hometest_test
+package oikadetest_test
 
 import (
 	"fmt"
@@ -6,14 +6,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade"
-	"github.com/harrymitchinson/oikade/hometest"
+	"oikade.dev"
+	"oikade.dev/oikadetest"
 )
 
 var fountain = oikade.Bool{Device: "fountain", Capability: oikade.On}
 
 // writesOf are the times and values of the writes to fountain, as "15:04 true".
-func writesOf(h *hometest.Home) []string {
+func writesOf(h *oikadetest.Home) []string {
 	var out []string
 	for _, w := range h.Writes() {
 		if w.Device == fountain.Device {
@@ -23,9 +23,9 @@ func writesOf(h *hometest.Home) []string {
 	return out
 }
 
-func fountainHome(t *testing.T, home *oikade.Home, start time.Time) *hometest.Home {
+func fountainHome(t *testing.T, home *oikade.Home, start time.Time) *oikadetest.Home {
 	t.Helper()
-	return hometest.New(t, home, hometest.Options{Start: start, Devices: []hometest.Device{{
+	return oikadetest.New(t, home, oikadetest.Options{Start: start, Devices: []oikadetest.Device{{
 		Name: "fountain", Capabilities: []string{string(oikade.On)}, Values: map[string]any{string(oikade.On): false},
 	}}})
 }

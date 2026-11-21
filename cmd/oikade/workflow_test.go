@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev/internal/testkit"
 )
 
 func initWorkflow(t *testing.T) string {

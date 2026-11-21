@@ -30,7 +30,7 @@ Ask these questions of every feature:
 
 These appear in users' Git repos, dashboards, alert rules and Home app setups. Changing them breaks someone, so a design has to call out any change to them explicitly. Nothing here needs a migration while Oikade is greenfield, but a design still says what changes.
 
-- **The package `oikade`,** at the module root: the Go API a home is written in. `hometest` too.
+- **The package `oikade`,** at the module root: the Go API a home is written in. `oikadetest` too.
 - **The `oikade` and `oikade-host` commands, their flags and their `--json`.** Scripts and a home's CI use them.
 - **Capability names and value semantics** (`internal/capability`). These include units, range and polarity: `open: true` means open. They appear in a home's code and in PromQL. `internal/capability`'s package doc says how to name one, and `docs/capabilities.md` is generated from the registry.
 - **Metric names and labels** (`oikade_*`). Dashboards and alerts query them. Adding a label changes series identity.

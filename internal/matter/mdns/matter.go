@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/matter/setup"
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"oikade.dev/internal/matter/setup"
+	"oikade.dev/internal/matter/transport"
 )
 
 // Matter's service types (Core spec, 4.3).

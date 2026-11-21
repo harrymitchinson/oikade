@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/engine"
-	"github.com/harrymitchinson/oikade/internal/sun"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/engine"
+	"oikade.dev/internal/sun"
 )
 
 // Condition is something true or false about the home now. A Bool is one, as are a Number's Above,

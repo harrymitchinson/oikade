@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/matter/tlv"
+	"oikade.dev/internal/matter/transport"
 )
 
 var recordSeeds = flag.Bool("record-seeds", false, "rewrite testdata/fuzz/FuzzDecoders from a Client and Server exchange (TestRecordFuzzSeeds)")

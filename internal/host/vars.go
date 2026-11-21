@@ -14,8 +14,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/ident"
 )
 
 const varsFileName = "vars.json"

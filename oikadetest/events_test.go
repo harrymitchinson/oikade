@@ -1,11 +1,11 @@
-package hometest
+package oikadetest
 
 import (
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade"
+	"oikade.dev"
 )
 
 func TestAPlanThatFailsIsAnEvent(t *testing.T) {

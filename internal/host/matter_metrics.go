@@ -5,10 +5,10 @@ import (
 
 	"github.com/VictoriaMetrics/metrics"
 
-	"github.com/harrymitchinson/oikade/internal/matter/clusters"
-	"github.com/harrymitchinson/oikade/internal/matter/contain"
-	"github.com/harrymitchinson/oikade/internal/matter/im"
-	"github.com/harrymitchinson/oikade/internal/series"
+	"oikade.dev/internal/matter/clusters"
+	"oikade.dev/internal/matter/contain"
+	"oikade.dev/internal/matter/im"
+	"oikade.dev/internal/series"
 )
 
 // writeBuckets are the write duration histogram's upper bounds, in seconds: Prometheus's default

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"oikade.dev/contract/v1"
 )
 
 // freePort is a port on 127.0.0.1 nothing listens on, for now. catchRedirect binds the redirect's
@@ -94,12 +94,12 @@ func TestAskReadsALineAndSaysWhenThereIsNone(t *testing.T) {
 	var stderr strings.Builder
 	s := setupper{stderr: &stderr, in: bufio.NewReader(strings.NewReader("app-1\r\nlast"))}
 	for _, want := range []string{"app-1", "last"} {
-		got, err := s.ask(t.Context(), contractv1.SetupAsk{Prompt: "App ID", Secret: true}) // not a terminal
+		got, err := s.ask(t.Context(), contract.SetupAsk{Prompt: "App ID", Secret: true}) // not a terminal
 		if err != nil || got != want {
 			t.Fatalf("got %q, %v, want %q", got, err, want)
 		}
 	}
-	_, err := s.ask(t.Context(), contractv1.SetupAsk{Prompt: "App ID"})
+	_, err := s.ask(t.Context(), contract.SetupAsk{Prompt: "App ID"})
 	if err == nil || !strings.Contains(err.Error(), "stdin ended") {
 		t.Fatalf("got %v, want stdin ended", err)
 	}
@@ -113,7 +113,7 @@ func TestAskStopsWhenItsContextEnds(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	s := setupper{stderr: io.Discard, in: bufio.NewReader(never)}
-	if _, err := s.ask(ctx, contractv1.SetupAsk{Prompt: "Code"}); err != context.Canceled {
+	if _, err := s.ask(ctx, contract.SetupAsk{Prompt: "Code"}); err != context.Canceled {
 		t.Fatalf("got %v, want context.Canceled", err)
 	}
 }

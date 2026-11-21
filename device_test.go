@@ -4,12 +4,12 @@ import (
 	"strings"
 	"testing"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/sdk/plugin"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/sdk/plugin"
 )
 
-var zigbee = func(plugin.Environment, []contractv1.DeclaredDevice) (plugin.Handler, error) { return nil, nil }
+var zigbee = func(plugin.Environment, []contract.DeclaredDevice) (plugin.Handler, error) { return nil, nil }
 
 func TestADeclaredDeviceGoesToTheHost(t *testing.T) {
 	h := decide(func(h *Home) {

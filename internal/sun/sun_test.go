@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev/internal/testkit"
 )
 
 // The expected times are the US Naval Observatory's (aa.usno.navy.mil/api/rstt/oneday), which

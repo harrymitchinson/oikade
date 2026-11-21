@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/qr"
+	"oikade.dev/internal/cli"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/qr"
 )
 
 // defaultWindow is how long oikade pair matter keeps the window open: the longest Matter allows, and

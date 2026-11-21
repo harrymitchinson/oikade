@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/clock"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/store"
+	"oikade.dev/internal/clock"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/store"
 )
 
 // aHouse is a home of 50 devices, as events a day. It's an estimate, which no real home has

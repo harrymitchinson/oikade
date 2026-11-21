@@ -8,8 +8,8 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/harrymitchinson/oikade/internal/devicetype"
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/ident"
 )
 
 // Driver names for InstanceKey.

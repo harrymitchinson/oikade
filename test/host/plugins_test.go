@@ -11,11 +11,11 @@ import (
 	"sync/atomic"
 	"testing"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/matter/nodetest"
-	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
-	"github.com/harrymitchinson/oikade/sdk/plugin"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/matter/nodetest"
+	"oikade.dev/internal/mqtt/mqtttest"
+	"oikade.dev/sdk/plugin"
 )
 
 const (
@@ -447,9 +447,9 @@ func TestAFailedDeployLeavesThePluginsDevicesOnMatter(t *testing.T) {
 // switchedOn is an outside process's device, as simswitch would do it.
 type switchedOn struct{ sets atomic.Int32 }
 
-func (s *switchedOn) set(ctx context.Context, p *plugin.Plugin, cmd contractv1.SetCommand) error {
+func (s *switchedOn) set(ctx context.Context, p *plugin.Plugin, cmd contract.SetCommand) error {
 	s.sets.Add(1)
-	return p.SetState(ctx, cmd.ID, contractv1.State{cmd.Capability: cmd.Value})
+	return p.SetState(ctx, cmd.ID, contract.State{cmd.Capability: cmd.Value})
 }
 
 func TestAWriteLostToACrashIsWrittenAgain(t *testing.T) {
@@ -478,21 +478,21 @@ func TestOutsidePluginsConnectToABrokerThatStartsLate(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), waitLimit)
 	defer cancel()
 	p, err := plugin.Start(ctx, plugin.Options{
-		Environment: plugin.Environment{MQTTURL: broker.URL, Root: contractv1.NewRoot("kettle")},
+		Environment: plugin.Environment{MQTTURL: broker.URL, Root: contract.NewRoot("kettle")},
 		OnSet:       (&switchedOn{}).set,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = p.Close(context.Background()) }) //nolint:usetesting // t.Context() is done once cleanups run
-	err = p.SetDevices(ctx, []contractv1.DeviceReport{{ID: "kettle", Found: true, Capabilities: []string{"on"}}}, 0)
+	err = p.SetDevices(ctx, []contract.DeviceReport{{ID: "kettle", Found: true, Capabilities: []string{"on"}}}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Reported until heard: nothing retains it for a host that subscribes later.
 	r.until("the kettle", func() bool {
-		_ = p.SetState(ctx, "kettle", contractv1.State{"on": false})
-		_ = p.SetDevices(ctx, []contractv1.DeviceReport{{ID: "kettle", Found: true, Capabilities: []string{"on"}}}, 0)
+		_ = p.SetState(ctx, "kettle", contract.State{"on": false})
+		_ = p.SetDevices(ctx, []contract.DeviceReport{{ID: "kettle", Found: true, Capabilities: []string{"on"}}}, 0)
 		return slices.ContainsFunc(r.status().Devices, func(d api.Device) bool { return d.Name == "kettle" })
 	})
 }
@@ -512,21 +512,21 @@ func TestAnOutsideProcessSpeaksMQTT(t *testing.T) {
 	defer cancel()
 	device := &switchedOn{}
 	p, err := plugin.Start(ctx, plugin.Options{
-		Environment: plugin.Environment{MQTTURL: broker.URL, Root: contractv1.NewRoot("kettle")},
+		Environment: plugin.Environment{MQTTURL: broker.URL, Root: contract.NewRoot("kettle")},
 		OnSet:       device.set,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = p.Close(context.Background()) }) //nolint:usetesting // t.Context() is done once cleanups run
-	err = p.SetDevices(ctx, []contractv1.DeviceReport{{ID: "kettle", Found: true, Capabilities: []string{"on"}}}, 0)
+	err = p.SetDevices(ctx, []contract.DeviceReport{{ID: "kettle", Found: true, Capabilities: []string{"on"}}}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := p.SetAvailability(ctx, "kettle", true); err != nil {
 		t.Fatal(err)
 	}
-	if err := p.SetState(ctx, "kettle", contractv1.State{"on": false}); err != nil {
+	if err := p.SetState(ctx, "kettle", contract.State{"on": false}); err != nil {
 		t.Fatal(err)
 	}
 	r.untilValue("kettle", false)

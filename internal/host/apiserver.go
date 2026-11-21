@@ -16,8 +16,8 @@ import (
 
 	"github.com/VictoriaMetrics/metrics"
 
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/store"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/store"
 )
 
 // requestTimeout is how long a caller has to say what it wants.

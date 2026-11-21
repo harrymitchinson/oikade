@@ -12,12 +12,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/devicetype"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/registry"
+	"oikade.dev/internal/cli"
+	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/registry"
 )
 
 // nameHeader is the header of a table's first column, of what each row is, and stateHeader of a

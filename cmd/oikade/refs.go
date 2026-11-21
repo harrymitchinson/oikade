@@ -4,9 +4,9 @@ import (
 	"math"
 	"strings"
 
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/cli"
+	"oikade.dev/internal/ident"
 )
 
 // nameOf is the name an argument gives a thing of kind k: its ref, such as device/desk-plug, or,

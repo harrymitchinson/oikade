@@ -4,11 +4,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/clock"
-	mcrypto "github.com/harrymitchinson/oikade/internal/matter/crypto"
-	"github.com/harrymitchinson/oikade/internal/matter/im"
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev/internal/clock"
+	mcrypto "oikade.dev/internal/matter/crypto"
+	"oikade.dev/internal/matter/im"
+	"oikade.dev/internal/matter/tlv"
+	"oikade.dev/internal/testkit"
 )
 
 var timeoutsStart = time.Date(2026, 1, 5, 0, 0, 0, 0, time.UTC)

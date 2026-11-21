@@ -9,9 +9,9 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/mqtt"
-	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
-	"github.com/harrymitchinson/oikade/plugins/zigbee2mqtt"
+	"oikade.dev/internal/mqtt"
+	"oikade.dev/internal/mqtt/mqtttest"
+	"oikade.dev/plugins/zigbee2mqtt"
 )
 
 const (

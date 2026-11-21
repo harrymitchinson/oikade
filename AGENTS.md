@@ -6,7 +6,7 @@
 cmd/oikade/                    oikade: every command you run, from a laptop or CI
 cmd/oikade-host/               oikade-host: the host, plus add client/NAME and install
 cmd/oikade-conformance/        The conformance checker plugin repos run (public API)
-*.go, hometest/                Package oikade: what a home is written with (public API)
+*.go, oikadetest/              Package oikade: what a home is written with (public API)
 contract/v1/                   The oikade/v1 plugin contract as Go types (public API)
 sdk/plugin/                    The Go plugin SDK (public API)
 plugins/                       First-party plugins: ewelinklan, overkiz, toshibaac, zigbee2mqtt
@@ -25,7 +25,7 @@ internal/matter/               Oikade's own Matter stack
 internal/matterbridge/         Devices as Matter endpoints
 internal/mdns/                 mDNS sockets, and dialling .local names
 internal/mqtt/                 The MQTT client
-internal/simhome/              A home in one process, on a fake clock: oikade dev, replay and hometest
+internal/simhome/              A home in one process, on a fake clock: oikade dev, replay and oikadetest
 internal/conformance/          The conformance suite
 internal/cli/                  What both binaries share as commands, and their look
 internal/install/              oikade-host install, under systemd

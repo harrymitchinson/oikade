@@ -7,7 +7,7 @@ import (
 	"net/netip"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/matter/contain"
+	"oikade.dev/internal/matter/contain"
 )
 
 // MRPConfig holds the Message Reliability Protocol's timing (Core spec, 4.12.8). Idle, Active and

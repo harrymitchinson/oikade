@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/host/api"
+	"oikade.dev/internal/cli"
+	"oikade.dev/internal/host/api"
 )
 
 // publishedVersion is the version go can fetch of what this binary is, or main if it's a local build.

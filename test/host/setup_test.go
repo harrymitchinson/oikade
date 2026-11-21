@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/test/fixtures/simswitch/relays"
+	"oikade.dev/test/fixtures/simswitch/relays"
 )
 
 // callback is held by the setup that's listening on its page's redirect, 127.0.0.1:8765, which

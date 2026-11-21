@@ -1,14 +1,14 @@
-package v1_test
+package contract_test
 
 import (
 	"fmt"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"oikade.dev/contract/v1"
 )
 
 // A plugin's topics are all under its root.
 func ExampleRoot() {
-	root := contractv1.NewRoot("simswitch")
+	root := contract.NewRoot("simswitch")
 	fmt.Println(root.Status())
 	fmt.Println(root.Devices())
 	fmt.Println(root.Availability("relay-1"))
@@ -24,7 +24,7 @@ func ExampleRoot() {
 
 // A set command is one capability of one device.
 func ExampleRoot_ParseSet() {
-	root := contractv1.NewRoot("simswitch")
+	root := contract.NewRoot("simswitch")
 	cmd, ok, err := root.ParseSet(root.Set("relay-1"), []byte(`{"on": true}`))
 	fmt.Println(cmd.ID, cmd.Capability, cmd.Value, ok, err)
 

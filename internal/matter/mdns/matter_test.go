@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"oikade.dev/internal/matter/transport"
 )
 
 func TestCommissionable(t *testing.T) {

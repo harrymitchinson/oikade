@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/internal/ident"
 )
 
 // The claim sources that aren't rules, as the engine keeps them.

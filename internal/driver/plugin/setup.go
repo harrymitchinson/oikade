@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"oikade.dev/contract/v1"
 )
 
 // setupBacklog bounds the steps a session holds that nobody has read. A reader that falls this far
@@ -28,7 +28,7 @@ func (i *Instance) Setup() (has, needs bool) {
 // that need a reply with ReplySetup, and call EndSetup to stop early. A plugin runs one session at a
 // time, so starting one ends any other. A Done the decoder makes itself, because the plugin can't
 // send one, has Seq 0: the plugin went offline, or sent a step Oikade can't use.
-func (i *Instance) StartSetup(ctx context.Context, session string) (<-chan contractv1.SetupStep, error) {
+func (i *Instance) StartSetup(ctx context.Context, session string) (<-chan contract.SetupStep, error) {
 	if session == "" {
 		return nil, errors.New("a setup session needs a name")
 	}
@@ -42,16 +42,16 @@ func (i *Instance) StartSetup(ctx context.Context, session string) (<-chan contr
 		return nil, ErrNoSetup
 	}
 	if i.sessions == nil {
-		i.sessions = map[string]chan contractv1.SetupStep{}
+		i.sessions = map[string]chan contract.SetupStep{}
 	}
 	if _, ok := i.sessions[session]; ok {
 		i.mu.Unlock()
 		return nil, fmt.Errorf("setup session %s is already running", session)
 	}
-	steps := make(chan contractv1.SetupStep, setupBacklog)
+	steps := make(chan contract.SetupStep, setupBacklog)
 	i.sessions[session] = steps
 	i.mu.Unlock()
-	if err := i.publishSetup(ctx, contractv1.SetupRequest{Session: session, Start: true}); err != nil {
+	if err := i.publishSetup(ctx, contract.SetupRequest{Session: session, Start: true}); err != nil {
 		i.mu.Lock()
 		i.dropSessionLocked(session)
 		i.mu.Unlock()
@@ -70,7 +70,7 @@ func (i *Instance) StartSetup(ctx context.Context, session string) (<-chan contr
 
 // ReplySetup answers step seq of a session: with value, or with why it failed.
 func (i *Instance) ReplySetup(ctx context.Context, session string, seq int, value, problem string) error {
-	return i.publishSetup(ctx, contractv1.SetupRequest{Session: session, Reply: seq, Value: value, Error: problem})
+	return i.publishSetup(ctx, contract.SetupRequest{Session: session, Reply: seq, Value: value, Error: problem})
 }
 
 // EndSetup stops a session. Its steps end without a Done.
@@ -82,10 +82,10 @@ func (i *Instance) EndSetup(ctx context.Context, session string) error {
 	if !running {
 		return nil
 	}
-	return i.publishSetup(ctx, contractv1.SetupRequest{Session: session, End: true})
+	return i.publishSetup(ctx, contract.SetupRequest{Session: session, End: true})
 }
 
-func (i *Instance) publishSetup(ctx context.Context, r contractv1.SetupRequest) error {
+func (i *Instance) publishSetup(ctx context.Context, r contract.SetupRequest) error {
 	payload, err := json.Marshal(r)
 	if err != nil {
 		return err
@@ -94,7 +94,7 @@ func (i *Instance) publishSetup(ctx context.Context, r contractv1.SetupRequest) 
 }
 
 func (i *Instance) handleSetup(topic string, payload []byte, retained bool) {
-	var step contractv1.SetupStep
+	var step contract.SetupStep
 	if err := json.Unmarshal(payload, &step); err != nil {
 		i.mu.Lock()
 		i.rejectLocked(ReasonMalformed, "", topic)
@@ -104,13 +104,13 @@ func (i *Instance) handleSetup(topic string, payload []byte, retained bool) {
 	// A session the decoder gives up on is ended for the plugin too, which would otherwise wait
 	// for a reply nobody will send. Published after unlocking: a bus may deliver it straight back.
 	if i.handleSetupStep(topic, step, retained) {
-		_ = i.publishSetup(context.Background(), contractv1.SetupRequest{Session: step.Session, End: true})
+		_ = i.publishSetup(context.Background(), contract.SetupRequest{Session: step.Session, End: true})
 	}
 }
 
 // handleSetupStep hands a step to its session, and reports whether it ended the session for a step
 // it couldn't hand on.
-func (i *Instance) handleSetupStep(topic string, step contractv1.SetupStep, retained bool) bool {
+func (i *Instance) handleSetupStep(topic string, step contract.SetupStep, retained bool) bool {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	steps, ok := i.sessions[step.Session]
@@ -143,7 +143,7 @@ func (i *Instance) endSessionLocked(session, problem string) {
 		return
 	}
 	select {
-	case steps <- contractv1.SetupStep{Session: session, Done: &contractv1.SetupDone{Error: problem}}:
+	case steps <- contract.SetupStep{Session: session, Done: &contract.SetupDone{Error: problem}}:
 	default:
 	}
 	i.dropSessionLocked(session)

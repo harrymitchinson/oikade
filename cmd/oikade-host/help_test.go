@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev/internal/cli"
+	"oikade.dev/internal/testkit"
 )
 
 // exited is a command's exit, which a test's exit panics with so that the command stops there.

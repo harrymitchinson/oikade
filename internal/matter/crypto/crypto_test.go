@@ -5,7 +5,7 @@ import (
 	"encoding/base64"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev/internal/testkit"
 )
 
 // TestCCMVectors uses connectedhomeip's AES-CCM-128 vectors with Matter's 13-byte nonce and

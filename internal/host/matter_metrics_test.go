@@ -7,7 +7,7 @@ import (
 
 	"github.com/VictoriaMetrics/metrics"
 
-	"github.com/harrymitchinson/oikade/internal/matter/contain"
+	"oikade.dev/internal/matter/contain"
 )
 
 // TestContainedPanicsAreCounted: each panic the node contains is counted by its site, and every

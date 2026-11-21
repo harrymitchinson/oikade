@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/mqtt/mqtttest"
 )
 
 type handler struct {
@@ -17,15 +17,15 @@ type handler struct {
 }
 
 func (h handler) Serve(ctx context.Context, p *Plugin) error { return h.serve(ctx, p) }
-func (handler) Set(context.Context, *Plugin, contractv1.SetCommand) error {
+func (handler) Set(context.Context, *Plugin, contract.SetCommand) error {
 	return nil
 }
 
 func setEnv(t *testing.T, url string) {
 	t.Helper()
-	t.Setenv(contractv1.EnvMQTTURL, url)
-	t.Setenv(contractv1.EnvTopic, string(root))
-	t.Setenv(contractv1.EnvDevicesFile, writeFile(t, t.TempDir(), "devices.json",
+	t.Setenv(contract.EnvMQTTURL, url)
+	t.Setenv(contract.EnvTopic, string(root))
+	t.Setenv(contract.EnvDevicesFile, writeFile(t, t.TempDir(), "devices.json",
 		`{"contract":1,"devices":[{"id":"relay-1","name":"relay","displayName":"Relay"}]}`))
 }
 
@@ -36,16 +36,16 @@ func TestRunStopsCleanly(t *testing.T) {
 	w := watchLive(ctx, t, b.URL)
 
 	runCtx, stop := context.WithCancel(ctx)
-	var declared []contractv1.DeclaredDevice
+	var declared []contract.DeclaredDevice
 	code := make(chan int, 1)
 	logs := &logBuffer{}
 	go func() {
 		code <- run(runCtx, slog.New(slog.NewJSONHandler(logs, nil)), Options{},
-			func(_ Environment, devices []contractv1.DeclaredDevice) (Handler, error) {
+			func(_ Environment, devices []contract.DeclaredDevice) (Handler, error) {
 				declared = devices
 				return handler{serve: func(ctx context.Context, p *Plugin) error {
 					// Serve may return early; Run keeps the plugin up until it's stopped.
-					return p.SetDevices(ctx, []contractv1.DeviceReport{relay}, 0)
+					return p.SetDevices(ctx, []contract.DeviceReport{relay}, 0)
 				}}, nil
 			})
 	}()
@@ -62,18 +62,18 @@ func TestRunStopsCleanly(t *testing.T) {
 
 func TestRunFails(t *testing.T) {
 	b := mqtttest.NewBroker(t)
-	serveFails := func(Environment, []contractv1.DeclaredDevice) (Handler, error) {
+	serveFails := func(Environment, []contract.DeclaredDevice) (Handler, error) {
 		return handler{serve: func(context.Context, *Plugin) error { return errors.New("bus gone") }}, nil
 	}
 	for _, tc := range []struct {
 		name       string
 		env        func(t *testing.T)
-		newHandler func(Environment, []contractv1.DeclaredDevice) (Handler, error)
+		newHandler func(Environment, []contract.DeclaredDevice) (Handler, error)
 		want       string
 	}{
 		{
 			name: "missing environment",
-			env:  func(t *testing.T) { t.Helper(); setEnv(t, b.URL); t.Setenv(contractv1.EnvTopic, "") },
+			env:  func(t *testing.T) { t.Helper(); setEnv(t, b.URL); t.Setenv(contract.EnvTopic, "") },
 			want: `"msg":"Could not start plugin","err":"OIKADE_TOPIC is not set`,
 		},
 		{
@@ -81,14 +81,14 @@ func TestRunFails(t *testing.T) {
 			env: func(t *testing.T) {
 				t.Helper()
 				setEnv(t, b.URL)
-				t.Setenv(contractv1.EnvDevicesFile, writeFile(t, t.TempDir(), "d.json", `{"contract":2}`))
+				t.Setenv(contract.EnvDevicesFile, writeFile(t, t.TempDir(), "d.json", `{"contract":2}`))
 			},
 			want: `contract 2 is not supported`,
 		},
 		{
 			name: "handler refuses",
 			env:  func(t *testing.T) { t.Helper(); setEnv(t, b.URL) },
-			newHandler: func(Environment, []contractv1.DeclaredDevice) (Handler, error) {
+			newHandler: func(Environment, []contract.DeclaredDevice) (Handler, error) {
 				return nil, errors.New("no LAN key")
 			},
 			want: `"msg":"Could not start plugin","err":"no LAN key"`,
@@ -109,7 +109,7 @@ func TestRunFails(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.env(t)
 			if tc.newHandler == nil {
-				tc.newHandler = func(Environment, []contractv1.DeclaredDevice) (Handler, error) {
+				tc.newHandler = func(Environment, []contract.DeclaredDevice) (Handler, error) {
 					t.Fatal("built a handler")
 					return nil, nil
 				}

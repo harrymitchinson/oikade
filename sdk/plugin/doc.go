@@ -6,7 +6,7 @@
 // devices file, builds the Handler from the declared devices, and serves until it's stopped:
 //
 //	func main() {
-//		plugin.Run(func(_ plugin.Environment, devices []contractv1.DeclaredDevice) (plugin.Handler, error) {
+//		plugin.Run(func(_ plugin.Environment, devices []contract.DeclaredDevice) (plugin.Handler, error) {
 //			return newSwitches(devices), nil // simulated relays, one per declared device
 //		})
 //	}

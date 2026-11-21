@@ -1,8 +1,8 @@
 package oikade
 
 import (
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/engine"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/engine"
 )
 
 // Value is what a capability holds: a bool, a number or a ClimateMode.
@@ -15,11 +15,11 @@ type ClimateMode string
 // The modes Mode takes. oikade check refuses any other in a decision's Case or Default, and a flow
 // that writes one fails its run.
 const (
-	ModeAuto ClimateMode = contractv1.ModeAuto
-	ModeHeat ClimateMode = contractv1.ModeHeat
-	ModeCool ClimateMode = contractv1.ModeCool
-	ModeDry  ClimateMode = contractv1.ModeDry
-	ModeFan  ClimateMode = contractv1.ModeFan
+	ModeAuto ClimateMode = contract.ModeAuto
+	ModeHeat ClimateMode = contract.ModeHeat
+	ModeCool ClimateMode = contract.ModeCool
+	ModeDry  ClimateMode = contract.ModeDry
+	ModeFan  ClimateMode = contract.ModeFan
 )
 
 // Capability is the name of a capability whose values are T. The constants below are every
@@ -29,33 +29,33 @@ type Capability[T Value] string
 // The capabilities, as oikade list devices shows them and plugins name them in contract/v1.
 const (
 	// On is whether a light, switch or outlet is on.
-	On Capability[bool] = contractv1.On
+	On Capability[bool] = contract.On
 	// Brightness is a light's brightness in percent, which doesn't turn it on or off.
-	Brightness Capability[float64] = contractv1.Brightness
+	Brightness Capability[float64] = contract.Brightness
 	// Temperature is in degrees Celsius.
-	Temperature Capability[float64] = contractv1.Temperature
+	Temperature Capability[float64] = contract.Temperature
 	// Humidity is relative humidity in percent.
-	Humidity Capability[float64] = contractv1.Humidity
+	Humidity Capability[float64] = contract.Humidity
 	// Open is true while a door or window is open.
-	Open Capability[bool] = contractv1.Open
+	Open Capability[bool] = contract.Open
 	// Occupied is true while motion or presence is detected.
-	Occupied Capability[bool] = contractv1.Occupied
+	Occupied Capability[bool] = contract.Occupied
 	// Battery is a battery's charge in percent.
-	Battery Capability[float64] = contractv1.Battery
+	Battery Capability[float64] = contract.Battery
 	// LinkQuality is a radio link's quality, from 0 to 255.
-	LinkQuality Capability[float64] = contractv1.LinkQuality
+	LinkQuality Capability[float64] = contract.LinkQuality
 	// Setpoint is the temperature a heater or thermostat aims for, in degrees Celsius. It doesn't
 	// turn it on or off: On does.
-	Setpoint Capability[float64] = contractv1.Setpoint
+	Setpoint Capability[float64] = contract.Setpoint
 	// Locked is true while a lock's bolt is fully thrown. A hold's end leaves a lock as it is: only
 	// To(false) unlocks it.
-	Locked Capability[bool] = contractv1.Locked
+	Locked Capability[bool] = contract.Locked
 	// Position is how far closed a blind, shade or shutter is, in percent: 0 is fully open and 100
 	// fully closed. A write settles for 2 minutes while it travels.
-	Position Capability[float64] = contractv1.Position
+	Position Capability[float64] = contract.Position
 	// Mode is what an air conditioner or heat pump does while it's on, such as ModeDry. It's kept
 	// while the unit is off: On turns it on and off.
-	Mode Capability[ClimateMode] = contractv1.Mode
+	Mode Capability[ClimateMode] = contract.Mode
 )
 
 // Bool is one capability of one device that's true or false, such as PorchLight.On. oikade types
@@ -103,7 +103,7 @@ func (n Number) String() string { return n.handle().ref() }
 func (c Choice) String() string { return c.handle().ref() }
 
 // Ref is a Bool, a Number or a Choice: a capability of one device, or of a group, whose values are
-// T, which a decision and hometest's helpers take.
+// T, which a decision and oikadetest's helpers take.
 type Ref[T Value] interface {
 	// To is a write of v to the device, or to the group's members.
 	To(v T) Set
@@ -197,12 +197,12 @@ const RoomAirConditioner DeviceType = "RoomAirConditioner"
 
 // The device types a device that's on or off can be.
 const (
-	OnOffLight                 DeviceType = contractv1.OnOffLight
-	DimmableLight              DeviceType = contractv1.DimmableLight
-	OnOffPlugInUnit            DeviceType = contractv1.OnOffPlugInUnit
-	DimmablePlugInUnit         DeviceType = contractv1.DimmablePlugInUnit
-	MountedOnOffControl        DeviceType = contractv1.MountedOnOffControl
-	MountedDimmableLoadControl DeviceType = contractv1.MountedDimmableLoadControl
+	OnOffLight                 DeviceType = contract.OnOffLight
+	DimmableLight              DeviceType = contract.DimmableLight
+	OnOffPlugInUnit            DeviceType = contract.OnOffPlugInUnit
+	DimmablePlugInUnit         DeviceType = contract.DimmablePlugInUnit
+	MountedOnOffControl        DeviceType = contract.MountedOnOffControl
+	MountedDimmableLoadControl DeviceType = contract.MountedDimmableLoadControl
 )
 
 // Kind is which of a room's devices Home.Room means: Lights, Plugs, Heaters, Everything, or some

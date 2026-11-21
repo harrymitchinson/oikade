@@ -18,10 +18,10 @@ import (
 
 	"golang.org/x/term"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/cli"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/ident"
 )
 
 // redirectWait is how long a sign-in in the browser may take.
@@ -68,7 +68,7 @@ type setupper struct {
 func (s setupper) run(ctx context.Context, t api.Transport, host, plugin string, asJSON bool) error {
 	_, _ = fmt.Fprintf(s.stderr, "Starting the setup of %s on %s\n", plugin, host)
 	var session string
-	var done *contractv1.SetupDone
+	var done *contract.SetupDone
 	err := api.Setup(ctx, t, plugin, func(step api.SetupStep) error {
 		switch {
 		case step.Seq == 0 && step.Done == nil:
@@ -121,7 +121,7 @@ func (s setupper) run(ctx context.Context, t api.Transport, host, plugin string,
 
 // ask asks the person, on stderr, and reads a line. A secret isn't echoed on a terminal. Ending ctx,
 // as Ctrl-C does, stops waiting, and puts the terminal back as it was.
-func (s setupper) ask(ctx context.Context, a contractv1.SetupAsk) (string, error) {
+func (s setupper) ask(ctx context.Context, a contract.SetupAsk) (string, error) {
 	_, _ = fmt.Fprintf(s.stderr, "%s: ", a.Prompt)
 	type read struct {
 		value string
@@ -169,7 +169,7 @@ func (s setupper) readLine(prompt string) (string, error) {
 }
 
 // open shows a page in the browser and waits for its redirect, which carries the answer.
-func (s setupper) open(ctx context.Context, o contractv1.SetupOpen) (string, error) {
+func (s setupper) open(ctx context.Context, o contract.SetupOpen) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, redirectWait)
 	defer cancel()
 	return s.catch(ctx, o.Redirect, func() {
@@ -202,7 +202,7 @@ func browse(page string) error {
 // catchRedirect listens on redirect, which is on this machine, calls listening once it does, and
 // returns the query of the first request to its path.
 func catchRedirect(ctx context.Context, redirect string, listening func()) (string, error) {
-	address, err := contractv1.RedirectAddress(redirect)
+	address, err := contract.RedirectAddress(redirect)
 	if err != nil {
 		return "", err
 	}

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/apicheck"
+	"oikade.dev/internal/apicheck"
 )
 
 // Plugins live in other modules, and can't name anything internal.

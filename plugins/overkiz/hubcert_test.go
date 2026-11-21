@@ -21,7 +21,7 @@ import (
 	"testing"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"oikade.dev/contract/v1"
 )
 
 // The fake hub's PIN, and the name its certificate gives.
@@ -208,7 +208,7 @@ func TestAnotherHubsCertificateIsRefusedBeforeTheTokenIsSent(t *testing.T) {
 	if n := b.logs.count("Refused Overkiz hub's certificate"); n == 0 {
 		t.Error("the refusal wasn't logged")
 	}
-	if s := b.status(); s.State != contractv1.Online {
+	if s := b.status(); s.State != contract.Online {
 		t.Errorf("the plugin went %s", s.State)
 	}
 	hub.mu.Lock()

@@ -5,8 +5,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/internal/store"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/store"
 )
 
 func TestTheBridgesNameIsSavedBeforeItsApplied(t *testing.T) {

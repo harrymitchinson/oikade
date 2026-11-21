@@ -16,10 +16,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/mqtt"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/mqtt"
 )
 
 // ErrClosed is returned by a Plugin's methods once Close has started.
@@ -31,7 +31,7 @@ type Options struct {
 	Environment Environment
 	// OnSet applies a command, then reports the result with SetState or UpdateState. Calls for one
 	// device never overlap, and their ctx ends when the plugin closes.
-	OnSet func(ctx context.Context, p *Plugin, cmd contractv1.SetCommand) error
+	OnSet func(ctx context.Context, p *Plugin, cmd contract.SetCommand) error
 	// OnSetup, if set, is the plugin's Setup, which oikade setup runs. Nil means it has none.
 	OnSetup func(ctx context.Context, p *Plugin, s *Session) (string, error)
 	// Logger defaults to JSON on stderr.
@@ -47,10 +47,10 @@ type Options struct {
 // republishes them, retained, whenever it reconnects, because a Last Will or a broker restart may
 // have replaced them.
 type Plugin struct {
-	root         contractv1.Root
+	root         contract.Root
 	clientID     string
 	log          *slog.Logger
-	onSet        func(ctx context.Context, p *Plugin, cmd contractv1.SetCommand) error
+	onSet        func(ctx context.Context, p *Plugin, cmd contract.SetCommand) error
 	onSetup      func(ctx context.Context, p *Plugin, s *Session) (string, error)
 	closeTimeout time.Duration
 
@@ -73,17 +73,17 @@ type Plugin struct {
 
 	mu sync.Mutex
 	// devices is nil until SetDevices.
-	devices    []contractv1.DeviceReport
+	devices    []contract.DeviceReport
 	undeclared int
 	// discovered is nil until SetDiscovered.
-	discovered []contractv1.DiscoveredDevice
+	discovered []contract.DiscoveredDevice
 	// problem is the status's error, empty while there's none, and published whether it's been
 	// published since it last changed.
 	problem      string
 	published    bool
-	states       map[string]contractv1.State
+	states       map[string]contract.State
 	availability map[string]bool
-	queues       map[string][]contractv1.SetCommand
+	queues       map[string][]contract.SetCommand
 	// running says when each device's Set began, and setTimeout how long one may run before a
 	// plugin under the host counts as hung. Zero never does.
 	running    map[string]time.Time
@@ -115,7 +115,7 @@ func Start(ctx context.Context, o Options) (*Plugin, error) {
 	if o.CloseTimeout <= 0 {
 		o.CloseTimeout = 2 * time.Second
 	}
-	root, err := contractv1.ParseRoot(string(o.Environment.Root))
+	root, err := contract.ParseRoot(string(o.Environment.Root))
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +150,7 @@ func Start(ctx context.Context, o Options) (*Plugin, error) {
 		return fail(fmt.Errorf("could not come online at %s within %s", server.Redacted(), o.StartTimeout))
 	}
 
-	will, _ := json.Marshal(contractv1.Status{State: contractv1.Offline, Contract: contractv1.Contract})
+	will, _ := json.Marshal(contract.Status{State: contract.Offline, Contract: contract.Contract})
 	client, err := mqtt.Connect(life, server.String(), p.clientID,
 		mqtt.WithWill(root.Status(), will), mqtt.WithOnConnect(p.announce))
 	if err != nil {
@@ -185,8 +185,8 @@ func Start(ctx context.Context, o Options) (*Plugin, error) {
 	return p, nil
 }
 
-func newPlugin(root contractv1.Root, log *slog.Logger,
-	onSet func(context.Context, *Plugin, contractv1.SetCommand) error, closeTimeout time.Duration,
+func newPlugin(root contract.Root, log *slog.Logger,
+	onSet func(context.Context, *Plugin, contract.SetCommand) error, closeTimeout time.Duration,
 	life context.Context, stop context.CancelFunc) *Plugin {
 	return &Plugin{
 		root:         root,
@@ -199,9 +199,9 @@ func newPlugin(root contractv1.Root, log *slog.Logger,
 		life:         life,
 		stop:         stop,
 		pub:          make(chan struct{}, 1),
-		states:       map[string]contractv1.State{},
+		states:       map[string]contract.State{},
 		availability: map[string]bool{},
-		queues:       map[string][]contractv1.SetCommand{},
+		queues:       map[string][]contract.SetCommand{},
 		running:      map[string]time.Time{},
 	}
 }
@@ -218,10 +218,10 @@ func newClientID() string {
 // any other it finds. Values a device no longer announces are dropped from its state, and that
 // state is republished. It refuses an invalid or repeated ID, and a capability or a device type
 // Oikade doesn't know, and publishes nothing.
-func (p *Plugin) SetDevices(ctx context.Context, devices []contractv1.DeviceReport, undeclared int) error {
+func (p *Plugin) SetDevices(ctx context.Context, devices []contract.DeviceReport, undeclared int) error {
 	seen := map[string]bool{}
 	for _, d := range devices {
-		if !contractv1.ValidID(d.ID) {
+		if !contract.ValidID(d.ID) {
 			return fmt.Errorf("device id %q is not valid", d.ID)
 		}
 		if seen[d.ID] {
@@ -233,7 +233,7 @@ func (p *Plugin) SetDevices(ctx context.Context, devices []contractv1.DeviceRepo
 				return fmt.Errorf("device %s: unknown capability %s", d.ID, c)
 			}
 		}
-		if !contractv1.ValidDeviceType(d.DeviceType) {
+		if !contract.ValidDeviceType(d.DeviceType) {
 			return fmt.Errorf("device %s: unknown device type %s", d.ID, d.DeviceType)
 		}
 	}
@@ -243,7 +243,7 @@ func (p *Plugin) SetDevices(ctx context.Context, devices []contractv1.DeviceRepo
 	defer p.unlock()
 
 	p.mu.Lock()
-	p.devices = make([]contractv1.DeviceReport, len(devices))
+	p.devices = make([]contract.DeviceReport, len(devices))
 	for i, d := range devices {
 		d.Capabilities = slices.Clone(d.Capabilities)
 		p.devices[i] = d
@@ -286,14 +286,14 @@ func (p *Plugin) SetDevices(ctx context.Context, devices []contractv1.DeviceRepo
 // means the app has no devices. It refuses an invalid or repeated ID, and a capability or device
 // type Oikade doesn't know, and publishes nothing. The list is published with the devices from
 // SetDevices, and waits for the first SetDevices if that hasn't been called yet.
-func (p *Plugin) SetDiscovered(ctx context.Context, discovered []contractv1.DiscoveredDevice) error {
-	var next []contractv1.DiscoveredDevice
+func (p *Plugin) SetDiscovered(ctx context.Context, discovered []contract.DiscoveredDevice) error {
+	var next []contract.DiscoveredDevice
 	if discovered != nil {
-		next = make([]contractv1.DiscoveredDevice, len(discovered))
+		next = make([]contract.DiscoveredDevice, len(discovered))
 	}
 	seen := map[string]bool{}
 	for i, d := range discovered {
-		if !contractv1.ValidID(d.ID) {
+		if !contract.ValidID(d.ID) {
 			return fmt.Errorf("discovered device id %q is not valid", d.ID)
 		}
 		if seen[d.ID] {
@@ -305,7 +305,7 @@ func (p *Plugin) SetDiscovered(ctx context.Context, discovered []contractv1.Disc
 				return fmt.Errorf("discovered device %s: unknown capability %s", d.ID, c)
 			}
 		}
-		if !contractv1.ValidDeviceType(d.DeviceType) {
+		if !contract.ValidDeviceType(d.DeviceType) {
 			return fmt.Errorf("discovered device %s: unknown device type %s", d.ID, d.DeviceType)
 		}
 		d.Capabilities = slices.Clone(d.Capabilities)
@@ -329,13 +329,13 @@ func (p *Plugin) SetDiscovered(ctx context.Context, discovered []contractv1.Disc
 // SetState publishes a device's full current values. The device must be found, and the state
 // must hold a valid value for every capability announced in SetDevices and nothing else.
 // Otherwise SetState returns an error and publishes nothing.
-func (p *Plugin) SetState(ctx context.Context, id string, s contractv1.State) error {
+func (p *Plugin) SetState(ctx context.Context, id string, s contract.State) error {
 	return p.writeState(ctx, id, s, false, false)
 }
 
 // UpdateState merges values into a device's state and publishes the full result, which must be
 // complete as for SetState.
-func (p *Plugin) UpdateState(ctx context.Context, id string, s contractv1.State) error {
+func (p *Plugin) UpdateState(ctx context.Context, id string, s contract.State) error {
 	return p.writeState(ctx, id, s, true, false)
 }
 
@@ -343,11 +343,11 @@ func (p *Plugin) UpdateState(ctx context.Context, id string, s contractv1.State)
 // an announced capability. It's for a device that reports when it chooses and can't be asked, such
 // as a battery sensor. A plugin that can read its devices uses SetState or UpdateState, which catch
 // a value it forgot.
-func (p *Plugin) ReportState(ctx context.Context, id string, s contractv1.State) error {
+func (p *Plugin) ReportState(ctx context.Context, id string, s contract.State) error {
 	return p.writeState(ctx, id, s, true, true)
 }
 
-func (p *Plugin) writeState(ctx context.Context, id string, s contractv1.State, merge, partial bool) error {
+func (p *Plugin) writeState(ctx context.Context, id string, s contract.State, merge, partial bool) error {
 	if err := p.lock(ctx); err != nil {
 		return err
 	}
@@ -359,7 +359,7 @@ func (p *Plugin) writeState(ctx context.Context, id string, s contractv1.State, 
 		return fmt.Errorf("device %s is not reported found in SetDevices", id)
 	}
 	announced := p.capabilitiesLocked(id)
-	next := contractv1.State{}
+	next := contract.State{}
 	if merge {
 		maps.Copy(next, p.states[id])
 	}
@@ -422,7 +422,7 @@ func (p *Plugin) SetError(ctx context.Context, problem string) error {
 }
 
 // State returns a copy of the last state set for a device, or nil.
-func (p *Plugin) State(id string) contractv1.State {
+func (p *Plugin) State(id string) contract.State {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return maps.Clone(p.states[id])
@@ -439,7 +439,7 @@ func (p *Plugin) Close(ctx context.Context) error {
 	defer p.stop()
 	ctx, cancel := context.WithTimeout(ctx, p.closeTimeout)
 	defer cancel()
-	offline, _ := json.Marshal(contractv1.Status{State: contractv1.Offline, Contract: contractv1.Contract})
+	offline, _ := json.Marshal(contract.Status{State: contract.Offline, Contract: contract.Contract})
 	err := p.acquire(ctx)
 	if err == nil {
 		err = p.client.Publish(ctx, p.root.Status(), offline, true)
@@ -619,8 +619,8 @@ func (p *Plugin) unlock() { <-p.pub }
 func (p *Plugin) publishStatus(ctx context.Context) error {
 	p.mu.Lock()
 	problem := p.problem
-	status := contractv1.Status{
-		State: contractv1.Online, Contract: contractv1.Contract, Error: problem, Setup: p.onSetup != nil,
+	status := contract.Status{
+		State: contract.Online, Contract: contract.Contract, Error: problem, Setup: p.onSetup != nil,
 	}
 	payload, err := json.Marshal(status)
 	p.mu.Unlock()
@@ -639,7 +639,7 @@ func (p *Plugin) publishStatus(ctx context.Context) error {
 
 func (p *Plugin) publishDevices(ctx context.Context) error {
 	p.mu.Lock()
-	payload, err := json.Marshal(contractv1.Devices{
+	payload, err := json.Marshal(contract.Devices{
 		Devices: p.devices, Undeclared: p.undeclared, Discovered: p.discovered, NeedsSetup: p.needsSetup,
 	})
 	p.mu.Unlock()
@@ -653,7 +653,7 @@ func (p *Plugin) publishState(ctx context.Context, id string) error {
 	p.mu.Lock()
 	s := p.states[id]
 	if s == nil {
-		s = contractv1.State{}
+		s = contract.State{}
 	}
 	payload, err := json.Marshal(s)
 	p.mu.Unlock()
@@ -665,9 +665,9 @@ func (p *Plugin) publishState(ctx context.Context, id string) error {
 
 func (p *Plugin) publishAvailability(ctx context.Context, id string) error {
 	p.mu.Lock()
-	value := contractv1.Offline
+	value := contract.Offline
 	if p.availability[id] {
-		value = contractv1.Online
+		value = contract.Online
 	}
 	p.mu.Unlock()
 	return p.client.Publish(ctx, p.root.Availability(id), []byte(value), true)
@@ -684,9 +684,9 @@ func (p *Plugin) capabilitiesLocked(id string) []string {
 }
 
 func (p *Plugin) reportedLocked(id string) bool {
-	return slices.ContainsFunc(p.devices, func(d contractv1.DeviceReport) bool { return d.ID == id })
+	return slices.ContainsFunc(p.devices, func(d contract.DeviceReport) bool { return d.ID == id })
 }
 
 func (p *Plugin) foundLocked(id string) bool {
-	return slices.ContainsFunc(p.devices, func(d contractv1.DeviceReport) bool { return d.ID == id && d.Found })
+	return slices.ContainsFunc(p.devices, func(d contract.DeviceReport) bool { return d.ID == id && d.Found })
 }

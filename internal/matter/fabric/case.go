@@ -3,7 +3,7 @@ package fabric
 import (
 	"bytes"
 
-	"github.com/harrymitchinson/oikade/internal/matter/securechannel"
+	"oikade.dev/internal/matter/securechannel"
 )
 
 // CASE returns the table as a CASE responder takes it.

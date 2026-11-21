@@ -62,7 +62,7 @@ oikade types --out - | less   # or read it first
 - **Two names that come out the same in Go,** such as `a-1` and `a1`, fail until you rename one.
 - **`--out FILE` and `--package NAME`** say where it goes, `devices.go` in package `main` by default.
 
-`oikade dev` and `hometest` simulate the devices `devices.go` has handles for, in the rooms and of the types your home declares: see [Testing a home](testing.md).
+`oikade dev` and `oikadetest` simulate the devices `devices.go` has handles for, in the rooms and of the types your home declares: see [Testing a home](testing.md).
 
 ## Forgetting a device
 

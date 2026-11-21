@@ -1,9 +1,9 @@
-// Package hometest tests a home like the software it is: set device values, move a fake clock and
+// Package oikadetest tests a home like the software it is: set device values, move a fake clock and
 // look at what your automations did. It runs the real engine, arbiters and planner in your test, with
 // no host and no hardware.
 //
 //	func TestPorchLightFollowsThePorchSensor(t *testing.T) {
-//		h := hometest.New(t, home(), hometest.Options{})
+//		h := oikadetest.New(t, home(), oikadetest.Options{})
 //
 //		h.Set(PorchSensor.Occupied, true)
 //		h.ExpectValue(PorchLight.On, true)
@@ -15,18 +15,18 @@
 //		h.Advance(2 * time.Minute)
 //		h.ExpectValue(PorchLight.On, false)
 //	}
-package hometest
+package oikadetest
 
 import (
 	"log/slog"
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade"
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/devicetype"
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/simhome"
+	"oikade.dev"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/simhome"
 )
 
 // Device is a device in the simulated home, for Options.Devices.

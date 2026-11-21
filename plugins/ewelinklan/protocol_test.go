@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"oikade.dev/contract/v1"
 )
 
 // fixtureKey, fixtureIV and vectors were made outside Go, with Node's crypto, so decrypt isn't
@@ -139,7 +139,7 @@ func TestReadsARealTHReport(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := kinds["th_plug"].read(params)
-	want := report{relay: true, on: false, values: map[string]float64{contractv1.Temperature: 11.9}}
+	want := report{relay: true, on: false, values: map[string]float64{contract.Temperature: 11.9}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
@@ -148,7 +148,7 @@ func TestReadsARealTHReport(t *testing.T) {
 func TestATemperatureIsReadUpToWhatTheCapabilityAllows(t *testing.T) {
 	// A DS18B20 probe goes to 125 °C, as on a boiler pipe.
 	got := kinds["th_plug"].read(map[string]any{"switch": "on", "currentTemperature": "108.5"})
-	if got.values[contractv1.Temperature] != 108.5 {
+	if got.values[contract.Temperature] != 108.5 {
 		t.Errorf("got %+v", got)
 	}
 }

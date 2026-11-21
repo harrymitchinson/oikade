@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/internal/logging"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/logging"
 )
 
 func TestTheValuesAreSavedWithTheirVersionAndAnAbortBringsBackTheLast(t *testing.T) {

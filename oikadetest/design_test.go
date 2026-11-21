@@ -1,12 +1,12 @@
-package hometest_test
+package oikadetest_test
 
 import (
 	"fmt"
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade"
-	"github.com/harrymitchinson/oikade/hometest"
+	"oikade.dev"
+	"oikade.dev/oikadetest"
 )
 
 // A porch light, a pool pump and a garage heater, decided as a home writes them.
@@ -23,9 +23,9 @@ var (
 	garageDoor   = oikade.Bool{Device: "garage-door", Capability: oikade.Open}
 )
 
-func designDevices(water float64) []hometest.Device {
+func designDevices(water float64) []oikadetest.Device {
 	temperature, open, occupied := string(oikade.Temperature), string(oikade.Open), string(oikade.Occupied)
-	return []hometest.Device{
+	return []oikadetest.Device{
 		{Name: "porch-light", Capabilities: []string{on}, Values: map[string]any{on: false}},
 		{Name: "porch-sensor", Capabilities: []string{occupied}, Values: map[string]any{occupied: false}},
 		{Name: "pool-pump", Capabilities: []string{on}, Values: map[string]any{on: false}},
@@ -71,9 +71,9 @@ func designHome() *oikade.Home {
 	return home
 }
 
-func designTest(t *testing.T, start time.Time, water float64) *hometest.Home {
+func designTest(t *testing.T, start time.Time, water float64) *oikadetest.Home {
 	t.Helper()
-	return hometest.New(t, designHome(), hometest.Options{Start: start, Devices: designDevices(water)})
+	return oikadetest.New(t, designHome(), oikadetest.Options{Start: start, Devices: designDevices(water)})
 }
 
 func TestThePorchLightLingersAfterMotion(t *testing.T) {
@@ -170,7 +170,7 @@ func TestThePoolPumpRunsItsSummerBudget(t *testing.T) {
 }
 
 // pumpRun is how many minutes the pool pump ran from since to until.
-func pumpRun(h *hometest.Home, since, until time.Time) int {
+func pumpRun(h *oikadetest.Home, since, until time.Time) int {
 	ran := 0
 	var on time.Time
 	for _, w := range h.Writes() {
@@ -279,10 +279,10 @@ func flowsHome() *oikade.Home {
 	return home
 }
 
-func flowsTest(t *testing.T, start time.Time) *hometest.Home {
+func flowsTest(t *testing.T, start time.Time) *oikadetest.Home {
 	t.Helper()
 	open, setpoint, humidity := string(oikade.Open), string(oikade.Setpoint), string(oikade.Humidity)
-	return hometest.New(t, flowsHome(), hometest.Options{Start: start, Devices: []hometest.Device{
+	return oikadetest.New(t, flowsHome(), oikadetest.Options{Start: start, Devices: []oikadetest.Device{
 		{Name: "hall-light", Capabilities: []string{on}, Values: map[string]any{on: false}},
 		{Name: "front-door", Capabilities: []string{open}, Values: map[string]any{open: false}},
 		{Name: "hall-radiator", Capabilities: []string{setpoint}, Values: map[string]any{setpoint: 20.0}},
@@ -406,7 +406,7 @@ func radiatorsHome() *oikade.Home {
 
 // radiatorsTest starts on a Monday at 06:00, with outside the temperature outside, or none reported
 // for 0.
-func radiatorsTest(t *testing.T, outside float64) *hometest.Home {
+func radiatorsTest(t *testing.T, outside float64) *oikadetest.Home {
 	t.Helper()
 	open, setpoint, temperature := string(oikade.Open), string(oikade.Setpoint), string(oikade.Temperature)
 	occupied := string(oikade.Occupied)
@@ -414,24 +414,26 @@ func radiatorsTest(t *testing.T, outside float64) *hometest.Home {
 	if outside != 0 {
 		values[temperature] = outside
 	}
-	devices := make([]hometest.Device, 0, 8)
-	devices = append(devices, []hometest.Device{
+	devices := make([]oikadetest.Device, 0, 8)
+	devices = append(devices, []oikadetest.Device{
 		{Name: "study-sensor", Capabilities: []string{occupied}, Values: map[string]any{occupied: false}},
 		{Name: "outdoor-sensor", Capabilities: []string{temperature}, Values: values},
 	}...)
 	for _, room := range []string{"bedroom", "study", "kitchen"} {
 		devices = append(devices,
-			hometest.Device{Name: room + "-radiator", Capabilities: []string{setpoint}, Values: map[string]any{setpoint: 15.0}},
-			hometest.Device{Name: room + "-window", Capabilities: []string{open}, Values: map[string]any{open: false}},
+			oikadetest.Device{
+				Name: room + "-radiator", Capabilities: []string{setpoint}, Values: map[string]any{setpoint: 15.0},
+			},
+			oikadetest.Device{Name: room + "-window", Capabilities: []string{open}, Values: map[string]any{open: false}},
 		)
 	}
-	return hometest.New(t, radiatorsHome(), hometest.Options{
+	return oikadetest.New(t, radiatorsHome(), oikadetest.Options{
 		Start: time.Date(2030, time.January, 7, 6, 0, 0, 0, time.UTC), Devices: devices,
 	})
 }
 
 // radiatorWrites are the setpoints written to a radiator.
-func radiatorWrites(h *hometest.Home, device string) []any {
+func radiatorWrites(h *oikadetest.Home, device string) []any {
 	var out []any
 	for _, w := range h.Writes() {
 		if w.Device == device {

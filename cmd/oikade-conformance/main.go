@@ -18,7 +18,7 @@
 //
 // Go plugins run it as a tool, so its version follows the oikade module in their go.mod:
 //
-//	go get -tool github.com/harrymitchinson/oikade/cmd/oikade-conformance
+//	go get -tool oikade.dev/cmd/oikade-conformance
 //	go build -o bin/my-plugin . && go tool oikade-conformance --devices conformance-devices.json -- bin/my-plugin
 //
 // Plugins in other languages install it in CI with go install …/cmd/oikade-conformance@vX.Y.Z.
@@ -34,8 +34,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/harrymitchinson/oikade/internal/conformance"
-	"github.com/harrymitchinson/oikade/internal/logging"
+	"oikade.dev/internal/conformance"
+	"oikade.dev/internal/logging"
 )
 
 func main() {

@@ -6,7 +6,7 @@ import (
 
 	"golang.org/x/net/dns/dnsmessage"
 
-	"github.com/harrymitchinson/oikade/internal/logging"
+	"oikade.dev/internal/logging"
 )
 
 // FuzzHandle checks that no packet, as a query or a response and from an mDNS or a legacy port,

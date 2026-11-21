@@ -3,14 +3,14 @@
 package main
 
 import (
-	"github.com/harrymitchinson/oikade"
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/sdk/plugin"
-	"github.com/harrymitchinson/oikade/test/fixtures/simswitch/relays"
+	"oikade.dev"
+	"oikade.dev/contract/v1"
+	"oikade.dev/sdk/plugin"
+	"oikade.dev/test/fixtures/simswitch/relays"
 )
 
 func main() {
-	factory := func(_ plugin.Environment, devices []contractv1.DeclaredDevice) (plugin.Handler, error) {
+	factory := func(_ plugin.Environment, devices []contract.DeclaredDevice) (plugin.Handler, error) {
 		return relays.New(devices), nil
 	}
 	home := oikade.NewHome(oikade.Options{})

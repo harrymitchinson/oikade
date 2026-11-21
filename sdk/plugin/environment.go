@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"oikade.dev/contract/v1"
 )
 
 // Environment is where a plugin is told to connect and what to serve.
@@ -19,7 +19,7 @@ type Environment struct {
 	// such as Zigbee2MQTT's, in its own config.
 	MQTTURL string
 	// Root is the plugin's topic root, oikade/v1/<plugin>.
-	Root contractv1.Root
+	Root contract.Root
 	// DevicesFile is the path of a devices file, or empty for a plugin that reports what it finds.
 	DevicesFile string
 	// SecretsDir is the directory of secrets: what the plugin's setup kept, under the host.
@@ -42,17 +42,17 @@ func readEnvironment(getenv func(string) string) (Environment, error) {
 		return v
 	}
 	env := Environment{
-		MQTTURL:     required(contractv1.EnvMQTTURL),
-		DevicesFile: getenv(contractv1.EnvDevicesFile),
-		SecretsDir:  getenv(contractv1.EnvSecretsDir),
+		MQTTURL:     required(contract.EnvMQTTURL),
+		DevicesFile: getenv(contract.EnvDevicesFile),
+		SecretsDir:  getenv(contract.EnvSecretsDir),
 	}
-	topic := required(contractv1.EnvTopic)
+	topic := required(contract.EnvTopic)
 	if missing != nil {
 		return Environment{}, missing
 	}
-	root, err := contractv1.ParseRoot(topic)
+	root, err := contract.ParseRoot(topic)
 	if err != nil {
-		return Environment{}, fmt.Errorf("%s: %w", contractv1.EnvTopic, err)
+		return Environment{}, fmt.Errorf("%s: %w", contract.EnvTopic, err)
 	}
 	env.Root = root
 	return env, nil
@@ -60,18 +60,18 @@ func readEnvironment(getenv func(string) string) (Environment, error) {
 
 // ReadDevices reads and checks a devices file: contract 1, and devices that each have an id, a name
 // and a displayName, with no id repeated.
-func ReadDevices(file string) ([]contractv1.DeclaredDevice, error) {
+func ReadDevices(file string) ([]contract.DeclaredDevice, error) {
 	raw, err := os.ReadFile(file)
 	if err != nil {
 		return nil, err
 	}
-	var f contractv1.DevicesFile
+	var f contract.DevicesFile
 	if err := json.Unmarshal(raw, &f); err != nil {
 		return nil, fmt.Errorf("%s: %w", file, err)
 	}
-	if f.Contract != contractv1.Contract {
+	if f.Contract != contract.Contract {
 		return nil, fmt.Errorf("%s: contract %d is not supported; this SDK speaks contract %d",
-			file, f.Contract, contractv1.Contract)
+			file, f.Contract, contract.Contract)
 	}
 	if f.Devices == nil {
 		return nil, fmt.Errorf("%s: devices must be a list", file)

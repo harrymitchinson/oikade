@@ -16,14 +16,14 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/internal/registry"
+	"oikade.dev/internal/cli"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/registry"
 )
 
 // oikadeModule is what a home imports.
-const oikadeModule = "github.com/harrymitchinson/oikade"
+const oikadeModule = "oikade.dev"
 
 // buildHome builds a module for this machine, in a directory that ends with done.
 func buildHome(ctx context.Context, module string) (path string, done func(), err error) {
@@ -501,7 +501,7 @@ package main
 import (
 	"time"
 
-	"github.com/harrymitchinson/oikade"
+	"oikade.dev"
 )
 
 // home is your automations. PorchLight and PorchSensor come from devices.go, which oikade types
@@ -531,11 +531,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/hometest"
+	"oikade.dev/oikadetest"
 )
 
 func TestPorchLightFollowsThePorchSensor(t *testing.T) {
-	h := hometest.New(t, home(), hometest.Options{})
+	h := oikadetest.New(t, home(), oikadetest.Options{})
 
 	h.Set(PorchSensor.Occupied, true)
 	h.ExpectValue(PorchLight.On, true)
@@ -570,7 +570,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go install github.com/harrymitchinson/oikade/cmd/oikade@OIKADE_VERSION
+      - run: go install oikade.dev/cmd/oikade@OIKADE_VERSION
       # Your values, from the secret OIKADE_ENV, which a pull request from a fork doesn't get: then
       # oikade check only warns. RUNNER_TEMP is emptied after the job.
       - name: Write your values
@@ -601,7 +601,7 @@ jobs:
           echo "GOBIN=$RUNNER_TEMP/bin" >> "$GITHUB_ENV"
           echo "XDG_CONFIG_HOME=$RUNNER_TEMP/config" >> "$GITHUB_ENV"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-      - run: go install github.com/harrymitchinson/oikade/cmd/oikade@OIKADE_VERSION
+      - run: go install oikade.dev/cmd/oikade@OIKADE_VERSION
       # Not in the checkout, which a self-hosted runner keeps: RUNNER_TEMP is emptied after the job.
       - name: Write your values
         env:

@@ -3,7 +3,7 @@ package im
 import (
 	"fmt"
 
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"oikade.dev/internal/matter/transport"
 )
 
 // Privilege is an access privilege (Core spec, 6.6.2), numbered as the Access Control cluster's

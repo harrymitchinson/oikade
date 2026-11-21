@@ -17,12 +17,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/host"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/install"
-	"github.com/harrymitchinson/oikade/internal/store"
+	"oikade.dev/internal/cli"
+	"oikade.dev/internal/host"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/install"
+	"oikade.dev/internal/store"
 )
 
 // version is the release this binary was built from, set with -ldflags "-X main.version=v0.1.0".

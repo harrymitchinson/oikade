@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/harrymitchinson/oikade/internal/matter/im"
-	"github.com/harrymitchinson/oikade/internal/store"
+	"oikade.dev/internal/matter/im"
+	"oikade.dev/internal/store"
 )
 
 // matterSubscriptionsNamespace is where the store keeps controllers' subscriptions to the bridge,

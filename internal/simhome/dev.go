@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/devicetype"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/internal/registry"
+	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/registry"
 )
 
 // ReadTypes reads the devices from the file oikade types wrote, with the rooms and types inventory

@@ -29,17 +29,17 @@ import (
 	"slices"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/control"
-	"github.com/harrymitchinson/oikade/internal/devicetype"
-	"github.com/harrymitchinson/oikade/internal/engine"
-	"github.com/harrymitchinson/oikade/internal/flow"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/internal/hub"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/matterbridge"
-	"github.com/harrymitchinson/oikade/internal/schedule"
-	"github.com/harrymitchinson/oikade/internal/sun"
-	"github.com/harrymitchinson/oikade/sdk/plugin"
+	"oikade.dev/internal/control"
+	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/engine"
+	"oikade.dev/internal/flow"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/hub"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/matterbridge"
+	"oikade.dev/internal/schedule"
+	"oikade.dev/internal/sun"
+	"oikade.dev/sdk/plugin"
 )
 
 // Snapshot is the home at one moment, which a ConditionFunc and NewBudget's function read.

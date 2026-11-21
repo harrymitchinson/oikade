@@ -8,8 +8,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/control"
-	"github.com/harrymitchinson/oikade/internal/engine"
+	"oikade.dev/internal/control"
+	"oikade.dev/internal/engine"
 )
 
 const (

@@ -6,8 +6,8 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 
-	mcrypto "github.com/harrymitchinson/oikade/internal/matter/crypto"
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	mcrypto "oikade.dev/internal/matter/crypto"
+	"oikade.dev/internal/matter/transport"
 )
 
 // SessionKeys are an established session's keys (Core spec, 4.14.2.6 and 4.14.3.7).

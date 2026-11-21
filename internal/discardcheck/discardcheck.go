@@ -13,7 +13,7 @@ import (
 	"golang.org/x/tools/go/types/typeutil"
 )
 
-const oikadePath = "github.com/harrymitchinson/oikade"
+const oikadePath = "oikade.dev"
 
 // Analyzer reports a call of an oikade function or method that discards the oikade value it
 // returns.

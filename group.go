@@ -6,9 +6,9 @@ import (
 	"reflect"
 	"slices"
 
-	"github.com/harrymitchinson/oikade/internal/devicetype"
-	"github.com/harrymitchinson/oikade/internal/engine"
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/engine"
+	"oikade.dev/internal/ident"
 )
 
 // Device is what each device oikade types writes embeds: its name, which makes it a member a group

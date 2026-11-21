@@ -3,7 +3,7 @@ package oikade
 import (
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/apicheck"
+	"oikade.dev/internal/apicheck"
 )
 
 // Homes live in other modules, and can't name anything internal.

@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/devicetype"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/registry"
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev/internal/cli"
+	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/registry"
+	"oikade.dev/internal/testkit"
 )
 
 // printers are the ways a command prints: plain, as to a pipe, and styled, as to a terminal.

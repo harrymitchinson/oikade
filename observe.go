@@ -10,10 +10,10 @@ import (
 
 	"github.com/VictoriaMetrics/metrics"
 
-	"github.com/harrymitchinson/oikade/internal/engine"
-	"github.com/harrymitchinson/oikade/internal/flow"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/internal/engine"
+	"oikade.dev/internal/flow"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/ident"
 )
 
 const (

@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/mqtt"
+	"oikade.dev/internal/mqtt"
 )
 
 // A fixture is one device model as Zigbee2MQTT publishes it: its entry in <base>/bridge/devices,

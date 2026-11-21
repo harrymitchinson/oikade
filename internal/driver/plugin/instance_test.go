@@ -10,13 +10,13 @@ import (
 	"time"
 	"unicode/utf8"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/devicetype"
-	"github.com/harrymitchinson/oikade/internal/driver"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/mqtt"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/driver"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/mqtt"
 )
 
 type recorder struct {
@@ -359,7 +359,7 @@ func TestStatusError(t *testing.T) {
 
 	// An error page passed on whole is one line, and cut.
 	page := "<html>\n<body>\x1b[31mBad gateway</body>" + strings.Repeat("x", 300)
-	raw, _ := json.Marshal(contractv1.Status{State: contractv1.Online, Contract: contractv1.Contract, Error: page})
+	raw, _ := json.Marshal(contract.Status{State: contract.Online, Contract: contract.Contract, Error: page})
 	publish(t, bus, root+"/status", string(raw))
 	if got := i.Problem(); strings.ContainsAny(got, "\n\x1b") || utf8.RuneCountInString(got) != maxProblem ||
 		!strings.HasPrefix(got, "<html> <body> [31mBad gateway") {
@@ -574,11 +574,11 @@ func TestWhatADeviceIsComesThrough(t *testing.T) {
 
 // A report's field that's only space is one it leaves out, so the discovered list's fills it.
 func TestAFieldThatsOnlySpaceIsLeftOut(t *testing.T) {
-	got := ReportProduct(contractv1.DeviceReport{Manufacturer: " Aqara\n", SerialNumber: " \t"})
+	got := ReportProduct(contract.DeviceReport{Manufacturer: " Aqara\n", SerialNumber: " \t"})
 	if want := (driver.Product{Manufacturer: "Aqara"}); got != want {
 		t.Errorf("got %+v, want %+v", got, want)
 	}
-	if merged := got.Or(DiscoveredProduct(contractv1.DiscoveredDevice{SerialNumber: "N9"})); merged.SerialNumber != "N9" {
+	if merged := got.Or(DiscoveredProduct(contract.DiscoveredDevice{SerialNumber: "N9"})); merged.SerialNumber != "N9" {
 		t.Errorf("the discovered list's serial number didn't fill a blank one: %+v", merged)
 	}
 }

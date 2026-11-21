@@ -17,10 +17,10 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/internal/sourcecheck"
+	"oikade.dev/internal/cli"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/sourcecheck"
 )
 
 // version is the release this binary was built from, set with -ldflags "-X main.version=v0.1.0".

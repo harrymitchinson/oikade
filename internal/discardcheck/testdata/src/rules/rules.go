@@ -1,6 +1,6 @@
 package rules
 
-import "github.com/harrymitchinson/oikade"
+import "oikade.dev"
 
 type other struct{}
 

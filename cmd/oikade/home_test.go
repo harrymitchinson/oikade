@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/internal/registry"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/registry"
 )
 
 // fakeGo puts a go on PATH that prints Go's own lines and fails on the subcommand failOn, if any.

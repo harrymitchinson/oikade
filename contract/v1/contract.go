@@ -1,9 +1,9 @@
-// Package v1 is the oikade/v1 plugin contract (docs/plugin-contract.md) as Go types.
+// Package contract is the oikade/v1 plugin contract (docs/plugin-contract.md) as Go types.
 //
 // Oikade's decoder, the Go plugin SDK and the conformance suite all use these types, so the bytes
 // on the wire can't drift between them. It imports nothing from internal/, whose packages import
 // it, so a plugin in another module can use it.
-package v1
+package contract
 
 import (
 	"bytes"

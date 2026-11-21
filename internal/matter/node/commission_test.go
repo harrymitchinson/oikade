@@ -10,16 +10,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/matter/clusters"
-	"github.com/harrymitchinson/oikade/internal/matter/contain"
-	"github.com/harrymitchinson/oikade/internal/matter/im"
-	"github.com/harrymitchinson/oikade/internal/matter/mdns"
-	"github.com/harrymitchinson/oikade/internal/matter/nodetest"
-	"github.com/harrymitchinson/oikade/internal/matter/securechannel"
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/matter/clusters"
+	"oikade.dev/internal/matter/contain"
+	"oikade.dev/internal/matter/im"
+	"oikade.dev/internal/matter/mdns"
+	"oikade.dev/internal/matter/nodetest"
+	"oikade.dev/internal/matter/securechannel"
+	"oikade.dev/internal/matter/tlv"
+	"oikade.dev/internal/matter/transport"
+	"oikade.dev/internal/testkit"
 )
 
 func addr(n *Node) netip.AddrPort { return nodetest.Addr(n.cfg.Port) }

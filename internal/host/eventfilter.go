@@ -8,9 +8,9 @@ import (
 	"slices"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/control"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/internal/control"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/ident"
 )
 
 // eventMatcher says which events an api.EventFilter lets through.

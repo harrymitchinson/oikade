@@ -5,7 +5,7 @@ import (
 
 	"golang.org/x/tools/go/analysis/analysistest"
 
-	"github.com/harrymitchinson/oikade/internal/flowcheck"
+	"oikade.dev/internal/flowcheck"
 )
 
 func TestFlows(t *testing.T) {

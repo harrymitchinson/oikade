@@ -8,9 +8,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/harrymitchinson/oikade/internal/devicetype"
-	"github.com/harrymitchinson/oikade/internal/driver"
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/driver"
+	"oikade.dev/internal/ident"
 )
 
 // Declaration is a device a home's code declares: its name, and the hardware, room and type it gives

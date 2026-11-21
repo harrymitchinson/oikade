@@ -14,7 +14,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/internal/ident"
 )
 
 // Parse reads a file's contents. An error starts with the line it's on, such as "3: …".

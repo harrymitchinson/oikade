@@ -4,13 +4,13 @@ import (
 	"strings"
 	"testing"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/sdk/plugin"
+	"oikade.dev/contract/v1"
+	"oikade.dev/sdk/plugin"
 )
 
 func TestEveryNameFollowsTheDeviceRule(t *testing.T) {
 	on := []Change{Bool{Device: "hall", Capability: Open}}
-	made := func(plugin.Environment, []contractv1.DeclaredDevice) (plugin.Handler, error) { return nil, nil }
+	made := func(plugin.Environment, []contract.DeclaredDevice) (plugin.Handler, error) { return nil, nil }
 	for name, tc := range map[string]struct {
 		home func(*Home)
 		want string

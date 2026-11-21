@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/devicetype"
+	"oikade.dev/internal/devicetype"
 )
 
 func declareOK(t *testing.T, r *Registry, decls ...Declaration) Declared {

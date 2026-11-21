@@ -7,10 +7,10 @@ import (
 	"slices"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/control"
-	"github.com/harrymitchinson/oikade/internal/engine"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/internal/control"
+	"oikade.dev/internal/engine"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/ident"
 )
 
 // Decision is everything that sets one capability, as a list of lines read from the top: the

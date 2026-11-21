@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"oikade.dev/contract/v1"
 )
 
-var declared = []contractv1.DeclaredDevice{
+var declared = []contract.DeclaredDevice{
 	{ID: "a", Name: "hall", DisplayName: "Hall"},
 	{ID: "b", Name: "porch", DisplayName: "Porch"},
 	{ID: "c.misconfigured", Name: "fan", DisplayName: "Fan"},
@@ -23,7 +23,7 @@ func TestNewSwitchesReportsEachDevice(t *testing.T) {
 	if len(s.reports) != 3 {
 		t.Fatalf("got %d reports, want 3", len(s.reports))
 	}
-	want := []contractv1.DeviceReport{
+	want := []contract.DeviceReport{
 		{
 			ID: "a", Found: true, Manufacturer: "Oikade", Model: "Simulated switch", SerialNumber: "SIM-A",
 			FirmwareVersion: "1.0.0", Capabilities: []string{"on"},
@@ -43,15 +43,15 @@ func TestNewSwitchesReportsEachDevice(t *testing.T) {
 
 func TestApply(t *testing.T) {
 	s := newSwitches(declared)
-	got, err := s.apply(contractv1.SetCommand{ID: "b", Capability: "on", Value: true})
-	if err != nil || !reflect.DeepEqual(got, contractv1.State{"on": true}) {
+	got, err := s.apply(contract.SetCommand{ID: "b", Capability: "on", Value: true})
+	if err != nil || !reflect.DeepEqual(got, contract.State{"on": true}) {
 		t.Fatalf("got %v, %v, want on true", got, err)
 	}
 	if s.relays["b"].values["on"] != true {
 		t.Fatal("relay b didn't switch on")
 	}
 
-	for _, cmd := range []contractv1.SetCommand{
+	for _, cmd := range []contract.SetCommand{
 		{ID: "a", Capability: "brightness", Value: 40.0},
 		{ID: "a", Capability: "on", Value: 1.0},
 		{ID: "c", Capability: "on", Value: true},
@@ -67,21 +67,21 @@ func TestApply(t *testing.T) {
 // An air conditioner has an on and a mode, which starts at auto and takes a name.
 func TestAnAirConditionerHasAMode(t *testing.T) {
 	const id = "bedroom.air-conditioner"
-	s := newSwitches([]contractv1.DeclaredDevice{{ID: id, Name: "bedroom-ac", DisplayName: "AC"}})
+	s := newSwitches([]contract.DeclaredDevice{{ID: id, Name: "bedroom-ac", DisplayName: "AC"}})
 	if got := s.reports[0].Capabilities; !reflect.DeepEqual(got, []string{"mode", "on"}) {
 		t.Fatalf("capabilities = %v", got)
 	}
-	got, err := s.apply(contractv1.SetCommand{ID: id, Capability: "mode", Value: "dry"})
-	if err != nil || !reflect.DeepEqual(got, contractv1.State{"on": false, "mode": "dry"}) {
+	got, err := s.apply(contract.SetCommand{ID: id, Capability: "mode", Value: "dry"})
+	if err != nil || !reflect.DeepEqual(got, contract.State{"on": false, "mode": "dry"}) {
 		t.Fatalf("got %v, %v, want mode dry", got, err)
 	}
-	if _, err := s.apply(contractv1.SetCommand{ID: id, Capability: "mode", Value: true}); err == nil {
+	if _, err := s.apply(contract.SetCommand{ID: id, Capability: "mode", Value: true}); err == nil {
 		t.Fatal("a bool set the mode")
 	}
 }
 
 func TestNewSwitchesDiscoversEveryRelayAndASpare(t *testing.T) {
-	den := contractv1.DeclaredDevice{
+	den := contract.DeclaredDevice{
 		ID: "d.unstable-id", DisplayName: "Den", Room: "den",
 	}
 	s := newSwitches(append(slices.Clone(declared), den))
@@ -102,7 +102,7 @@ func TestNewSwitchesDiscoversEveryRelayAndASpare(t *testing.T) {
 }
 
 func TestARefusedLoginIsThePluginsProblem(t *testing.T) {
-	s := newSwitches([]contractv1.DeclaredDevice{
+	s := newSwitches([]contract.DeclaredDevice{
 		{ID: "a", Name: "hall"}, {ID: "d.refused-login", Name: "cloud"},
 	})
 	if s.problem == "" || len(s.relays) != 1 {
@@ -127,7 +127,7 @@ func TestFaultIsAfterTheIDsLastDot(t *testing.T) {
 }
 
 func TestARelayWithNoKeyIsDiscoveredUnderItsName(t *testing.T) {
-	s := newSwitches([]contractv1.DeclaredDevice{{ID: "l.needs-key", Name: "locked", DisplayName: "Locked"}})
+	s := newSwitches([]contract.DeclaredDevice{{ID: "l.needs-key", Name: "locked", DisplayName: "Locked"}})
 	if len(s.relays) != 0 || len(s.reports) != 1 || !s.reports[0].Found || s.reports[0].Error == "" {
 		t.Fatalf("got relays %v and reports %+v, want it found, unusable, with the reason", s.relays, s.reports)
 	}

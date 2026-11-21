@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/mqtt"
-	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
-	"github.com/harrymitchinson/oikade/internal/testkit"
-	"github.com/harrymitchinson/oikade/sdk/plugin"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/mqtt"
+	"oikade.dev/internal/mqtt/mqtttest"
+	"oikade.dev/internal/testkit"
+	"oikade.dev/sdk/plugin"
 )
 
 const (
@@ -30,7 +30,7 @@ const (
 	kitchenAt = "io://1234-5678-9012/11111111"
 )
 
-var root = contractv1.NewRoot("tahoma")
+var root = contract.NewRoot("tahoma")
 
 // fast keeps the real timing's order, in less time.
 var fast = timing{
@@ -118,9 +118,9 @@ func startWith(t *testing.T, hub *fakeHub, account Account, timings timing, decl
 	}
 
 	env := plugin.Environment{MQTTURL: broker, Root: root}
-	devices := make([]contractv1.DeclaredDevice, 0, len(declared))
+	devices := make([]contract.DeclaredDevice, 0, len(declared))
 	for _, id := range declared {
-		devices = append(devices, contractv1.DeclaredDevice{ID: id, Name: id, DisplayName: id})
+		devices = append(devices, contract.DeclaredDevice{ID: id, Name: id, DisplayName: id})
 	}
 	handler := newHandler(account, devices, timings, slog.New(slog.NewJSONHandler(b.logs, nil)))
 	ctx, cancel := context.WithCancel(t.Context())
@@ -164,9 +164,9 @@ func (b *bench) eventually(what string, ok func() bool) {
 	testkit.Eventually(b.t, what, ok)
 }
 
-func (b *bench) devices() contractv1.Devices {
+func (b *bench) devices() contract.Devices {
 	b.t.Helper()
-	var d contractv1.Devices
+	var d contract.Devices
 	if raw := b.topic(root.Devices()); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &d); err != nil {
 			b.t.Fatal(err)
@@ -175,9 +175,9 @@ func (b *bench) devices() contractv1.Devices {
 	return d
 }
 
-func (b *bench) status() contractv1.Status {
+func (b *bench) status() contract.Status {
 	b.t.Helper()
-	var s contractv1.Status
+	var s contract.Status
 	if raw := b.topic(root.Status()); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &s); err != nil {
 			b.t.Fatal(err)
@@ -226,7 +226,7 @@ func TestTheHubsShuttersAreReportedByAStableID(t *testing.T) {
 	b.waitAvailability(kitchen, "online")
 
 	got := b.devices()
-	want := []contractv1.DeviceReport{
+	want := []contract.DeviceReport{
 		{ID: kitchen, Found: true, Manufacturer: "Somfy", Model: "io:RollerShutterGenericIOComponent", Capabilities: []string{"position"}},
 		{ID: patio, Found: true, Model: "io:VerticalExteriorAwningIOComponent", Capabilities: []string{"position"}},
 		// On record and not on the hub: not found, and kept.
@@ -239,7 +239,7 @@ func TestTheHubsShuttersAreReportedByAStableID(t *testing.T) {
 	if len(got.Discovered) != 2 || got.Discovered[0].Name != "Kitchen shutter" || got.Discovered[1].Name != "Patio screen" {
 		t.Errorf("discovered: %+v", got.Discovered)
 	}
-	if s := b.status(); s.State != contractv1.Online || s.Error != "" {
+	if s := b.status(); s.State != contract.Online || s.Error != "" {
 		t.Errorf("status: %+v", s)
 	}
 	for _, widget := range []string{"Pod", "UpDownRollerShutter"} {
@@ -286,7 +286,7 @@ func TestTheHubGoingAwayLeavesEveryDeviceOfflineUntilItsBack(t *testing.T) {
 	b.waitAvailability(kitchen, "offline")
 	b.waitAvailability(patio, "offline")
 	b.eventually("the plugin's problem", func() bool { return strings.Contains(b.status().Error, "could not reach") })
-	if s := b.status(); s.State != contractv1.Online {
+	if s := b.status(); s.State != contract.Online {
 		t.Errorf("the plugin went %s with its hub", s.State)
 	}
 	// Its devices stay on record, and it says it can't see the hub's list rather than that it's empty.
@@ -500,7 +500,7 @@ func TestAThermorAccountLogsInAndServesItsRadiator(t *testing.T) {
 	b := startCloud(t, cloud, password, cloudFast)
 	b.waitState(radiator, `{"on":true,"setpoint":21,"temperature":18.5}`)
 	b.waitAvailability(radiator, "online")
-	want := []contractv1.DeviceReport{{
+	want := []contract.DeviceReport{{
 		ID: radiator, Found: true, Manufacturer: "Thermor", Model: "io:AtlanticElectricalTowelDryerIOComponent",
 		Capabilities: []string{"on", "setpoint", "temperature"},
 	}}

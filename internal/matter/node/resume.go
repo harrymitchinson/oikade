@@ -9,11 +9,11 @@ import (
 	"slices"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/clock"
-	"github.com/harrymitchinson/oikade/internal/matter/im"
-	"github.com/harrymitchinson/oikade/internal/matter/mdns"
-	"github.com/harrymitchinson/oikade/internal/matter/securechannel"
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"oikade.dev/internal/clock"
+	"oikade.dev/internal/matter/im"
+	"oikade.dev/internal/matter/mdns"
+	"oikade.dev/internal/matter/securechannel"
+	"oikade.dev/internal/matter/transport"
 )
 
 // Resuming's timings: the first retry, and how long finding a subscriber may take each time.

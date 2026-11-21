@@ -10,7 +10,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/harrymitchinson/oikade/internal/cli"
+	"oikade.dev/internal/cli"
 )
 
 // std is where every command prints, and exit how it ends: os.Stdout, os.Stderr and os.Exit, except

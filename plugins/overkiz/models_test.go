@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"oikade.dev/contract/v1"
 )
 
 func TestADeviceURLMakesAnIDWithoutItsHub(t *testing.T) {
@@ -48,19 +48,19 @@ func TestADeviceURLMakesAnIDWithoutItsHub(t *testing.T) {
 }
 
 func TestAClosureIsAPosition(t *testing.T) {
-	read := func(v any) contractv1.State { return closure.values(states{{"", "core:ClosureState"}: v}) }
-	if got := read(40.0); got[contractv1.Position] != 40.0 {
+	read := func(v any) contract.State { return closure.values(states{{"", "core:ClosureState"}: v}) }
+	if got := read(40.0); got[contract.Position] != 40.0 {
 		t.Errorf("closure 40: %v", got)
 	}
 	if got := read(101.0); len(got) != 0 {
 		t.Errorf("closure 101: %v", got)
 	}
-	if _, got, err := closure.write(contractv1.Position, 42.6, nil); err != nil || len(got) != 1 || got[0].Name != "setClosure" || got[0].Parameters[0] != 43 {
+	if _, got, err := closure.write(contract.Position, 42.6, nil); err != nil || len(got) != 1 || got[0].Name != "setClosure" || got[0].Parameters[0] != 43 {
 		t.Errorf("writing 42.6: %+v, %v", got, err)
 	}
 	// Anything else is refused rather than sent, so it can't open a shutter as 0 would.
 	for _, v := range []any{true, 150.0, -1.0, "50"} {
-		if _, got, err := closure.write(contractv1.Position, v, nil); err == nil {
+		if _, got, err := closure.write(contract.Position, v, nil); err == nil {
 			t.Errorf("writing %v: %+v", v, got)
 		}
 	}
@@ -75,40 +75,40 @@ func TestATowelRadiatorsSetpointFollowsItsMode(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		mode     string
-		want     contractv1.State
+		want     contract.State
 		on, warm string // the commands for on true, and a setpoint of 22
 	}{
-		{modeStandby, contractv1.State{"on": false, "setpoint": 21.0, "temperature": 19.25}, "setTowelDryerOperatingMode external", "setTargetTemperature 22"},
-		{modeExternal, contractv1.State{"on": true, "setpoint": 21.0, "temperature": 19.25}, "", "setTargetTemperature 22"},
-		{modeInternal, contractv1.State{"on": true, "setpoint": 18.5, "temperature": 19.25}, "", "setDerogatedTargetTemperature 22"},
-		{modeAuto, contractv1.State{"on": true, "setpoint": 18.5, "temperature": 19.25}, "", "setDerogatedTargetTemperature 22"},
+		{modeStandby, contract.State{"on": false, "setpoint": 21.0, "temperature": 19.25}, "setTowelDryerOperatingMode external", "setTargetTemperature 22"},
+		{modeExternal, contract.State{"on": true, "setpoint": 21.0, "temperature": 19.25}, "", "setTargetTemperature 22"},
+		{modeInternal, contract.State{"on": true, "setpoint": 18.5, "temperature": 19.25}, "", "setDerogatedTargetTemperature 22"},
+		{modeAuto, contract.State{"on": true, "setpoint": 18.5, "temperature": 19.25}, "", "setDerogatedTargetTemperature 22"},
 		// A mode it doesn't know is on, aiming for its effective setpoint, and left as it is.
-		{"boost", contractv1.State{"on": true, "setpoint": 18.5, "temperature": 19.25}, "", "setDerogatedTargetTemperature 22"},
+		{"boost", contract.State{"on": true, "setpoint": 18.5, "temperature": 19.25}, "", "setDerogatedTargetTemperature 22"},
 	} {
 		s := radiator(tc.mode)
 		if got := towelDryer.values(s); !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s: values %v, want %v", tc.mode, got, tc.want)
 		}
-		if got := written(t, s, contractv1.On, true); got != tc.on {
+		if got := written(t, s, contract.On, true); got != tc.on {
 			t.Errorf("%s: on true sends %q, want %q", tc.mode, got, tc.on)
 		}
-		if got := written(t, s, contractv1.Setpoint, 22.0); got != tc.warm {
+		if got := written(t, s, contract.Setpoint, 22.0); got != tc.warm {
 			t.Errorf("%s: setpoint 22 sends %q, want %q", tc.mode, got, tc.warm)
 		}
-		if got := written(t, s, contractv1.On, false); got != "setTowelDryerOperatingMode standby" {
+		if got := written(t, s, contract.On, false); got != "setTowelDryerOperatingMode standby" {
 			t.Errorf("%s: on false sends %q", tc.mode, got)
 		}
 	}
 	// A setpoint not yet reported for the mode falls back on the other.
 	s := states{{"", "core:OperatingModeState"}: modeInternal, {"", "core:TargetTemperatureState"}: 22.0}
-	if got := towelDryer.values(s)[contractv1.Setpoint]; got != 22.0 {
+	if got := towelDryer.values(s)[contract.Setpoint]; got != 22.0 {
 		t.Errorf("internal with only a target: setpoint %v", got)
 	}
 
 	for _, bad := range []struct {
 		capability string
 		v          any
-	}{{contractv1.Setpoint, 60.0}, {contractv1.On, 1.0}, {contractv1.Temperature, 20.0}} {
+	}{{contract.Setpoint, 60.0}, {contract.On, 1.0}, {contract.Temperature, 20.0}} {
 		if _, got, err := towelDryer.write(bad.capability, bad.v, radiator(modeExternal)); err == nil {
 			t.Errorf("%s %v: sent %+v", bad.capability, bad.v, got)
 		}

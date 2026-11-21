@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/matter/clusters"
-	"github.com/harrymitchinson/oikade/internal/matter/im"
-	"github.com/harrymitchinson/oikade/internal/matter/nodetest"
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
-	"github.com/harrymitchinson/oikade/internal/registry"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/matter/clusters"
+	"oikade.dev/internal/matter/im"
+	"oikade.dev/internal/matter/nodetest"
+	"oikade.dev/internal/matter/tlv"
+	"oikade.dev/internal/registry"
 )
 
 const (

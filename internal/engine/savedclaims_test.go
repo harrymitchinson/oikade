@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/clock"
-	"github.com/harrymitchinson/oikade/internal/control"
-	"github.com/harrymitchinson/oikade/internal/hub"
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/clock"
+	"oikade.dev/internal/control"
+	"oikade.dev/internal/hub"
+	"oikade.dev/internal/ident"
 )
 
 // A rule that runs elsewhere ends its claims as a flow does: all but its Safety ones.

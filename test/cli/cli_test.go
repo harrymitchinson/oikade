@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/sun"
-	"github.com/harrymitchinson/oikade/test/internal/childrace"
+	"oikade.dev/internal/sun"
+	"oikade.dev/test/internal/childrace"
 )
 
 // repo is this checkout, which a new home builds against so that nothing needs fetching.
@@ -66,7 +66,7 @@ func binary(t *testing.T, name string) string {
 		}
 		// make cover-binaries measures what these binaries run.
 		if os.Getenv("OIKADE_COVER") != "" {
-			args = append(args, "-cover", "-coverpkg=github.com/harrymitchinson/oikade/...")
+			args = append(args, "-cover", "-coverpkg=oikade.dev/...")
 		}
 		cmd := exec.Command("go", append(args, "./cmd/oikade", "./cmd/oikade-host")...)
 		cmd.Dir = dir
@@ -300,8 +300,8 @@ func TestCheckAndDevGiveYourCodeYourValues(t *testing.T) {
 		t.Errorf("the .gitignore is %q, %v", ignore, err)
 	}
 	main := filepath.Join(dir, "main.go")
-	replaceIn(t, main, "\t\"github.com/harrymitchinson/oikade\"\n",
-		"\t\"github.com/harrymitchinson/oikade\"\n\t\"github.com/harrymitchinson/oikade/plugins/toshibaac\"\n")
+	replaceIn(t, main, "\t\"oikade.dev\"\n",
+		"\t\"oikade.dev\"\n\t\"oikade.dev/plugins/toshibaac\"\n")
 	replaceIn(t, main, returns, `	toshiba := toshibaac.Config{Username: oikade.Var("TOSHIBA_USER")}
 	println("The plugin's username is", toshiba.Username)
 	home.Plugin("toshiba", toshibaac.New(toshiba))
@@ -358,7 +358,7 @@ const lateFlow = `package main
 import (
 	"time"
 
-	"github.com/harrymitchinson/oikade"
+	"oikade.dev"
 )
 
 func late(r *oikade.FlowRun) {
@@ -372,7 +372,7 @@ const discarded = `package main
 import (
 	"time"
 
-	"github.com/harrymitchinson/oikade"
+	"oikade.dev"
 )
 
 func discard(s oikade.Set) {
@@ -525,7 +525,7 @@ func TestOikadeLinksNothingOfTheHost(t *testing.T) {
 		}
 		return strings.Fields(string(out))
 	}
-	const module = "github.com/harrymitchinson/oikade/"
+	const module = "oikade.dev/"
 	for _, dep := range deps("./cmd/oikade") {
 		if dep == module+"internal/host" || strings.HasPrefix(dep, module+"internal/matter") {
 			t.Errorf("oikade links %s", dep)

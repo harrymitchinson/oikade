@@ -5,7 +5,7 @@ import (
 
 	"golang.org/x/tools/go/analysis/analysistest"
 
-	"github.com/harrymitchinson/oikade/internal/discardcheck"
+	"oikade.dev/internal/discardcheck"
 )
 
 func TestChains(t *testing.T) {

@@ -10,7 +10,7 @@ import (
 
 	"golang.org/x/net/dns/dnsmessage"
 
-	"github.com/harrymitchinson/oikade/sdk/plugin"
+	"oikade.dev/sdk/plugin"
 )
 
 // announcement is an mDNS response as a device sends one, with the records it names.

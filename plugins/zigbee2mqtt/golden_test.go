@@ -11,14 +11,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/devicetype"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/matter/im"
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
-	"github.com/harrymitchinson/oikade/internal/matterbridge"
-	"github.com/harrymitchinson/oikade/internal/mqtt"
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/matter/im"
+	"oikade.dev/internal/matter/tlv"
+	"oikade.dev/internal/matterbridge"
+	"oikade.dev/internal/mqtt"
+	"oikade.dev/internal/testkit"
 )
 
 const goldenDir = "testdata/golden"

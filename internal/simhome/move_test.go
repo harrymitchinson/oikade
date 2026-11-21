@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade"
-	"github.com/harrymitchinson/oikade/internal/simhome"
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev"
+	"oikade.dev/internal/simhome"
+	"oikade.dev/internal/testkit"
 )
 
 func TestACaseWhoseRoomLosesItsLastMemberWarnsOnce(t *testing.T) {

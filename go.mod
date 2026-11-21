@@ -1,4 +1,4 @@
-module github.com/harrymitchinson/oikade
+module oikade.dev
 
 go 1.27.0
 

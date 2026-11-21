@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"sync"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/host/pluginwire"
-	"github.com/harrymitchinson/oikade/internal/mqtt"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/host/pluginwire"
+	"oikade.dev/internal/mqtt"
 )
 
 // fakeHost serves a plugin a home imports as the host does, and carries its messages to and from bus,
@@ -22,7 +22,7 @@ func fakeHost(ctx context.Context, t T, cfg Config, bus mqtt.Bus) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var declared contractv1.DevicesFile
+	var declared contract.DevicesFile
 	if err := json.Unmarshal(raw, &declared); err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func fakeHost(ctx context.Context, t T, cfg Config, bus mqtt.Bus) string {
 			return // The process's replacement is here already, and it's online.
 		}
 		// As the host does for a process that's gone, and a broker for a Last Will.
-		offline, _ := json.Marshal(contractv1.Status{State: contractv1.Offline, Contract: contractv1.Contract})
+		offline, _ := json.Marshal(contract.Status{State: contract.Offline, Contract: contract.Contract})
 		_ = bus.Publish(ctx, root.Status(), offline, true)
 	}
 	go func() {

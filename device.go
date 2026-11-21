@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/harrymitchinson/oikade/internal/devicetype"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/internal/registry"
+	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/registry"
 )
 
 // Declaration is a device your home's code declares, from Home.Device: what it's called, and the

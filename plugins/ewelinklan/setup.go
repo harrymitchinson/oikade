@@ -20,9 +20,9 @@ import (
 	"strings"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/registry"
-	"github.com/harrymitchinson/oikade/sdk/plugin"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/registry"
+	"oikade.dev/sdk/plugin"
 )
 
 const (
@@ -254,7 +254,7 @@ func (c cloud) devices(ctx context.Context, a app, region, token string) ([]clou
 		d := t.ItemData
 		// A group, or a device shared without its key, has none to fetch.
 		id := strings.ToLower(strings.TrimSpace(d.DeviceID))
-		if id == "" || d.DeviceKey == "" || !contractv1.ValidSecretName(id) {
+		if id == "" || d.DeviceKey == "" || !contract.ValidSecretName(id) {
 			continue
 		}
 		out = append(out, cloudDevice{id: id, key: d.DeviceKey, name: strings.TrimSpace(d.Name)})

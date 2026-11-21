@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"slices"
 
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/devicetype"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/devicetype"
 )
 
 // bridgeDevice is an entry of <base>/bridge/devices, with only the fields the plugin reads.

@@ -8,13 +8,13 @@ import (
 	"strings"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/control"
-	"github.com/harrymitchinson/oikade/internal/devicetype"
-	"github.com/harrymitchinson/oikade/internal/driver"
-	"github.com/harrymitchinson/oikade/internal/engine"
-	"github.com/harrymitchinson/oikade/internal/host/pluginwire"
-	"github.com/harrymitchinson/oikade/internal/registry"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/control"
+	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/driver"
+	"oikade.dev/internal/engine"
+	"oikade.dev/internal/host/pluginwire"
+	"oikade.dev/internal/registry"
 )
 
 const (
@@ -298,10 +298,10 @@ type Message struct {
 	// Topic, Data and Retain are a Publish's: one message of the oikade/v1 contract. Topic is also
 	// a plugin's Welcome's topic root, Declared the devices on record for it, and SetTimeout how
 	// long a Set may run before the plugin counts as hung.
-	Topic      string                      `json:"topic,omitempty"`
-	Retain     bool                        `json:"retain,omitempty"`
-	Declared   []contractv1.DeclaredDevice `json:"declared,omitempty"`
-	SetTimeout time.Duration               `json:"setTimeout,omitempty"`
+	Topic      string                    `json:"topic,omitempty"`
+	Retain     bool                      `json:"retain,omitempty"`
+	Declared   []contract.DeclaredDevice `json:"declared,omitempty"`
+	SetTimeout time.Duration             `json:"setTimeout,omitempty"`
 
 	// Arbitrated is a claim or release's Reply: false means the capability isn't.
 	Arbitrated bool `json:"arbitrated,omitempty"`

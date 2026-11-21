@@ -10,9 +10,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/envfile"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
+	"oikade.dev/internal/cli"
+	"oikade.dev/internal/envfile"
+	"oikade.dev/internal/host/wire"
 )
 
 const dotEnv = ".env"

@@ -16,11 +16,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/control"
-	"github.com/harrymitchinson/oikade/internal/engine"
-	"github.com/harrymitchinson/oikade/internal/fault"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
+	"oikade.dev/internal/control"
+	"oikade.dev/internal/engine"
+	"oikade.dev/internal/fault"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/host/wire"
 )
 
 const (
@@ -1041,7 +1041,7 @@ func TestDeployBuildsAModuleAndChecksItsFlows(t *testing.T) {
 import (
 	"time"
 
-	"github.com/harrymitchinson/oikade"
+	"oikade.dev"
 )
 
 var _ = func(r *oikade.FlowRun) error {

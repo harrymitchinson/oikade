@@ -13,9 +13,9 @@ import (
 	"sync"
 	"testing"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/mqtt"
-	"github.com/harrymitchinson/oikade/sdk/plugin"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/mqtt"
+	"oikade.dev/sdk/plugin"
 )
 
 const (
@@ -120,7 +120,7 @@ func signIn(t *testing.T, region string) func(string) string {
 }
 
 // setup runs the plugin's setup as the host would, and returns its steps.
-func (b *bench) setup(p person) []contractv1.SetupStep {
+func (b *bench) setup(p person) []contract.SetupStep {
 	b.t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), waitLimit)
 	defer cancel()
@@ -129,23 +129,23 @@ func (b *bench) setup(p person) []contractv1.SetupStep {
 		b.t.Fatal(err)
 	}
 	defer func() { _ = c.Disconnect(context.Background()) }()
-	got := make(chan contractv1.SetupStep, 64)
+	got := make(chan contract.SetupStep, 64)
 	if _, err := c.Subscribe(ctx, root.SetupOut(), func(m mqtt.Message) {
-		var s contractv1.SetupStep
+		var s contract.SetupStep
 		if json.Unmarshal(m.Payload, &s) == nil {
 			got <- s
 		}
 	}); err != nil {
 		b.t.Fatal(err)
 	}
-	send := func(r contractv1.SetupRequest) {
+	send := func(r contract.SetupRequest) {
 		raw, _ := json.Marshal(r)
 		if err := c.Publish(ctx, root.SetupIn(), raw, false); err != nil {
 			b.t.Fatal(err)
 		}
 	}
-	send(contractv1.SetupRequest{Session: "s", Start: true})
-	var steps []contractv1.SetupStep
+	send(contract.SetupRequest{Session: "s", Start: true})
+	var steps []contract.SetupStep
 	for {
 		select {
 		case s := <-got:
@@ -156,10 +156,10 @@ func (b *bench) setup(p person) []contractv1.SetupStep {
 			case s.Ask != nil:
 				b.t.Fatalf("unexpected question %q", s.Ask.Prompt)
 			case s.Open != nil:
-				send(contractv1.SetupRequest{Session: "s", Reply: s.Seq, Value: p.browse(s.Open.URL)})
+				send(contract.SetupRequest{Session: "s", Reply: s.Seq, Value: p.browse(s.Open.URL)})
 			case s.Keep != nil:
 				b.secret(s.Keep.Name, s.Keep.Value)
-				send(contractv1.SetupRequest{Session: "s", Reply: s.Seq})
+				send(contract.SetupRequest{Session: "s", Reply: s.Seq})
 			}
 		case <-ctx.Done():
 			b.t.Fatalf("setup didn't finish: %+v", steps)
@@ -170,7 +170,7 @@ func (b *bench) setup(p person) []contractv1.SetupStep {
 // withApp is a Config with the test's developer app.
 func withApp() Config { return Config{AppID: testAppID, AppSecret: testAppSecret} }
 
-func kept(steps []contractv1.SetupStep) []string {
+func kept(steps []contract.SetupStep) []string {
 	var out []string
 	for _, s := range steps {
 		if s.Keep != nil {
@@ -180,7 +180,7 @@ func kept(steps []contractv1.SetupStep) []string {
 	return out
 }
 
-func said(steps []contractv1.SetupStep) string {
+func said(steps []contract.SetupStep) string {
 	var out []string
 	for _, s := range steps {
 		if s.Say != "" {
@@ -239,7 +239,7 @@ func TestSetupFetchesEachDevicesLANKeyAndTheDeviceComesUp(t *testing.T) {
 		t.Errorf("said:\n%s", said(steps))
 	}
 	// The key is read on the next sweep, with no new report.
-	b.waitAvailability(relayID, contractv1.Online)
+	b.waitAvailability(relayID, contract.Online)
 	// The neighbour's still has no key, which is its own problem, not the plugin's.
 	b.eventually("setup no longer needed", func() bool { return !b.needsSetup() })
 	if got := b.reports()[neighbourID].Error; got != "no LAN key: oikade setup ewelink" {

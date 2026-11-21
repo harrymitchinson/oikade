@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/flow"
+	"oikade.dev/internal/flow"
 )
 
 func TestCompileChecksFlows(t *testing.T) {

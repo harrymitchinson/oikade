@@ -7,7 +7,7 @@ import (
 	"net/netip"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"oikade.dev/internal/matter/transport"
 )
 
 // SavedSubscription is a subscription as the server saves it, so that it can resume it under the

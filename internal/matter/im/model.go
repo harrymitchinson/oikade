@@ -11,7 +11,7 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
+	"oikade.dev/internal/matter/tlv"
 )
 
 // Global attribute IDs, which every cluster has (Core spec, 7.13).

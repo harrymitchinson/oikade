@@ -19,10 +19,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/host"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/store"
+	"oikade.dev/internal/cli"
+	"oikade.dev/internal/host"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/store"
 )
 
 const (

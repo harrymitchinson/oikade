@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"oikade.dev/contract/v1"
 )
 
 // hexState is a state as the cloud sends it, with the fields the plugin reads and the rest as
@@ -27,21 +27,21 @@ func TestAStateDecodes(t *testing.T) {
 	tests := []struct {
 		name  string
 		state string
-		want  contractv1.State
+		want  contract.State
 	}{
-		{"on and heating", hexState(0x30, 0x43, 22, 0, 20), contractv1.State{"on": true, "mode": "heat", "setpoint": 22.0, "temperature": 20.0}},
-		{"off, keeping its mode", hexState(0x31, 0x42, 25, 0, 27), contractv1.State{"on": false, "mode": "cool", "setpoint": 25.0, "temperature": 27.0}},
-		{"dry", hexState(0x30, 0x44, 24, 0, 23), contractv1.State{"on": true, "mode": "dry", "setpoint": 24.0, "temperature": 23.0}},
-		{"fan", hexState(0x30, 0x45, 24, 0, 23), contractv1.State{"on": true, "mode": "fan", "setpoint": 24.0, "temperature": 23.0}},
-		{"auto", hexState(0x30, 0x41, 24, 0, 23), contractv1.State{"on": true, "mode": "auto", "setpoint": 24.0, "temperature": 23.0}},
+		{"on and heating", hexState(0x30, 0x43, 22, 0, 20), contract.State{"on": true, "mode": "heat", "setpoint": 22.0, "temperature": 20.0}},
+		{"off, keeping its mode", hexState(0x31, 0x42, 25, 0, 27), contract.State{"on": false, "mode": "cool", "setpoint": 25.0, "temperature": 27.0}},
+		{"dry", hexState(0x30, 0x44, 24, 0, 23), contract.State{"on": true, "mode": "dry", "setpoint": 24.0, "temperature": 23.0}},
+		{"fan", hexState(0x30, 0x45, 24, 0, 23), contract.State{"on": true, "mode": "fan", "setpoint": 24.0, "temperature": 23.0}},
+		{"auto", hexState(0x30, 0x41, 24, 0, 23), contract.State{"on": true, "mode": "auto", "setpoint": 24.0, "temperature": 23.0}},
 		// 8 °C heating reports its setpoint 16 higher than it is.
-		{"8 °C heating", hexState(0x30, 0x43, 24, meritHeating8C, 9), contractv1.State{"on": true, "mode": "heat", "setpoint": 8.0, "temperature": 9.0}},
+		{"8 °C heating", hexState(0x30, 0x43, 24, meritHeating8C, 9), contract.State{"on": true, "mode": "heat", "setpoint": 8.0, "temperature": 9.0}},
 		// Only while heating.
-		{"8 °C merit while cooling", hexState(0x30, 0x42, 24, meritHeating8C, 9), contractv1.State{"on": true, "mode": "cool", "setpoint": 24.0, "temperature": 9.0}},
-		{"a temperature it can't read", hexState(0x30, 0x43, 127, 0, -128), contractv1.State{"on": true, "mode": "heat"}},
-		{"126 is -1 °C", hexState(0x30, 0x43, 22, 0, 126), contractv1.State{"on": true, "mode": "heat", "setpoint": 22.0, "temperature": -1.0}},
-		{"below freezing", hexState(0x30, 0x43, 22, 0, -5), contractv1.State{"on": true, "mode": "heat", "setpoint": 22.0, "temperature": -5.0}},
-		{"a status it doesn't report", hexState(0x02, 0x43, 22, 0, 20), contractv1.State{"mode": "heat", "setpoint": 22.0, "temperature": 20.0}},
+		{"8 °C merit while cooling", hexState(0x30, 0x42, 24, meritHeating8C, 9), contract.State{"on": true, "mode": "cool", "setpoint": 24.0, "temperature": 9.0}},
+		{"a temperature it can't read", hexState(0x30, 0x43, 127, 0, -128), contract.State{"on": true, "mode": "heat"}},
+		{"126 is -1 °C", hexState(0x30, 0x43, 22, 0, 126), contract.State{"on": true, "mode": "heat", "setpoint": 22.0, "temperature": -1.0}},
+		{"below freezing", hexState(0x30, 0x43, 22, 0, -5), contract.State{"on": true, "mode": "heat", "setpoint": 22.0, "temperature": -5.0}},
+		{"a status it doesn't report", hexState(0x02, 0x43, 22, 0, 20), contract.State{"mode": "heat", "setpoint": 22.0, "temperature": 20.0}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -66,7 +66,7 @@ func TestAChangeKeepsWhatItDoesntReport(t *testing.T) {
 	if err := s.update(partial(0xff, 0x42, 25)); err != nil {
 		t.Fatal(err)
 	}
-	want := contractv1.State{"on": true, "mode": "cool", "setpoint": 25.0, "temperature": 20.0}
+	want := contract.State{"on": true, "mode": "cool", "setpoint": 25.0, "temperature": 20.0}
 	if got, _ := s.values(); !reflect.DeepEqual(got, want) {
 		t.Errorf("values %v, want %v", got, want)
 	}

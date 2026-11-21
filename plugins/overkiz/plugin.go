@@ -16,9 +16,9 @@ import (
 	"sync"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/mdns"
-	"github.com/harrymitchinson/oikade/sdk/plugin"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/mdns"
+	"oikade.dev/sdk/plugin"
 )
 
 // Account is where the plugin reaches Overkiz: Local, a TaHoma hub's local API, or Cozytouch, an
@@ -151,7 +151,7 @@ var localTiming = timing{
 
 // New returns the plugin's Factory, for home.Plugin.
 func New(a Account) plugin.Factory {
-	return func(_ plugin.Environment, declared []contractv1.DeclaredDevice) (plugin.Handler, error) {
+	return func(_ plugin.Environment, declared []contract.DeclaredDevice) (plugin.Handler, error) {
 		if a == nil {
 			return nil, errors.New("overkiz.New has no Account")
 		}
@@ -167,7 +167,7 @@ func New(a Account) plugin.Factory {
 }
 
 // newHandler is a hub's bridge, or a Cozytouch account's two clouds.
-func newHandler(a Account, declared []contractv1.DeclaredDevice, t timing, log *slog.Logger) plugin.Handler {
+func newHandler(a Account, declared []contract.DeclaredDevice, t timing, log *slog.Logger) plugin.Handler {
 	if c, ok := a.(Cozytouch); ok {
 		return newClouds(c, declared, t, log)
 	}
@@ -181,12 +181,12 @@ type device struct {
 	model model
 	// subs are the sub-devices' URLs, by sub, "" being the device itself.
 	subs map[string]string
-	info contractv1.DiscoveredDevice
+	info contract.DiscoveredDevice
 	// available and enabled are what the setup or the last event said. It's online when both are.
 	available, enabled bool
 	// raw is every state it and its sub-devices reported, and values what the model reads from them.
 	raw    states
-	values contractv1.State
+	values contract.State
 }
 
 // bridge follows one hub's or account's devices on Overkiz.
@@ -211,7 +211,7 @@ type bridge struct {
 
 var _ plugin.Handler = (*bridge)(nil)
 
-func newBridge(a Account, declared []contractv1.DeclaredDevice, t timing, log *slog.Logger) *bridge {
+func newBridge(a Account, declared []contract.DeclaredDevice, t timing, log *slog.Logger) *bridge {
 	ids := make([]string, 0, len(declared))
 	for _, d := range declared {
 		ids = append(ids, d.ID)
@@ -363,8 +363,8 @@ func (b *bridge) readSetup(ctx context.Context, c *client) error {
 		}
 		dev := &device{
 			id: id, url: d.DeviceURL, model: m, subs: map[string]string{"": d.DeviceURL},
-			available: d.Available, enabled: d.Enabled, raw: states{}, values: contractv1.State{},
-			info: contractv1.DiscoveredDevice{
+			available: d.Available, enabled: d.Enabled, raw: states{}, values: contract.State{},
+			info: contract.DiscoveredDevice{
 				ID: id, Manufacturer: cmp.Or(d.attribute("core:Manufacturer"), b.account.manufacturer()), Model: d.ControllableName,
 				Capabilities: slices.Clone(m.capabilities), Name: d.Label,
 			},
@@ -429,7 +429,7 @@ func (b *bridge) take(ctx context.Context, events []apiEvent) (bool, error) {
 	reread := false
 	type update struct {
 		id    string
-		state contractv1.State
+		state contract.State
 	}
 	var updates []update
 	availability := map[string]bool{}
@@ -443,7 +443,7 @@ func (b *bridge) take(ctx context.Context, events []apiEvent) (bool, error) {
 			}
 			u, _ := parseURL(e.DeviceURL)
 			if changed := dev.apply(u.sub, e.DeviceStates); len(changed) > 0 {
-				s := contractv1.State{}
+				s := contract.State{}
 				for _, c := range changed {
 					s[c] = dev.values[c]
 				}
@@ -510,11 +510,11 @@ func (b *bridge) publishAll(ctx context.Context) error {
 	type report struct {
 		id     string
 		online bool
-		values contractv1.State
+		values contract.State
 	}
 	b.mu.Lock()
 	ids := slices.Sorted(maps.Keys(b.devices))
-	discovered := make([]contractv1.DiscoveredDevice, 0, len(ids))
+	discovered := make([]contract.DiscoveredDevice, 0, len(ids))
 	reports := make([]report, 0, len(ids))
 	for _, id := range ids {
 		d := b.devices[id]
@@ -550,17 +550,17 @@ func (b *bridge) publishDevices(ctx context.Context) error {
 	return b.out.SetDevices(ctx, reports, 0)
 }
 
-func (b *bridge) reportsLocked() []contractv1.DeviceReport {
-	reports := make([]contractv1.DeviceReport, 0, len(b.devices)+len(b.declared))
+func (b *bridge) reportsLocked() []contract.DeviceReport {
+	reports := make([]contract.DeviceReport, 0, len(b.devices)+len(b.declared))
 	for _, id := range slices.Sorted(maps.Keys(b.devices)) {
 		d := b.devices[id]
-		reports = append(reports, contractv1.DeviceReport{
+		reports = append(reports, contract.DeviceReport{
 			ID: id, Found: true, Manufacturer: d.info.Manufacturer, Model: d.info.Model, Capabilities: d.info.Capabilities,
 		})
 	}
 	for _, id := range b.declared {
 		if _, ok := b.devices[id]; !ok {
-			reports = append(reports, contractv1.DeviceReport{ID: id})
+			reports = append(reports, contract.DeviceReport{ID: id})
 		}
 	}
 	return reports
@@ -568,7 +568,7 @@ func (b *bridge) reportsLocked() []contractv1.DeviceReport {
 
 // Set implements plugin.Handler. It returns once Overkiz has taken the command, before the device
 // has moved: the device's reports then show it moving. It fails at once while there's no session.
-func (b *bridge) Set(ctx context.Context, _ *plugin.Plugin, cmd contractv1.SetCommand) error {
+func (b *bridge) Set(ctx context.Context, _ *plugin.Plugin, cmd contract.SetCommand) error {
 	b.mu.Lock()
 	c, dev := b.client, b.devices[cmd.ID]
 	var (
