@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.0-alpha.4](https://github.com/harrymitchinson/oikade/compare/v0.2.0-alpha.3...v0.2.0-alpha.4) (2026-11-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* import oikade.dev, oikade.dev/oikadetest and oikade.dev/contract/v1 (package contract) instead of github.com/harrymitchinson/oikade, github.com/harrymitchinson/oikade/hometest and .../contract/v1 (package v1). Install with go install oikade.dev/cmd/oikade@VERSION.
+
+### Features
+
+* the module is oikade.dev, with oikadetest and package contract ([#432](https://github.com/harrymitchinson/oikade/issues/432)) ([ac06bd4](https://github.com/harrymitchinson/oikade/commit/ac06bd43bcb411d282b54c0d63047318c663528e))
+
 ## [0.2.0-alpha.3](https://github.com/harrymitchinson/oikade/compare/v0.2.0-alpha.2...v0.2.0-alpha.3) (2026-11-20)
 
 
