@@ -8,7 +8,7 @@ How Oikade is built, tested, versioned and released. It's for anyone changing Oi
 make build              # bin/oikade and bin/oikade-host
 make test               # unit and integration tests, with a real host and simulated devices
 make lint               # golangci-lint, which make lint-fix runs with fixes
-make test-conformance   # builds the simswitch fixture and drives it through the plugin contract and the Go API
+make test-conformance   # builds the simswitch fixture and drives it through the plugin contract, over MQTT and the host's socket
 make test-race          # the tests in this process, under the race detector
 make test-race-binaries # test/host and test/cli, with the race detector in every binary they start
 make test-hack          # shellcheck and the tests of the hack/ scripts

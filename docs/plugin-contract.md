@@ -25,7 +25,7 @@ home.Plugin("hall-lights", lighthub.New(lighthub.Config{Address: oikade.Var("LIG
 
 A `Handler` is the same either way: `Serve` reports devices, and `Set` applies a command.
 
-- **It gets the devices on record for it,** which are empty the first time, because a plugin your home imports has no devices file. So it reports every device it can see, with `SetDiscovered` and `SetDevices`, and everything it finds is in the [device list](devices.md) at once.
+- **It reports every device it can see,** with `SetDiscovered` and `SetDevices`, since it has none on record the first time ([`devices`](#devices)). Everything it finds is in the [device list](devices.md) at once.
 - **A problem with the plugin itself,** such as a login its account refuses, goes in `SetError`, which `oikade status` shows.
 - **Configuration,** such as a hub's address, is Go in your home, and a password is one of your values (`oikade.Var`).
 
@@ -43,7 +43,7 @@ oikade-host --broker mqtt://oikade@mosquitto:1883 --broker-password-secret broke
 
 - **The host supervises none of it:** the process, its restarts and its broker are yours.
 - **A broker that isn't up yet is tried until it is.** Until then these plugins' devices aren't known and their claims aren't written.
-- **Its devices go in the registry like any others.** It reads no devices file from the host, so give it one of your own, or have it report what it can see.
+- **Its devices go in the registry like any others.** [`devices`](#devices) says where it gets those on record.
 - **`--broker-password-secret`** names a file in the data directory's secrets directory with the broker's password, since a password in a flag lands in `ps`.
 
 ## Topics
@@ -100,7 +100,12 @@ An `error` looks like `{"state":"online","contract":1,"error":"login refused"}`.
 }
 ```
 
-List every device from the devices file (see [Environment](#environment)), each once, by its `id`. Oikade drops an entry whose `id` isn't valid (1 to 63 letters, digits, `_`, `.` or `-`, starting with a letter or digit) or repeats an earlier one's, and keeps the rest (OIK-317). Republish `devices` whenever any of it changes.
+A plugin's devices on record come from:
+
+- **The host, for a plugin your home imports.** They're the registry's devices of that plugin, but those you forgot, which the host hands it as its session opens, and none the first time.
+- **The devices file, for an outside plugin,** the one `OIKADE_DEVICES_FILE` names ([Environment](#environment)). Without one, it has none.
+
+List every device on record, each once, by its `id`. A device listed as found that isn't on record goes on record, as does each in [`discovered`](#discovered), so a plugin with none on record reports what it can see. Oikade drops an entry whose `id` isn't valid (1 to 63 letters, digits, `_`, `.` or `-`, starting with a letter or digit) or repeats an earlier one's, and keeps the rest (OIK-317). Republish `devices` whenever any of it changes.
 
 | A device's field | Means |
 |---|---|
@@ -264,7 +269,7 @@ go install github.com/harrymitchinson/oikade/cmd/oikade-conformance@vX.Y.Z
 oikade-conformance --devices conformance-devices.json -- ./bin/my-plugin --simulate
 ```
 
-`--plugin NAME` checks a plugin a home imports, through the Go API rather than MQTT. The command is then the home's binary, and the suite runs `<binary> plugin NAME` against a fake host, handing it the devices file's devices. The checks are the same:
+`--plugin NAME` checks a plugin a home imports, whose messages go over the host's socket (`internal/host/pluginwire`) rather than a broker. The command is then the home's binary, and the suite runs `<binary> plugin NAME` against a fake host on a socket of its own, handing it the devices file's devices as those on record. The checks are the same:
 
 ```sh
 go build -o bin/home ./home && go tool oikade-conformance --devices conformance-devices.json --plugin my-plugin -- bin/home
@@ -275,7 +280,7 @@ Everything after `--` is the plugin's start command, run without a shell in the 
 | Flag | Means |
 |---|---|
 | `--devices FILE` | The devices file to hand the plugin. Required |
-| `--plugin NAME` | Check a plugin of a home's binary, through the Go API |
+| `--plugin NAME` | Check a plugin a home's binary imports, over a fake host's socket |
 | `--secrets DIR` | A directory to pass as `OIKADE_SECRETS_DIR` |
 | `--setup-replies FILE` | A JSON list of strings, in order, that answer the plugin's setup |
 | `--timeout D` | How long the plugin has to react at each step, 15s unless it's given |
