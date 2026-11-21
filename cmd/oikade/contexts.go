@@ -14,7 +14,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/host/api"
 )
 
-// tokenEnv overrides a context's token, as CI has one in a secret.
+// tokenEnv is the variable with the token of a context saved without one, as CI's is.
 const tokenEnv = "OIKADE_TOKEN"
 
 // clientConfig is oikade's own settings: the hosts it has logged in to. It holds tokens,

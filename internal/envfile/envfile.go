@@ -1,5 +1,5 @@
 // Package envfile reads a .env file: the values personal to a home, such as a login's username
-// and password, kept beside its go.mod and out of Git (OIK-365).
+// and password, kept beside its go.mod and out of Git.
 //
 // A line is NAME=VALUE, with an optional "export " before it, as a shell would take it. Blank lines
 // and lines starting with # are skipped. A value may be in double quotes, where \n, \r, \t, \", \\
@@ -94,7 +94,6 @@ func (p *parser) entry() (name, value string, ok bool, err error) {
 	if err != nil {
 		return "", "", false, fmt.Errorf("%s: %w", name, err)
 	}
-	// After the closing quote, only a comment.
 	if tail := strings.TrimSpace(p.rest()); tail != "" && !strings.HasPrefix(tail, "#") {
 		return "", "", false, fmt.Errorf("%s has more after its closing quote, where only a comment can go", name)
 	}

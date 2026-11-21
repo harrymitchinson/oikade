@@ -39,7 +39,6 @@ func renamed(fs *flag.FlagSet, from, to string, boolean bool) {
 	fs.Func(from, "", refuse)
 }
 
-// The flags that say which host a command is for.
 const (
 	flagDataDir = "data-dir"
 	flagContext = "context"
@@ -66,7 +65,6 @@ func (t target) explained() (api.Transport, string) {
 	return api.Explained(transport, func(err error) error { return unreachable(transport, name, err) }), name
 }
 
-// isDNS is a name that didn't resolve.
 func isDNS(err error) bool {
 	_, ok := errors.AsType[*net.DNSError](err)
 	return ok
@@ -118,8 +116,7 @@ func (t target) resolve() (api.Transport, string) {
 		if *t.context != "" {
 			return failing{err}, *t.context
 		}
-		// Asked for nothing, so this machine's host, as before there was a config. The problem is
-		// still worth hearing about.
+		// Asked for nothing, so this machine's host, but a broken config is still worth hearing about.
 		_, _ = fmt.Fprintln(os.Stderr, "Warning: not using any context:", err)
 		return api.Local{DataDir: *t.dataDir}, thisMachine
 	}
@@ -362,12 +359,12 @@ func heldHint(ref string, c api.Capability) string {
 	return fmt.Sprintf("oikade status %s says why", ref)
 }
 
-// outcome says what a set left the capability at, and why, rather than what it asked for.
 // stuck is whether a capability took the value asked of it, or the driver's rounding of it.
 func stuck(name string, got, asked any) bool {
 	return fmt.Sprint(got) == fmt.Sprint(asked) || rounded(name, got, asked)
 }
 
+// outcome says what a set left the capability at, and why, rather than what it asked for.
 func outcome(device, name string, asked any, c *api.Capability) string {
 	if c == nil {
 		return fmt.Sprintf("%s hasn't answered yet: oikade status %s shows it when it does",

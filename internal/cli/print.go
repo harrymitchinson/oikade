@@ -14,7 +14,7 @@ import (
 // DefaultWidth is a table's width on a terminal that doesn't say its own.
 const DefaultWidth = 80
 
-// The styles, in SGR codes. Only a Styled printer writes them.
+// SGR codes, which only a Styled printer writes, but for sgrImage.
 const (
 	sgrBold   = "1"
 	sgrDim    = "2"
@@ -75,17 +75,15 @@ func Styled(w io.Writer, width int) *Printer {
 	return &Printer{w: w, Terminal: true, Styled: true, Width: width}
 }
 
-// Write writes p as it is, so that a Printer is an io.Writer.
+// Write writes b as it is, so that a Printer is an io.Writer.
 func (p *Printer) Write(b []byte) (int, error) {
 	return p.w.Write(b)
 }
 
-// Println writes a line, as fmt.Println.
 func (p *Printer) Println(a ...any) {
 	_, _ = fmt.Fprintln(p.w, a...)
 }
 
-// Printf writes, as fmt.Printf.
 func (p *Printer) Printf(format string, a ...any) {
 	_, _ = fmt.Fprintf(p.w, format, a...)
 }

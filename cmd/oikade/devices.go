@@ -90,13 +90,11 @@ func noDevices(stderr io.Writer, forgotten int) {
 	}
 }
 
+// What a STATE column says of a device, or of a plugin that isn't imported.
 const (
-	// notImported is the state of a device whose plugin the running version doesn't import.
-	notImported = "plugin not imported"
-	// hiddenFromMatter is the state of a device your home keeps off Matter.
+	notImported      = "plugin not imported"
 	hiddenFromMatter = "hidden from Matter"
-	// notInYourCode is the state of a device your home doesn't declare.
-	notInYourCode = "not in your code"
+	notInYourCode    = "not in your code"
 )
 
 // printDevices prints the table, fitted to out's width unless wide, and returns the lines that would

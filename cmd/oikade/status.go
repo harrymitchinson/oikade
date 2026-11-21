@@ -666,7 +666,7 @@ func stateOf(d api.Device, down string) string {
 	if d.PluginNotImported {
 		state = append(state, notImported)
 	}
-	// Offline comes first, and the driver's problem may say why (OIK-340).
+	// Offline comes first, and the driver's problem may say why.
 	off := d.Online != nil && !*d.Online && !d.PluginNotImported
 	switch {
 	case off && d.Problem != "":

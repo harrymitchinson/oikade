@@ -341,7 +341,6 @@ func words() []string {
 	return append(all, "help")
 }
 
-// printHelp prints oikade help.
 func printHelp(p *cli.Printer) {
 	cliGroups := make([]cli.Group, len(groups))
 	for i, g := range groups {
@@ -384,7 +383,7 @@ var instead = map[string]string{
 	"show":    "oikade status REF shows what something is doing now, and oikade list KIND what's on record",
 }
 
-// valuesHint says where a secret, and every other value of yours, went (OIK-365).
+// valuesHint is the hint for anything that names a secret, which is one of your values.
 const valuesHint = "your values, passwords included, go in .env beside go.mod: your code reads each with " +
 	"oikade.Var, and oikade deploy sends them"
 

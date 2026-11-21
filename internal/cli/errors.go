@@ -9,7 +9,6 @@ import (
 	"strings"
 )
 
-// Exit codes.
 const (
 	// ExitFailed is a command that went wrong.
 	ExitFailed = 1
@@ -65,7 +64,7 @@ func Silent() *Error {
 	return &Error{Message: "something needs fixing", Silent: true}
 }
 
-// WithHint is e with a hint.
+// WithHint sets e's hint and returns e.
 func (e *Error) WithHint(format string, a ...any) *Error {
 	e.Hint = fmt.Sprintf(format, a...)
 	return e

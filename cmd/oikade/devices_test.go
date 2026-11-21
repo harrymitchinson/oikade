@@ -106,8 +106,7 @@ func TestStatusSaysWhatsWrongWithADevice(t *testing.T) {
 	}
 }
 
-// An offline device says so in status, with the driver's problem if it has one, as oikade devices
-// has it (OIK-340).
+// An offline device says so in status, with the driver's problem if it has one.
 func TestStatusSaysADeviceIsOffline(t *testing.T) {
 	offline, online := false, true
 	for _, tc := range []struct {

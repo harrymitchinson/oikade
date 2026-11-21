@@ -19,7 +19,6 @@ import (
 	"github.com/harrymitchinson/oikade/internal/simhome"
 )
 
-// defaultReplay is "last week".
 const defaultReplay = 7 * 24 * time.Hour
 
 // runReplay shows what your code would have done: it fetches the host's event log, runs your local
@@ -82,7 +81,7 @@ func runReplay(ctx context.Context, args []string) error {
 	return nil
 }
 
-// fetchLog writes the host's log to a file, as your binary reads it.
+// fetchLog writes the host's devices and event log to path, as your binary's replay reads them.
 func fetchLog(ctx context.Context, t api.Transport, path string, since time.Duration) error {
 	resp, err := api.Call(ctx, t, api.Request{Type: api.TypeStatus})
 	if err != nil {

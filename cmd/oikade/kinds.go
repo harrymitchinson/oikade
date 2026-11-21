@@ -8,7 +8,7 @@ import (
 )
 
 // kind is what oikade help KIND says of a kind of thing: how it's written, and the commands that
-// take one. The exit-code test holds each command to it.
+// take one. TestEveryVerbExitsAsTheGrammarSays holds each command to it.
 type kind struct {
 	// word is the kind as oikade help takes it, singular. Its plural works too.
 	word string

@@ -14,7 +14,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
-// listed is what each kind oikade list takes prints: of a home with some of it, and of one with none.
+// listing is what each kind oikade list takes prints: of a home with some of it, and of one with none.
 type listing struct {
 	kind  string
 	print func(out, stderr *cli.Printer, empty, asJSON bool) error

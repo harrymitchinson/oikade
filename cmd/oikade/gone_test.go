@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// gone are the commands and flags OIK-355 and OIK-365 replaced, each with what replaced it.
+// gone are the commands, flags and names that were replaced, each with what replaced it.
 var gone = []struct {
 	pattern *regexp.Regexp
 	now     string
