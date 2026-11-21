@@ -9,8 +9,8 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/ident"
 )
 
 // Var is the value called name in your home's .env, the file beside its go.mod that Git ignores,
@@ -25,7 +25,7 @@ import (
 // name, so oikade deploy refuses to go ahead without a value for it, which a rule calling it as it
 // runs is too late to do. The host gives the values to each process it starts from your binary, and
 // never puts one in a binary, a log or an answer. oikade check and oikade dev give your code .env's
-// values, with the environment winning. Under go test or hometest, Var returns "".
+// values, with the environment winning. Under go test or oikadetest, Var returns "".
 func Var(name string) string {
 	return hostVars.get(name)
 }

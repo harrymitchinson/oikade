@@ -249,7 +249,7 @@ Hint: add it to .env, or set it in the environment
 Your home is fine: 12 rules, 2 plugins
 ```
 
-Under `go test` and `hometest`, an `oikade.Var` is empty.
+Under `go test` and `oikadetest`, an `oikade.Var` is empty.
 
 ## Deploying from CI
 
@@ -348,7 +348,7 @@ Unlike a deploy, an upgrade restarts the host, so Matter, your automations and y
 ### After an upgrade
 
 - **Update `oikade`** on the machines you run commands from to the same version, as an older or newer client may not speak this host's API.
-- **Bump `github.com/harrymitchinson/oikade`** in your home's `go.mod`, and deploy. A new host may speak a new protocol to your code, and then your process is turned away until you do.
+- **Bump `oikade.dev`** in your home's `go.mod`, and deploy. A new host may speak a new protocol to your code, and then your process is turned away until you do.
 
 ## State that must survive
 

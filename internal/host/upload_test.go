@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/host/api"
+	"oikade.dev/internal/host/api"
 )
 
 func uploadServer(t *testing.T, ctx context.Context) (*apiServer, string) {

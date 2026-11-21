@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/sdk/plugin"
+	"oikade.dev/contract/v1"
+	"oikade.dev/sdk/plugin"
 )
 
 // clouds is a Cozytouch account on both of Atlantic's clouds, Overkiz and Magellan, each followed
@@ -22,7 +22,7 @@ type clouds struct {
 
 var _ plugin.Handler = (*clouds)(nil)
 
-func newClouds(c Cozytouch, declared []contractv1.DeclaredDevice, t timing, log *slog.Logger) *clouds {
+func newClouds(c Cozytouch, declared []contract.DeclaredDevice, t timing, log *slog.Logger) *clouds {
 	c.signer = &signer{hold: t.refused}
 	return &clouds{overkiz: newBridge(c, declared, t, log), magellan: newMagellan(c, t, log)}
 }
@@ -50,7 +50,7 @@ func (c *clouds) Serve(ctx context.Context, p *plugin.Plugin) error {
 }
 
 // Set implements plugin.Handler, on whichever cloud has the device.
-func (c *clouds) Set(ctx context.Context, p *plugin.Plugin, cmd contractv1.SetCommand) error {
+func (c *clouds) Set(ctx context.Context, p *plugin.Plugin, cmd contract.SetCommand) error {
 	if strings.HasPrefix(cmd.ID, magellanIDPrefix) {
 		return c.magellan.set(ctx, cmd)
 	}
@@ -79,8 +79,8 @@ func (s *share) part() *part {
 type part struct {
 	share *share
 	// discovered is nil until the cloud has seen its app, and while it can't.
-	discovered []contractv1.DiscoveredDevice
-	devices    []contractv1.DeviceReport
+	discovered []contract.DiscoveredDevice
+	devices    []contract.DeviceReport
 	problem    string
 }
 
@@ -88,15 +88,15 @@ var _ reporter = (*part)(nil)
 
 // SetDiscovered reports every part's list, or nil while any part can't see its app: a device
 // missing from the list would say it was removed from it.
-func (p *part) SetDiscovered(ctx context.Context, discovered []contractv1.DiscoveredDevice) error {
+func (p *part) SetDiscovered(ctx context.Context, discovered []contract.DiscoveredDevice) error {
 	s := p.share
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	p.discovered = slices.Clone(discovered)
 	if discovered != nil && p.discovered == nil {
-		p.discovered = []contractv1.DiscoveredDevice{}
+		p.discovered = []contract.DiscoveredDevice{}
 	}
-	var all []contractv1.DiscoveredDevice
+	var all []contract.DiscoveredDevice
 	seen := map[string]bool{}
 	for _, q := range s.parts {
 		if q.discovered == nil {
@@ -110,19 +110,19 @@ func (p *part) SetDiscovered(ctx context.Context, discovered []contractv1.Discov
 		}
 	}
 	if all == nil {
-		all = []contractv1.DiscoveredDevice{}
+		all = []contract.DiscoveredDevice{}
 	}
 	return s.p.SetDiscovered(ctx, all)
 }
 
 // SetDevices reports every part's devices. A device on record that one part doesn't find and
 // another does is found.
-func (p *part) SetDevices(ctx context.Context, devices []contractv1.DeviceReport, _ int) error {
+func (p *part) SetDevices(ctx context.Context, devices []contract.DeviceReport, _ int) error {
 	s := p.share
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	p.devices = slices.Clone(devices)
-	byID := map[string]contractv1.DeviceReport{}
+	byID := map[string]contract.DeviceReport{}
 	for _, q := range s.parts {
 		for _, d := range q.devices {
 			if had, ok := byID[d.ID]; !ok || (!had.Found && d.Found) {
@@ -130,7 +130,7 @@ func (p *part) SetDevices(ctx context.Context, devices []contractv1.DeviceReport
 			}
 		}
 	}
-	all := make([]contractv1.DeviceReport, 0, len(byID))
+	all := make([]contract.DeviceReport, 0, len(byID))
 	for _, id := range slices.Sorted(maps.Keys(byID)) {
 		all = append(all, byID[id])
 	}
@@ -141,7 +141,7 @@ func (p *part) SetAvailability(ctx context.Context, id string, online bool) erro
 	return p.share.p.SetAvailability(ctx, id, online)
 }
 
-func (p *part) ReportState(ctx context.Context, id string, st contractv1.State) error {
+func (p *part) ReportState(ctx context.Context, id string, st contract.State) error {
 	return p.share.p.ReportState(ctx, id, st)
 }
 

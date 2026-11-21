@@ -4,12 +4,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/clock"
-	"github.com/harrymitchinson/oikade/internal/matter/clusters"
-	"github.com/harrymitchinson/oikade/internal/matter/nodetest"
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev/internal/clock"
+	"oikade.dev/internal/matter/clusters"
+	"oikade.dev/internal/matter/nodetest"
+	"oikade.dev/internal/matter/tlv"
+	"oikade.dev/internal/matter/transport"
+	"oikade.dev/internal/testkit"
 )
 
 // TestARemovedFabricsSessionsEndAfterTheGrace: removing a fabric ends its sessions

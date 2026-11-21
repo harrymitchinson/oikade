@@ -6,14 +6,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/clock"
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/matter/attestation"
-	"github.com/harrymitchinson/oikade/internal/matter/contain"
-	"github.com/harrymitchinson/oikade/internal/matter/fabric"
-	"github.com/harrymitchinson/oikade/internal/matter/im"
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"oikade.dev/internal/clock"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/matter/attestation"
+	"oikade.dev/internal/matter/contain"
+	"oikade.dev/internal/matter/fabric"
+	"oikade.dev/internal/matter/im"
+	"oikade.dev/internal/matter/tlv"
+	"oikade.dev/internal/matter/transport"
 )
 
 const (

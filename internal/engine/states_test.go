@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/control"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/store"
+	"oikade.dev/internal/control"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/store"
 )
 
 // storeBackend saves states in the embedded store. holds and controls return them as a restarted

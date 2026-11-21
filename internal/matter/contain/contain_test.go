@@ -3,7 +3,7 @@ package contain
 import (
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/logging"
+	"oikade.dev/internal/logging"
 )
 
 func TestRecoverContainsAPanicAndEndsWhatItLeft(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/engine"
+	"oikade.dev/internal/engine"
 )
 
 // averages are the rolling averages the home's code makes with AverageOver, which the engine keeps

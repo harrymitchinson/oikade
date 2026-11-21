@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/clock"
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev/internal/clock"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/matter/transport"
+	"oikade.dev/internal/testkit"
 )
 
 // TestSubscriptionReportsAtMostEveryMinInterval: a change waits until the min interval since the

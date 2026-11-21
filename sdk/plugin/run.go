@@ -8,7 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"oikade.dev/contract/v1"
 )
 
 // Handler is a plugin's device logic, the same whether it runs as an outside process or as a
@@ -17,7 +17,7 @@ type Handler interface {
 	// Serve reports devices, availability and state, then follows the devices until ctx ends.
 	Serve(ctx context.Context, p *Plugin) error
 	// Set applies a command and reports the result with SetState or UpdateState.
-	Set(ctx context.Context, p *Plugin, cmd contractv1.SetCommand) error
+	Set(ctx context.Context, p *Plugin, cmd contract.SetCommand) error
 }
 
 // Factory builds a plugin's Handler. devices are the ones Oikade has on record for the plugin: from
@@ -25,7 +25,7 @@ type Handler interface {
 // imports, where they're empty the first time. A plugin that can list its devices reports them all,
 // on record or not, and is configured in Go by the home that imports it. An error stops the plugin
 // before it comes online.
-type Factory func(env Environment, devices []contractv1.DeclaredDevice) (Handler, error)
+type Factory func(env Environment, devices []contract.DeclaredDevice) (Handler, error)
 
 // Run is an outside plugin's main: it reads the environment and any devices file, builds the
 // Handler, starts, serves, and on SIGTERM or SIGINT closes and exits 0. Any error exits 1.
@@ -47,7 +47,7 @@ func run(ctx context.Context, log *slog.Logger, o Options, newHandler Factory) i
 	if err != nil {
 		return failed(err)
 	}
-	var devices []contractv1.DeclaredDevice
+	var devices []contract.DeclaredDevice
 	if env.DevicesFile != "" {
 		if devices, err = ReadDevices(env.DevicesFile); err != nil {
 			return failed(err)

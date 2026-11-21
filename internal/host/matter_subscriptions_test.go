@@ -5,8 +5,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/matter/im"
-	"github.com/harrymitchinson/oikade/internal/store"
+	"oikade.dev/internal/matter/im"
+	"oikade.dev/internal/store"
 )
 
 // TestSubscriptionStore: saved subscriptions come back as they went in after the store is opened

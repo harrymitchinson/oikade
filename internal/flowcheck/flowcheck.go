@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	oikadePath = "github.com/harrymitchinson/oikade"
+	oikadePath = "oikade.dev"
 	runType    = "FlowRun"
 
 	useNow   = "r.Now()"

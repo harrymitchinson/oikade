@@ -11,8 +11,8 @@ import (
 	"golang.org/x/net/dns/dnsmessage"
 	"golang.org/x/net/ipv4"
 
-	"github.com/harrymitchinson/oikade/internal/logging"
-	mdnsnet "github.com/harrymitchinson/oikade/internal/mdns"
+	"oikade.dev/internal/logging"
+	mdnsnet "oikade.dev/internal/mdns"
 )
 
 // multicastInterface returns an IPv4 interface on which a packet sent to a multicast group comes

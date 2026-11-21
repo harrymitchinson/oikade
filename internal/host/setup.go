@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	pluginDriver "github.com/harrymitchinson/oikade/internal/driver/plugin"
-	"github.com/harrymitchinson/oikade/internal/host/api"
+	"oikade.dev/contract/v1"
+	pluginDriver "oikade.dev/internal/driver/plugin"
+	"oikade.dev/internal/host/api"
 )
 
 // setupIdle is how long a setup waits for its plugin's next step, or for the person's answer,
@@ -147,7 +147,7 @@ func (s *apiServer) setup(w http.ResponseWriter, r *http.Request) {
 		case step, ok := <-steps:
 			if !ok {
 				// Ended without a done: another setup of the plugin started, or this one fell behind.
-				write(api.SetupStep{Session: session, Done: &contractv1.SetupDone{
+				write(api.SetupStep{Session: session, Done: &contract.SetupDone{
 					Error: "the setup ended: another setup of " + req.Plugin + " started, or this one fell behind",
 				}})
 				return
@@ -169,7 +169,7 @@ func (s *apiServer) setup(w http.ResponseWriter, r *http.Request) {
 			idle.Reset(setupIdle)
 		case <-idle.C:
 			log.Info("Ended setup", "problem", "timed out")
-			write(api.SetupStep{Session: session, Done: &contractv1.SetupDone{
+			write(api.SetupStep{Session: session, Done: &contract.SetupDone{
 				Error: fmt.Sprintf("nothing happened for %s, so the host ended the setup", setupIdle),
 			}})
 			return
@@ -184,7 +184,7 @@ func (s *apiServer) setup(w http.ResponseWriter, r *http.Request) {
 
 // setupStep acts on a plugin's step and says what to pass on, if anything. A keep is the host's to
 // do, and only its name goes on.
-func (s *apiServer) setupStep(log *slog.Logger, run *setupRun, step contractv1.SetupStep) (api.SetupStep, bool) {
+func (s *apiServer) setupStep(log *slog.Logger, run *setupRun, step contract.SetupStep) (api.SetupStep, bool) {
 	line := api.SetupStep{Session: step.Session, Seq: step.Seq, Say: step.Say, Ask: step.Ask, Open: step.Open, Done: step.Done}
 	switch {
 	case step.Keep != nil:

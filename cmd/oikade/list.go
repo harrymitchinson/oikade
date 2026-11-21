@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/registry"
+	"oikade.dev/internal/cli"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/registry"
 )
 
 const verbList = "list"

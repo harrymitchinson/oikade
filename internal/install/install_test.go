@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/store"
+	"oikade.dev/internal/cli"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/store"
 )
 
 // machine is a systemd machine under a directory. A binary is a file holding its version, and one

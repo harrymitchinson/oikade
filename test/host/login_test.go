@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/host/api"
+	"oikade.dev/internal/host/api"
 )
 
 // away runs a command as a machine with no access to the host's data directory would: its own

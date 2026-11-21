@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/engine"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/internal/engine"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/ident"
 )
 
 // Without these in status, a hold shows only as a claim on a device, and why it stopped not at all.

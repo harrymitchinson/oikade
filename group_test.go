@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/devicetype"
-	"github.com/harrymitchinson/oikade/internal/engine"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
+	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/engine"
+	"oikade.dev/internal/host/wire"
 )
 
 // heater and light are devices as oikade types writes them.

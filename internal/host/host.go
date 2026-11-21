@@ -19,13 +19,13 @@ import (
 
 	"github.com/VictoriaMetrics/metrics"
 
-	"github.com/harrymitchinson/oikade/internal/driver"
-	"github.com/harrymitchinson/oikade/internal/engine"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/hub"
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/registry"
-	"github.com/harrymitchinson/oikade/internal/store"
+	"oikade.dev/internal/driver"
+	"oikade.dev/internal/engine"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/hub"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/registry"
+	"oikade.dev/internal/store"
 )
 
 const (

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"oikade.dev/internal/matter/tlv"
+	"oikade.dev/internal/matter/transport"
 )
 
 // Interaction Model opcodes (Core spec, 10.2.1).

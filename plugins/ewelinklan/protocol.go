@@ -14,7 +14,7 @@ import (
 	"strconv"
 	"strings"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"oikade.dev/contract/v1"
 )
 
 // Field names in a report, as a THR320D sends them. Both are strings, and a reading the probe can't
@@ -61,7 +61,7 @@ var kinds = map[string]kind{
 		command: func(on bool) any {
 			return map[string]any{"deviceType": "normal", "mainSwitch": onOff(on), "switch": onOff(on)}
 		},
-		capabilities: []string{contractv1.On, contractv1.Temperature},
+		capabilities: []string{contract.On, contract.Temperature},
 		sensors:      true,
 		read:         readSensorSwitch,
 	},
@@ -83,10 +83,10 @@ func readSensorSwitch(params map[string]any) report {
 	}
 	r.values = map[string]float64{}
 	if v, ok := reading(params[fieldTemperature], -273.15, 1000); ok {
-		r.values[contractv1.Temperature] = v
+		r.values[contract.Temperature] = v
 	}
 	if v, ok := reading(params[fieldHumidity], 0, 100); ok {
-		r.values[contractv1.Humidity] = v
+		r.values[contract.Humidity] = v
 	}
 	return r
 }

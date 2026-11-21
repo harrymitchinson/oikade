@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/matter/attestation"
-	"github.com/harrymitchinson/oikade/internal/matter/contain"
-	"github.com/harrymitchinson/oikade/internal/matter/fabric"
-	"github.com/harrymitchinson/oikade/internal/matter/im"
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/matter/attestation"
+	"oikade.dev/internal/matter/contain"
+	"oikade.dev/internal/matter/fabric"
+	"oikade.dev/internal/matter/im"
+	"oikade.dev/internal/matter/tlv"
 )
 
 // underHandler runs f as a protocol handler does, under contain.Recover, and returns what got past

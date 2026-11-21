@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/harrymitchinson/oikade/internal/devicetype"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
+	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/host/wire"
 )
 
 // declarationsInSource reads the device declarations a home's source makes, for when it doesn't

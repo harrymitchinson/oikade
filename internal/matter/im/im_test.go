@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/matter/tlv"
+	"oikade.dev/internal/matter/transport"
+	"oikade.dev/internal/testkit"
 )
 
 // plain is a Security that doesn't encrypt, so a test can read what goes over the wire.

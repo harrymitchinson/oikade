@@ -30,45 +30,45 @@ import (
 	"strings"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"oikade.dev/contract/v1"
 )
 
 // The capabilities. contract/v1 holds their names.
 const (
 	// On is whether a light, switch or outlet is on.
-	On = contractv1.On
+	On = contract.On
 	// Brightness is a light's brightness in percent (0-100). It doesn't turn the light on or off:
 	// drivers report On separately.
-	Brightness = contractv1.Brightness
+	Brightness = contract.Brightness
 	// Temperature is in degrees Celsius.
-	Temperature = contractv1.Temperature
+	Temperature = contract.Temperature
 	// Humidity is relative humidity in percent.
-	Humidity = contractv1.Humidity
+	Humidity = contract.Humidity
 	// Open is true while a door or window is open. Zigbee2MQTT's "contact" and Matter's Boolean
 	// State are both true while it's shut.
-	Open = contractv1.Open
+	Open = contract.Open
 	// Occupied is true while motion or presence is detected.
-	Occupied = contractv1.Occupied
+	Occupied = contract.Occupied
 	// Battery is a battery's charge in percent.
-	Battery = contractv1.Battery
+	Battery = contract.Battery
 	// LinkQuality is a radio link's quality, from 0 to 255.
-	LinkQuality = contractv1.LinkQuality
+	LinkQuality = contract.LinkQuality
 	// Setpoint is the temperature a heater or thermostat aims for, in degrees Celsius. It doesn't
 	// turn the device on or off: On does.
-	Setpoint = contractv1.Setpoint
+	Setpoint = contract.Setpoint
 	// Locked is true while a lock's bolt is fully thrown. A bolt partway, or jammed, isn't locked.
-	Locked = contractv1.Locked
+	Locked = contract.Locked
 	// Position is how far closed a blind, shade or shutter is, in percent: 0 is fully open and 100
 	// fully closed, as in Matter. A driver whose platform is the other way round, as Zigbee2MQTT's
 	// is, inverts it.
-	Position = contractv1.Position
+	Position = contract.Position
 	// Mode is what an air conditioner or heat pump does while it's on: one of ModeNames. It's kept
 	// while the device is off: On turns it on and off.
-	Mode = contractv1.Mode
+	Mode = contract.Mode
 )
 
 // ModeNames are Mode's names, in the order that gives each its number. The list is append-only.
-var ModeNames = []string{contractv1.ModeAuto, contractv1.ModeHeat, contractv1.ModeCool, contractv1.ModeDry, contractv1.ModeFan}
+var ModeNames = []string{contract.ModeAuto, contract.ModeHeat, contract.ModeCool, contract.ModeDry, contract.ModeFan}
 
 // Kind is a capability's value type.
 type Kind string

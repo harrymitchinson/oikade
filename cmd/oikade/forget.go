@@ -7,9 +7,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/internal/cli"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/ident"
 )
 
 // runForget drops devices from the host's record, which come back if their plugin reports them

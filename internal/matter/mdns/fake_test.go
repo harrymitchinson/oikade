@@ -10,7 +10,7 @@ import (
 
 	"golang.org/x/net/dns/dnsmessage"
 
-	"github.com/harrymitchinson/oikade/internal/logging"
+	"oikade.dev/internal/logging"
 )
 
 const testIf = 1

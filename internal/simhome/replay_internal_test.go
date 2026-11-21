@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/engine"
-	"github.com/harrymitchinson/oikade/internal/flow"
-	"github.com/harrymitchinson/oikade/internal/logging"
+	"oikade.dev/internal/engine"
+	"oikade.dev/internal/flow"
+	"oikade.dev/internal/logging"
 )
 
 func noRules() ([]*engine.Compiled, map[string]*flow.Flow, error) { return nil, nil, nil }

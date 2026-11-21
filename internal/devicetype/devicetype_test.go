@@ -4,8 +4,8 @@ import (
 	"slices"
 	"testing"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/capability"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/capability"
 )
 
 func TestOf(t *testing.T) {
@@ -67,7 +67,7 @@ func TestTheContractHasTheChoosableTypes(t *testing.T) {
 	for _, typ := range OnOff {
 		ours = append(ours, string(typ))
 	}
-	if got := contractv1.DeviceTypes(); !slices.Equal(got, ours) {
+	if got := contract.DeviceTypes(); !slices.Equal(got, ours) {
 		t.Errorf("the contract has %v, want %v", got, ours)
 	}
 }

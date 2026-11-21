@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/store"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/store"
 )
 
 // A backup keeps the newest snapshots, its own among them, and leaves anything else in the

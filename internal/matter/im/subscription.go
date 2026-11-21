@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/matter/contain"
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"oikade.dev/internal/matter/contain"
+	"oikade.dev/internal/matter/tlv"
+	"oikade.dev/internal/matter/transport"
 )
 
 // subscription sends a client the attributes it subscribed to when they change, at most every

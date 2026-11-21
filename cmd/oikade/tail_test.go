@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/host/api"
+	"oikade.dev/internal/host/api"
 )
 
 // oikade tail says so when the host ends its stream, and fails, so a script sees it stopped.

@@ -7,13 +7,13 @@ import (
 	"strings"
 	"testing"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"oikade.dev/contract/v1"
 )
 
 var pluginEnv = map[string]string{
-	contractv1.EnvMQTTURL:     "mqtt://broker:1883",
-	contractv1.EnvTopic:       "oikade/v1/sonoff",
-	contractv1.EnvDevicesFile: "/etc/oikade/config/devices.json",
+	contract.EnvMQTTURL:     "mqtt://broker:1883",
+	contract.EnvTopic:       "oikade/v1/sonoff",
+	contract.EnvDevicesFile: "/etc/oikade/config/devices.json",
 }
 
 func envWith(overrides map[string]string) func(string) string {
@@ -39,7 +39,7 @@ func TestReadEnvironment(t *testing.T) {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}
 
-	got, err = readEnvironment(envWith(map[string]string{contractv1.EnvSecretsDir: "/etc/oikade/secrets"}))
+	got, err = readEnvironment(envWith(map[string]string{contract.EnvSecretsDir: "/etc/oikade/secrets"}))
 	if err != nil || got.SecretsDir != "/etc/oikade/secrets" {
 		t.Fatalf("got %+v, %v, want the secrets dir", got, err)
 	}
@@ -49,12 +49,12 @@ func TestReadEnvironmentRejects(t *testing.T) {
 	for _, tc := range []struct {
 		name, variable, value string
 	}{
-		{"missing URL", contractv1.EnvMQTTURL, ""},
-		{"missing topic", contractv1.EnvTopic, ""},
-		{"another contract", contractv1.EnvTopic, "oikade/v2/home/x"},
-		{"no plugin", contractv1.EnvTopic, "oikade/v1/"},
-		{"too deep", contractv1.EnvTopic, "oikade/v1/x/y"},
-		{"wildcard", contractv1.EnvTopic, "oikade/v1/+"},
+		{"missing URL", contract.EnvMQTTURL, ""},
+		{"missing topic", contract.EnvTopic, ""},
+		{"another contract", contract.EnvTopic, "oikade/v2/home/x"},
+		{"no plugin", contract.EnvTopic, "oikade/v1/"},
+		{"too deep", contract.EnvTopic, "oikade/v1/x/y"},
+		{"wildcard", contract.EnvTopic, "oikade/v1/+"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := readEnvironment(envWith(map[string]string{tc.variable: tc.value}))
@@ -82,7 +82,7 @@ func TestReadDevices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []contractv1.DeclaredDevice{
+	want := []contract.DeclaredDevice{
 		{ID: "1000aabbcc", Name: "porch-light", DisplayName: "Porch light", Room: "porch"},
 		{ID: "2", Name: "hall", DisplayName: "hall"},
 	}
@@ -141,7 +141,7 @@ func TestReadSecret(t *testing.T) {
 
 func TestDevicesFileIsOptional(t *testing.T) {
 	env, err := readEnvironment(func(name string) string {
-		if name == contractv1.EnvDevicesFile {
+		if name == contract.EnvDevicesFile {
 			return ""
 		}
 		return pluginEnv[name]

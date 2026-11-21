@@ -18,8 +18,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/conformance"
-	"github.com/harrymitchinson/oikade/internal/logging"
+	"oikade.dev/internal/conformance"
+	"oikade.dev/internal/logging"
 )
 
 func TestConformance(t *testing.T) {

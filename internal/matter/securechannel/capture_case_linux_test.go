@@ -17,10 +17,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/matter/node"
-	"github.com/harrymitchinson/oikade/internal/matter/securechannel"
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/matter/node"
+	"oikade.dev/internal/matter/securechannel"
+	"oikade.dev/internal/matter/transport"
 )
 
 // TestCaptureChipToolCASE records chip-tool commissioning an Oikade node, which ends in a full

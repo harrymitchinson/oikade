@@ -20,15 +20,15 @@ import (
 	"syscall"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/devicetype"
-	"github.com/harrymitchinson/oikade/internal/driver"
-	"github.com/harrymitchinson/oikade/internal/driver/plugin"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/mqtt"
-	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/driver"
+	"oikade.dev/internal/driver/plugin"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/mqtt"
+	"oikade.dev/internal/mqtt/mqtttest"
 )
 
 const (
@@ -38,7 +38,7 @@ const (
 	DefaultTimeout = 15 * time.Second
 )
 
-var root = contractv1.NewRoot(name)
+var root = contract.NewRoot(name)
 
 // T is what the checks report through. *testing.T satisfies it.
 type T interface {
@@ -156,9 +156,9 @@ func New(t T, cfg Config) *Suite {
 	}
 
 	s.env = append(os.Environ(),
-		contractv1.EnvMQTTURL+"="+s.url,
-		contractv1.EnvTopic+"="+string(root),
-		contractv1.EnvDevicesFile+"="+cfg.Devices,
+		contract.EnvMQTTURL+"="+s.url,
+		contract.EnvTopic+"="+string(root),
+		contract.EnvDevicesFile+"="+cfg.Devices,
 	)
 	if cfg.Plugin != "" {
 		socket := fakeHost(ctx, t, cfg, bus)
@@ -166,7 +166,7 @@ func New(t T, cfg Config) *Suite {
 		s.env = append(os.Environ(), wire.SocketEnv+"="+socket)
 	}
 	if cfg.Secrets != "" {
-		s.env = append(s.env, contractv1.EnvSecretsDir+"="+cfg.Secrets)
+		s.env = append(s.env, contract.EnvSecretsDir+"="+cfg.Secrets)
 	}
 	s.p = s.run()
 	return s
@@ -192,10 +192,10 @@ func readDeclared(t T, file string) map[string]ident.ID {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var declared contractv1.DevicesFile
+	var declared contract.DevicesFile
 	err = json.Unmarshal(raw, &declared)
-	if err != nil || declared.Contract != contractv1.Contract || len(declared.Devices) == 0 {
-		t.Fatalf("%s must be a contract %d devices file with at least one device: %v", file, contractv1.Contract, err)
+	if err != nil || declared.Contract != contract.Contract || len(declared.Devices) == 0 {
+		t.Fatalf("%s must be a contract %d devices file with at least one device: %v", file, contract.Contract, err)
 	}
 	devices := map[string]ident.ID{}
 	for _, d := range declared.Devices {
@@ -209,7 +209,7 @@ func (s *Suite) run() *process { return start(s.t, s.dir, s.command, s.env) }
 // recordReport keeps the raw devices report, to tell the plugin's own report from the decoder's
 // initial "not found".
 func (s *Suite) recordReport(m mqtt.Message) {
-	var msg contractv1.Devices
+	var msg contract.Devices
 	if json.Unmarshal(m.Payload, &msg) != nil {
 		return
 	}
@@ -235,7 +235,7 @@ func (s *Suite) recordReport(m mqtt.Message) {
 
 func (s *Suite) recordAvailability(m mqtt.Message) {
 	id, ok := strings.CutSuffix(strings.TrimPrefix(m.Topic, string(root)+"/"), "/availability")
-	if !ok || m.Retained || string(m.Payload) != contractv1.Online {
+	if !ok || m.Retained || string(m.Payload) != contract.Online {
 		return
 	}
 	s.mu.Lock()
@@ -315,7 +315,7 @@ func (s *Suite) announces(t T) {
 
 func (s *Suite) retains(t T) {
 	retained := snapshot(t, s.url)
-	if st := retained[root.Status()]; !isStatus(st, contractv1.Online) {
+	if st := retained[root.Status()]; !isStatus(st, contract.Online) {
 		t.Errorf("status not retained as online: %s", st)
 	}
 	if retained[root.Devices()] == nil {
@@ -410,7 +410,7 @@ func (s *Suite) runSetup(t T, session string) {
 	}
 	seq := 0
 	for {
-		var step contractv1.SetupStep
+		var step contract.SetupStep
 		var ok bool
 		select {
 		case step, ok = <-steps:
@@ -497,7 +497,7 @@ func (s *Suite) restarts(t T) {
 
 // keepsDiscoveredIDs checks that a devices report published after since discovers every device
 // discovered before it, by the same ID: Oikade's Devices for adopted devices refer to them by it.
-func (s *Suite) keepsDiscoveredIDs(t T, before []contractv1.DiscoveredDevice, since time.Time) {
+func (s *Suite) keepsDiscoveredIDs(t T, before []contract.DiscoveredDevice, since time.Time) {
 	t.Helper()
 	missing := func() []string {
 		s.mu.Lock()
@@ -526,8 +526,8 @@ func (s *Suite) crashes(t T) {
 	<-s.p.done
 	s.eventually(t, "the Last Will to mark the plugin offline", func() bool { return !s.up() })
 	st := snapshot(t, s.url)[root.Status()]
-	if !isStatus(st, contractv1.Offline) {
-		t.Errorf("retained status after a crash = %s, want offline with contract %d", st, contractv1.Contract)
+	if !isStatus(st, contract.Offline) {
+		t.Errorf("retained status after a crash = %s, want offline with contract %d", st, contract.Contract)
 	}
 	s.noRejections(t)
 }
@@ -535,8 +535,8 @@ func (s *Suite) crashes(t T) {
 // isStatus reports whether payload is a status with this state and the contract version, with or
 // without an error.
 func isStatus(payload []byte, state string) bool {
-	var s contractv1.Status
-	return json.Unmarshal(payload, &s) == nil && s.State == state && s.Contract == contractv1.Contract
+	var s contract.Status
+	return json.Unmarshal(payload, &s) == nil && s.State == state && s.Contract == contract.Contract
 }
 
 // toggled returns a different valid value for a writable capability.

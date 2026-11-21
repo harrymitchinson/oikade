@@ -3,7 +3,7 @@ package host
 import (
 	"sync"
 
-	"github.com/harrymitchinson/oikade/internal/host/api"
+	"oikade.dev/internal/host/api"
 )
 
 // feedBuffer bounds the events waiting for one tail. One that falls this far behind is cut off.

@@ -13,17 +13,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/control"
-	"github.com/harrymitchinson/oikade/internal/driver"
-	"github.com/harrymitchinson/oikade/internal/engine"
-	"github.com/harrymitchinson/oikade/internal/fault"
-	"github.com/harrymitchinson/oikade/internal/flow"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/internal/hub"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/registry"
-	"github.com/harrymitchinson/oikade/internal/store"
+	"oikade.dev/internal/control"
+	"oikade.dev/internal/driver"
+	"oikade.dev/internal/engine"
+	"oikade.dev/internal/fault"
+	"oikade.dev/internal/flow"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/hub"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/registry"
+	"oikade.dev/internal/store"
 )
 
 const (

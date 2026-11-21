@@ -12,13 +12,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/logging"
-	mcrypto "github.com/harrymitchinson/oikade/internal/matter/crypto"
-	"github.com/harrymitchinson/oikade/internal/matter/im"
-	"github.com/harrymitchinson/oikade/internal/matter/securechannel"
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev/internal/logging"
+	mcrypto "oikade.dev/internal/matter/crypto"
+	"oikade.dev/internal/matter/im"
+	"oikade.dev/internal/matter/securechannel"
+	"oikade.dev/internal/matter/tlv"
+	"oikade.dev/internal/matter/transport"
+	"oikade.dev/internal/testkit"
 )
 
 const passcode = 20202021

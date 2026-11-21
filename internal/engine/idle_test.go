@@ -3,7 +3,7 @@ package engine
 import (
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev/internal/testkit"
 )
 
 // waitIdle returns once the engine has caught up with the fake clock. Idle counts everything the

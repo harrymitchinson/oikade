@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev/internal/cli"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/testkit"
 )
 
 // What forget and remove say they did, plain and styled.

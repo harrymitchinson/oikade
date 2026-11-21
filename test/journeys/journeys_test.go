@@ -22,8 +22,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/registry"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/registry"
 )
 
 const waitLimit = 2 * time.Minute

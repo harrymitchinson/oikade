@@ -11,7 +11,7 @@ import (
 
 	"golang.org/x/net/dns/dnsmessage"
 
-	"github.com/harrymitchinson/oikade/internal/logging"
+	"oikade.dev/internal/logging"
 )
 
 // hub is the controller the tests look for, on another host.

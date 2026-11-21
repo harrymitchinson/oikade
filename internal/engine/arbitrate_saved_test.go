@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/control"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/store"
+	"oikade.dev/internal/control"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/store"
 )
 
 // A device whose driver hasn't attached has no arbiters, so its claims are only on disk. A deploy

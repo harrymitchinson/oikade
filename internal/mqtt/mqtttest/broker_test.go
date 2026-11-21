@@ -11,7 +11,7 @@ import (
 	mochi "github.com/mochi-mqtt/server/v2"
 	"github.com/mochi-mqtt/server/v2/packets"
 
-	"github.com/harrymitchinson/oikade/internal/mqtt"
+	"oikade.dev/internal/mqtt"
 )
 
 // slowTeardown holds a closing connection at the points where it can race the client's reconnect.

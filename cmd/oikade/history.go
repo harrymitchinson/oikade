@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/internal/cli"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/ident"
 )
 
 // defaultHistory is how far back oikade history looks unless --since says.

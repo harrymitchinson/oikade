@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/mqtt"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/mqtt"
 )
 
 // FuzzHandle feeds Instance.handle a devices message and then one message on any topic, twice, as

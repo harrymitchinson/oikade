@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	mcrypto "github.com/harrymitchinson/oikade/internal/matter/crypto"
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	mcrypto "oikade.dev/internal/matter/crypto"
+	"oikade.dev/internal/matter/transport"
 )
 
 // PASE derives a session from the setup passcode with SPAKE2+ (Core spec, 4.14.1):

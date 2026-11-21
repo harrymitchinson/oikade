@@ -7,16 +7,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/clock"
-	"github.com/harrymitchinson/oikade/internal/control"
-	"github.com/harrymitchinson/oikade/internal/driver"
-	"github.com/harrymitchinson/oikade/internal/engine"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/internal/hub"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/logging"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/clock"
+	"oikade.dev/internal/control"
+	"oikade.dev/internal/driver"
+	"oikade.dev/internal/engine"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/hub"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/logging"
 )
 
 // An oikade set that never reached the device leaves the device's next change its own: the wall

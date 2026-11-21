@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade"
-	"github.com/harrymitchinson/oikade/hometest"
+	"oikade.dev"
+	"oikade.dev/oikadetest"
 )
 
 // The devices, as oikade types writes them into devices.go.
@@ -27,7 +27,7 @@ var (
 	}
 )
 
-// A home decides what sets each capability. In main, home.Run() runs it on the host. Here hometest
+// A home decides what sets each capability. In main, home.Run() runs it on the host. Here oikadetest
 // runs it on a fake clock instead, as a test of it would.
 func ExampleNewHome() {
 	home := oikade.NewHome(oikade.Options{})
@@ -35,7 +35,7 @@ func ExampleNewHome() {
 		Case("humid", true, BathroomSensor.Humidity.Above(70)).Linger(5 * time.Minute).
 		Default(false)
 
-	h := hometest.New(t, home, hometest.Options{Devices: []hometest.Device{
+	h := oikadetest.New(t, home, oikadetest.Options{Devices: []oikadetest.Device{
 		{Name: "bathroom-fan", Capabilities: []string{string(oikade.On)}},
 		{Name: "bathroom-sensor", Capabilities: []string{string(oikade.Humidity)}},
 	}})
@@ -60,7 +60,7 @@ func ExampleHome_Flow() {
 	}).When(BathroomSensor.Humidity).If(BathroomSensor.Humidity.Above(70))
 
 	on, humidity := string(oikade.On), string(oikade.Humidity)
-	h := hometest.New(t, home, hometest.Options{Devices: []hometest.Device{
+	h := oikadetest.New(t, home, oikadetest.Options{Devices: []oikadetest.Device{
 		{Name: "bathroom-fan", Capabilities: []string{on}, Values: map[string]any{on: false}},
 		{Name: "bathroom-sensor", Capabilities: []string{humidity}, Values: map[string]any{humidity: 50.0}},
 	}})

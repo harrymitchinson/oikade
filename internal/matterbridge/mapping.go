@@ -13,13 +13,13 @@ import (
 	"time"
 	"unicode/utf8"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/devicetype"
-	"github.com/harrymitchinson/oikade/internal/driver"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/matter/clusters"
-	"github.com/harrymitchinson/oikade/internal/matter/im"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/driver"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/matter/clusters"
+	"oikade.dev/internal/matter/im"
 )
 
 // SetFunc takes a write from a controller to a capability. It must not block: it runs under the
@@ -285,11 +285,11 @@ func mapHeater(m *Mapped, switchable bool, set SetFunc) {
 
 // systemModes are the SystemMode each mode shows as, and modeNames the other way round.
 var systemModes = map[string]uint64{
-	contractv1.ModeAuto: clusters.SystemModeAuto,
-	contractv1.ModeHeat: clusters.SystemModeHeat,
-	contractv1.ModeCool: clusters.SystemModeCool,
-	contractv1.ModeDry:  clusters.SystemModeDry,
-	contractv1.ModeFan:  clusters.SystemModeFanOnly,
+	contract.ModeAuto: clusters.SystemModeAuto,
+	contract.ModeHeat: clusters.SystemModeHeat,
+	contract.ModeCool: clusters.SystemModeCool,
+	contract.ModeDry:  clusters.SystemModeDry,
+	contract.ModeFan:  clusters.SystemModeFanOnly,
 }
 
 var modeNames = func() map[uint64]string {

@@ -10,15 +10,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/control"
-	"github.com/harrymitchinson/oikade/internal/driver"
-	"github.com/harrymitchinson/oikade/internal/engine"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/internal/hub"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/registry"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/control"
+	"oikade.dev/internal/driver"
+	"oikade.dev/internal/engine"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/hub"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/registry"
 )
 
 // rulesInfo says what the running code's rules are: from the process, or if it's down, from the

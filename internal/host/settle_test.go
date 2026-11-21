@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/host/api"
+	"oikade.dev/internal/host/api"
 )
 
 func change(value any) api.Event {

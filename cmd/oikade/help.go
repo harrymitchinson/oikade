@@ -8,8 +8,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/host/api"
+	"oikade.dev/internal/cli"
+	"oikade.dev/internal/host/api"
 )
 
 // std is where every command prints, and exit how it ends: os.Stdout, os.Stderr and os.Exit, except

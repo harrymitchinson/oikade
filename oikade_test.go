@@ -8,16 +8,16 @@ import (
 	"testing"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/control"
-	"github.com/harrymitchinson/oikade/internal/devicetype"
-	"github.com/harrymitchinson/oikade/internal/driver"
-	"github.com/harrymitchinson/oikade/internal/engine"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/internal/hub"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/sdk/plugin"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/control"
+	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/driver"
+	"oikade.dev/internal/engine"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/hub"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/logging"
+	"oikade.dev/sdk/plugin"
 )
 
 // deciding is a home with one decision, on d's on, of one case.
@@ -715,7 +715,7 @@ func TestADecisionsOverrideLineSaysWhatAnOutsideChangeDoes(t *testing.T) {
 }
 
 func TestPluginsAreChecked(t *testing.T) {
-	made := func(plugin.Environment, []contractv1.DeclaredDevice) (plugin.Handler, error) { return nil, nil }
+	made := func(plugin.Environment, []contract.DeclaredDevice) (plugin.Handler, error) { return nil, nil }
 	for name, add := range map[string]func(*Home){
 		"no name":  func(h *Home) { h.Plugin("", made) },
 		"bad name": func(h *Home) { h.Plugin("a/b", made) },
@@ -732,7 +732,7 @@ func TestPluginsAreChecked(t *testing.T) {
 }
 
 func TestAPluginsDevicesCanBeHiddenFromMatter(t *testing.T) {
-	made := func(plugin.Environment, []contractv1.DeclaredDevice) (plugin.Handler, error) { return nil, nil }
+	made := func(plugin.Environment, []contract.DeclaredDevice) (plugin.Handler, error) { return nil, nil }
 	for name, tc := range map[string]struct {
 		add  func(*Home)
 		want string
@@ -933,7 +933,7 @@ func TestABudgetTakesClockTimesOnly(t *testing.T) {
 // A home keeps its rules in the order they're added, and a helper that adds them keeps the names it
 // was given.
 func TestAHomeKeepsWhatItsHelpersAdd(t *testing.T) {
-	made := func(plugin.Environment, []contractv1.DeclaredDevice) (plugin.Handler, error) { return nil, nil }
+	made := func(plugin.Environment, []contract.DeclaredDevice) (plugin.Handler, error) { return nil, nil }
 	motion := func(h *Home, name string) { h.Flow(name, nothing).At(Clock("05:00")) }
 	h := decide(func(h *Home) {
 		motion(h, "landing")

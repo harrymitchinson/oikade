@@ -9,9 +9,9 @@ import (
 
 	"golang.org/x/net/dns/dnsmessage"
 
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/matter/contain"
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/matter/contain"
+	"oikade.dev/internal/testkit"
 )
 
 // TestPanicCostsOnlyThePacket: a panic answering one query is contained and counted, and the

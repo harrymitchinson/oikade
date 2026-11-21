@@ -16,8 +16,8 @@ import (
 
 	"github.com/VictoriaMetrics/metrics"
 
-	"github.com/harrymitchinson/oikade/internal/hub"
-	devicemetrics "github.com/harrymitchinson/oikade/internal/metrics"
+	"oikade.dev/internal/hub"
+	devicemetrics "oikade.dev/internal/metrics"
 )
 
 const (

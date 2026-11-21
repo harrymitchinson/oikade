@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/engine"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
+	"oikade.dev/internal/engine"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/host/wire"
 )
 
 // A process that couldn't read these at its start would die at every start, so each run goes in a

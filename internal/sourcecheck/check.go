@@ -9,8 +9,8 @@ import (
 	"golang.org/x/tools/go/analysis/checker"
 	"golang.org/x/tools/go/packages"
 
-	"github.com/harrymitchinson/oikade/internal/discardcheck"
-	"github.com/harrymitchinson/oikade/internal/flowcheck"
+	"oikade.dev/internal/discardcheck"
+	"oikade.dev/internal/flowcheck"
 )
 
 // Check runs the analyzers over the module in dir, and returns what it found as "file:line: message".

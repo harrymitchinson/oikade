@@ -13,7 +13,7 @@ import (
 	"github.com/eclipse/paho.golang/autopaho"
 	"github.com/eclipse/paho.golang/packets"
 
-	"github.com/harrymitchinson/oikade/internal/mdns"
+	"oikade.dev/internal/mdns"
 )
 
 // The schemes dialLocal dials: autopaho's, but WebSockets, which it dials with a library of its own.

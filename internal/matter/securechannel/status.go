@@ -9,7 +9,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"oikade.dev/internal/matter/transport"
 )
 
 // Secure Channel opcodes (Core spec, Table 18).

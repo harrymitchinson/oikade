@@ -3,12 +3,12 @@ package clusters
 import (
 	"errors"
 
-	"github.com/harrymitchinson/oikade/internal/matter/attestation"
-	"github.com/harrymitchinson/oikade/internal/matter/cert"
-	"github.com/harrymitchinson/oikade/internal/matter/fabric"
-	"github.com/harrymitchinson/oikade/internal/matter/im"
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"oikade.dev/internal/matter/attestation"
+	"oikade.dev/internal/matter/cert"
+	"oikade.dev/internal/matter/fabric"
+	"oikade.dev/internal/matter/im"
+	"oikade.dev/internal/matter/tlv"
+	"oikade.dev/internal/matter/transport"
 )
 
 // NodeOperationalCertStatusEnum.

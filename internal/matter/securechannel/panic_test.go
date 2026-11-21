@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/matter/contain"
-	mcrypto "github.com/harrymitchinson/oikade/internal/matter/crypto"
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/matter/contain"
+	mcrypto "oikade.dev/internal/matter/crypto"
+	"oikade.dev/internal/matter/transport"
+	"oikade.dev/internal/testkit"
 )
 
 // panickingConn panics, once, writing the unsecured Secure Channel message with an opcode.

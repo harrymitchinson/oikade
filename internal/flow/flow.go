@@ -21,11 +21,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/clock"
-	"github.com/harrymitchinson/oikade/internal/control"
-	"github.com/harrymitchinson/oikade/internal/engine"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/logging"
+	"oikade.dev/internal/clock"
+	"oikade.dev/internal/control"
+	"oikade.dev/internal/engine"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/logging"
 )
 
 const (

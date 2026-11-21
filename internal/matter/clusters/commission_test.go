@@ -13,17 +13,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/clock"
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/matter/attestation"
-	"github.com/harrymitchinson/oikade/internal/matter/cert"
-	mcrypto "github.com/harrymitchinson/oikade/internal/matter/crypto"
-	"github.com/harrymitchinson/oikade/internal/matter/fabric"
-	"github.com/harrymitchinson/oikade/internal/matter/im"
-	"github.com/harrymitchinson/oikade/internal/matter/securechannel"
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev/internal/clock"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/matter/attestation"
+	"oikade.dev/internal/matter/cert"
+	mcrypto "oikade.dev/internal/matter/crypto"
+	"oikade.dev/internal/matter/fabric"
+	"oikade.dev/internal/matter/im"
+	"oikade.dev/internal/matter/securechannel"
+	"oikade.dev/internal/matter/tlv"
+	"oikade.dev/internal/matter/transport"
+	"oikade.dev/internal/testkit"
 )
 
 const (

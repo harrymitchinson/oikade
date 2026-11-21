@@ -3,8 +3,8 @@ package main
 import (
 	"strings"
 
-	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/internal/cli"
+	"oikade.dev/internal/ident"
 )
 
 // kind is what oikade help KIND says of a kind of thing: how it's written, and the commands that

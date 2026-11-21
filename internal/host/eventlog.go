@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/clock"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/store"
+	"oikade.dev/internal/clock"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/store"
 )
 
 const (

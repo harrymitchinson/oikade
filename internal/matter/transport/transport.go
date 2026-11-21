@@ -23,8 +23,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/matter/contain"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/matter/contain"
 )
 
 // Port is the UDP port Matter nodes listen on.

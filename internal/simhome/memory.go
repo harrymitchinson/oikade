@@ -5,8 +5,8 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/harrymitchinson/oikade/internal/flow"
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/internal/flow"
+	"oikade.dev/internal/ident"
 )
 
 // memory keeps states as the host would.

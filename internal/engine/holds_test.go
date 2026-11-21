@@ -11,16 +11,16 @@ import (
 
 	"github.com/VictoriaMetrics/metrics"
 
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/clock"
-	"github.com/harrymitchinson/oikade/internal/control"
-	"github.com/harrymitchinson/oikade/internal/devicetype"
-	"github.com/harrymitchinson/oikade/internal/driver"
-	"github.com/harrymitchinson/oikade/internal/hub"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/sun"
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/clock"
+	"oikade.dev/internal/control"
+	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/driver"
+	"oikade.dev/internal/hub"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/sun"
+	"oikade.dev/internal/testkit"
 )
 
 // holdDevices are the devices every hold test declares, with their capabilities.

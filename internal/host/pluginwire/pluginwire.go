@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"oikade.dev/contract/v1"
 )
 
 const (
@@ -62,8 +62,8 @@ type Message struct {
 	Retain bool   `json:"retain,omitempty"`
 	// Declared and SetTimeout are a Welcome's: the devices on record for the plugin, and how long a
 	// Set may run before the plugin counts as hung.
-	Declared   []contractv1.DeclaredDevice `json:"declared,omitempty"`
-	SetTimeout time.Duration               `json:"setTimeout,omitempty"`
+	Declared   []contract.DeclaredDevice `json:"declared,omitempty"`
+	SetTimeout time.Duration             `json:"setTimeout,omitempty"`
 }
 
 // Conn reads and writes messages of type M. One goroutine may Read while others Write.

@@ -16,12 +16,12 @@ import (
 	"sync"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/driver"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/mqtt"
-	"github.com/harrymitchinson/oikade/sdk/plugin"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/driver"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/mqtt"
+	"oikade.dev/sdk/plugin"
 )
 
 // DefaultBaseTopic is Zigbee2MQTT's own default mqtt.base_topic.
@@ -77,7 +77,7 @@ func factory(c Config, log *slog.Logger) plugin.Factory {
 	if c.BaseTopic == "" {
 		c.BaseTopic = DefaultBaseTopic
 	}
-	return func(env plugin.Environment, declared []contractv1.DeclaredDevice) (plugin.Handler, error) {
+	return func(env plugin.Environment, declared []contract.DeclaredDevice) (plugin.Handler, error) {
 		if err := c.check(); err != nil {
 			return nil, err
 		}
@@ -117,7 +117,7 @@ type bridge struct {
 	// reported is every device reported, and whether it's found.
 	reported map[string]bool
 	// heard holds the values of the message being taken in, until Seen ends it.
-	heard map[string]contractv1.State
+	heard map[string]contract.State
 	// info is Zigbee2MQTT's bridge/info, once infoHeard is closed, and infoWait how long to wait
 	// for it.
 	info      *bridgeInfo
@@ -189,7 +189,7 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 }
 
 // Set implements plugin.Handler. The result is reported when Zigbee2MQTT publishes it.
-func (b *bridge) Set(ctx context.Context, _ *plugin.Plugin, cmd contractv1.SetCommand) error {
+func (b *bridge) Set(ctx context.Context, _ *plugin.Plugin, cmd contract.SetCommand) error {
 	b.mu.Lock()
 	up := b.up
 	b.mu.Unlock()
@@ -257,18 +257,18 @@ func (b *bridge) check(err error, msg, id string) {
 func (b *bridge) Inventory(_ driver.InstanceKey, devices []driver.AppDevice) {
 	b.reporting.Lock()
 	defer b.reporting.Unlock()
-	reports := make([]contractv1.DeviceReport, 0, len(devices)+len(b.declared))
-	discovered := make([]contractv1.DiscoveredDevice, 0, len(devices))
+	reports := make([]contract.DeviceReport, 0, len(devices)+len(b.declared))
+	discovered := make([]contract.DiscoveredDevice, 0, len(devices))
 	paired := make(map[string]ident.ID, len(devices))
 	for _, d := range devices {
 		paired[d.ID] = device(d.ID)
-		listed := contractv1.DiscoveredDevice{
+		listed := contract.DiscoveredDevice{
 			ID: d.ID, Manufacturer: d.Manufacturer, Model: d.Model, SerialNumber: d.SerialNumber,
 			FirmwareVersion: d.FirmwareVersion, HardwareVersion: d.HardwareVersion, Capabilities: d.Capabilities,
 			Name: d.Name, DeviceType: string(d.DeviceType),
 		}
 		discovered = append(discovered, listed)
-		reports = append(reports, contractv1.DeviceReport{
+		reports = append(reports, contract.DeviceReport{
 			ID: listed.ID, Found: true, Manufacturer: listed.Manufacturer, Model: listed.Model,
 			SerialNumber: listed.SerialNumber, FirmwareVersion: listed.FirmwareVersion,
 			HardwareVersion: listed.HardwareVersion, Capabilities: listed.Capabilities, DeviceType: listed.DeviceType,
@@ -276,7 +276,7 @@ func (b *bridge) Inventory(_ driver.InstanceKey, devices []driver.AppDevice) {
 	}
 	for _, id := range b.declared {
 		if _, ok := paired[id]; !ok {
-			reports = append(reports, contractv1.DeviceReport{ID: id})
+			reports = append(reports, contract.DeviceReport{ID: id})
 		}
 	}
 	// Each of these publishes, so the host hears the list twice when it changes. It takes that in
@@ -309,11 +309,11 @@ func (b *bridge) Changed(changes ...driver.Update) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.heard == nil {
-		b.heard = map[string]contractv1.State{}
+		b.heard = map[string]contract.State{}
 	}
 	for _, u := range changes {
 		if b.heard[u.Device.Name] == nil {
-			b.heard[u.Device.Name] = contractv1.State{}
+			b.heard[u.Device.Name] = contract.State{}
 		}
 		b.heard[u.Device.Name][u.Capability] = u.Value
 	}
@@ -327,7 +327,7 @@ func (b *bridge) Seen(dev ident.ID, _ time.Time) {
 	delete(b.heard, dev.Name)
 	b.mu.Unlock()
 	if values == nil {
-		values = contractv1.State{}
+		values = contract.State{}
 	}
 	b.check(b.plugin.ReportState(b.ctx, dev.Name, values), "Could not report state", dev.Name)
 }

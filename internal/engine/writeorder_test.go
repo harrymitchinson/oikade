@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/control"
-	"github.com/harrymitchinson/oikade/internal/hub"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/logging"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/control"
+	"oikade.dev/internal/hub"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/logging"
 )
 
 // writeOrderEngine is an engine whose store has these devices: an arbitrated one's writes are

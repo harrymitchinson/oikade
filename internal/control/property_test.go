@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/clock"
+	"oikade.dev/internal/clock"
 )
 
 // TestArbiterAgreesWithAModel makes random claims, releases, outside changes and clock moves, and

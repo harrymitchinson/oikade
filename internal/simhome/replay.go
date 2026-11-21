@@ -10,8 +10,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/control"
-	"github.com/harrymitchinson/oikade/internal/host/api"
+	"oikade.dev/internal/control"
+	"oikade.dev/internal/host/api"
 )
 
 const (

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/logging"
+	"oikade.dev/internal/logging"
 )
 
 // discardConn is a socket that sends nowhere and has nothing to read.

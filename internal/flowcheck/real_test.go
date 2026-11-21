@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/harrymitchinson/oikade"
+	"oikade.dev"
 )
 
 // The analyzer's tests use a stand-in package oikade, so this ties it to the real one: a rename would

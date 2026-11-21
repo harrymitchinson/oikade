@@ -11,15 +11,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/clock"
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/matter/clusters"
-	"github.com/harrymitchinson/oikade/internal/matter/im"
-	"github.com/harrymitchinson/oikade/internal/matter/mdns"
-	"github.com/harrymitchinson/oikade/internal/matter/nodetest"
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev/internal/clock"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/matter/clusters"
+	"oikade.dev/internal/matter/im"
+	"oikade.dev/internal/matter/mdns"
+	"oikade.dev/internal/matter/nodetest"
+	"oikade.dev/internal/matter/tlv"
+	"oikade.dev/internal/matter/transport"
+	"oikade.dev/internal/testkit"
 )
 
 // memSubscriptions is an im.SubscriptionStore in memory, which outlives the nodes that use it.

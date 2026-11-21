@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/cli"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/ident"
 )
 
 func runStatus(ctx context.Context, args []string) error {

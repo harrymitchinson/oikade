@@ -10,7 +10,7 @@ From a bare Pi to a home paired with the Home app, step by step. Oikade runs as 
 - **On your laptop,** Go, and `oikade` at the release the Pi runs:
 
 ```sh
-go install github.com/harrymitchinson/oikade/cmd/oikade@<version>
+go install oikade.dev/cmd/oikade@<version>
 ```
 
 ## Install the host
@@ -99,7 +99,7 @@ Starting oikade, and waiting for it to serve
 Upgraded to v0.3.1. The previous version is /usr/local/bin/oikade-host.previous
 ```
 
-If the new version doesn't serve within a minute, `install` puts the old one back. Matter stops with the host, so the Home app shows no response until it's back, which took 2 s on a Pi 4. Then, on your laptop, `go install` the same version of `oikade`, bump `github.com/harrymitchinson/oikade` in your home's `go.mod`, and run `oikade deploy`. [Upgrading the host](running-a-home.md#upgrading-the-host) says what else it does.
+If the new version doesn't serve within a minute, `install` puts the old one back. Matter stops with the host, so the Home app shows no response until it's back, which took 2 s on a Pi 4. Then, on your laptop, `go install` the same version of `oikade`, bump `oikade.dev` in your home's `go.mod`, and run `oikade deploy`. [Upgrading the host](running-a-home.md#upgrading-the-host) says what else it does.
 
 ## Monitor
 

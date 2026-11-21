@@ -10,9 +10,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/host/pluginwire"
-	"github.com/harrymitchinson/oikade/internal/mqtt"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/host/pluginwire"
+	"oikade.dev/internal/mqtt"
 )
 
 const (
@@ -53,7 +53,7 @@ func RunHosted(ctx context.Context, socket, name string, newHandler Factory, log
 		return err
 	}
 	defer func() { _ = conn.Close() }()
-	root, err := contractv1.ParseRoot(welcome.Topic)
+	root, err := contract.ParseRoot(welcome.Topic)
 	if err != nil {
 		return err
 	}
@@ -73,7 +73,7 @@ func RunHosted(ctx context.Context, socket, name string, newHandler Factory, log
 	})
 
 	h, err := newHandler(Environment{
-		Root: root, SecretsDir: os.Getenv(contractv1.EnvSecretsDir),
+		Root: root, SecretsDir: os.Getenv(contract.EnvSecretsDir),
 	}, welcome.Declared)
 	if err != nil {
 		return err

@@ -13,7 +13,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go install github.com/harrymitchinson/oikade/cmd/oikade@VERSION
+      - run: go install oikade.dev/cmd/oikade@VERSION
       # Your values, from the secret OIKADE_ENV, which a pull request from a fork doesn't get: then
       # oikade check only warns. RUNNER_TEMP is emptied after the job.
       - name: Write your values
@@ -44,7 +44,7 @@ jobs:
           echo "GOBIN=$RUNNER_TEMP/bin" >> "$GITHUB_ENV"
           echo "XDG_CONFIG_HOME=$RUNNER_TEMP/config" >> "$GITHUB_ENV"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-      - run: go install github.com/harrymitchinson/oikade/cmd/oikade@VERSION
+      - run: go install oikade.dev/cmd/oikade@VERSION
       # Not in the checkout, which a self-hosted runner keeps: RUNNER_TEMP is emptied after the job.
       - name: Write your values
         env:

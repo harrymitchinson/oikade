@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"oikade.dev/contract/v1"
 )
 
 // stateKey names one Overkiz state of a device: on the device itself (sub "") or one of its
@@ -30,7 +30,7 @@ func (s states) text(sub, name string) string {
 type model struct {
 	capabilities []string
 	// values reads the capabilities from the device's states, leaving out any it can't.
-	values func(s states) contractv1.State
+	values func(s states) contract.State
 	// write is the commands that set a capability to v, and the sub-device that takes them. No
 	// commands means there's nothing to do. It refuses a value it can't send.
 	write func(capability string, v any, s states) (sub string, commands []apiCommand, err error)
@@ -53,11 +53,11 @@ var models = map[string]model{
 
 // closure is a cover with core:ClosureState, set with setClosure.
 var closure = model{
-	capabilities: []string{contractv1.Position},
-	values: func(s states) contractv1.State {
-		out := contractv1.State{}
+	capabilities: []string{contract.Position},
+	values: func(s states) contract.State {
+		out := contract.State{}
 		if f, ok := s.number("", "core:ClosureState"); ok && f >= 0 && f <= 100 {
-			out[contractv1.Position] = f
+			out[contract.Position] = f
 		}
 		return out
 	},
@@ -90,13 +90,13 @@ const towelSensor = "7"
 // left as they are: a setpoint written in them is the override they take, and turning it on leaves
 // them be. Boost and drying aren't served, and a radiator in one reports the setpoint it's aiming for.
 var towelDryer = model{
-	capabilities: []string{contractv1.On, contractv1.Setpoint, contractv1.Temperature},
-	values: func(s states) contractv1.State {
-		out := contractv1.State{}
+	capabilities: []string{contract.On, contract.Setpoint, contract.Temperature},
+	values: func(s states) contract.State {
+		out := contract.State{}
 		mode := s.text("", "core:OperatingModeState")
 		if mode != "" {
 			// Only standby is off: a mode it doesn't know is still heating.
-			out[contractv1.On] = mode != modeStandby
+			out[contract.On] = mode != modeStandby
 		}
 		// Manual holds its target. Any other mode aims for its effective setpoint. Either falls back on
 		// the other until the one it reads has been reported, rather than keeping a value from
@@ -107,19 +107,19 @@ var towelDryer = model{
 		}
 		for _, name := range read {
 			if f, ok := s.number("", name); ok && f >= 0 && f <= 50 {
-				out[contractv1.Setpoint] = f
+				out[contract.Setpoint] = f
 				break
 			}
 		}
 		if f, ok := s.number(towelSensor, "core:TemperatureState"); ok && f > -273.15 && f < 1000 {
-			out[contractv1.Temperature] = f
+			out[contract.Temperature] = f
 		}
 		return out
 	},
 	write: func(capability string, v any, s states) (string, []apiCommand, error) {
 		mode := s.text("", "core:OperatingModeState")
 		switch capability {
-		case contractv1.On:
+		case contract.On:
 			on, ok := v.(bool)
 			switch {
 			case !ok:
@@ -130,7 +130,7 @@ var towelDryer = model{
 				return "", nil, nil
 			}
 			return "", []apiCommand{{Name: "setTowelDryerOperatingMode", Parameters: []any{modeExternal}}}, nil
-		case contractv1.Setpoint:
+		case contract.Setpoint:
 			f, err := within(capability, v, 0, 50)
 			if err != nil {
 				return "", nil, err
@@ -191,5 +191,5 @@ func (u deviceURL) id() (string, bool) {
 		}
 		return '-'
 	}, u.protocol+"."+u.address)
-	return id, contractv1.ValidID(id)
+	return id, contract.ValidID(id)
 }

@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/mqtt"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/mqtt"
 )
 
 func withSetup() map[string]string {
@@ -18,11 +18,11 @@ func withSetup() map[string]string {
 }
 
 // requests collects what the decoder sends on the setup topic.
-func requests(t *testing.T, bus *mqtt.Memory) <-chan contractv1.SetupRequest {
+func requests(t *testing.T, bus *mqtt.Memory) <-chan contract.SetupRequest {
 	t.Helper()
-	got := make(chan contractv1.SetupRequest, 16)
+	got := make(chan contract.SetupRequest, 16)
 	if _, err := bus.Subscribe(t.Context(), root+"/_setup/in", func(m mqtt.Message) {
-		var r contractv1.SetupRequest
+		var r contract.SetupRequest
 		if err := json.Unmarshal(m.Payload, &r); err != nil {
 			t.Errorf("decoder sent %s: %v", m.Payload, err)
 		}
@@ -33,14 +33,14 @@ func requests(t *testing.T, bus *mqtt.Memory) <-chan contractv1.SetupRequest {
 	return got
 }
 
-func step(t *testing.T, steps <-chan contractv1.SetupStep) (contractv1.SetupStep, bool) {
+func step(t *testing.T, steps <-chan contract.SetupStep) (contract.SetupStep, bool) {
 	t.Helper()
 	select {
 	case s, ok := <-steps:
 		return s, ok
 	case <-time.After(5 * time.Second):
 		t.Fatal("no setup step")
-		return contractv1.SetupStep{}, false
+		return contract.SetupStep{}, false
 	}
 }
 

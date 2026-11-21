@@ -11,11 +11,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/control"
-	"github.com/harrymitchinson/oikade/internal/driver"
-	"github.com/harrymitchinson/oikade/internal/hub"
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/control"
+	"oikade.dev/internal/driver"
+	"oikade.dev/internal/hub"
+	"oikade.dev/internal/ident"
 )
 
 // SimulatedDevice is a device with no hardware behind it, from the file --simulate names.

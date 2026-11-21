@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/control"
+	"oikade.dev/internal/control"
 )
 
 func controlEntry(capability, def string) control.Entry {

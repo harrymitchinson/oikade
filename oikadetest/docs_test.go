@@ -1,4 +1,4 @@
-package hometest_test
+package oikadetest_test
 
 import (
 	"os"
@@ -11,9 +11,9 @@ import (
 // examples that run: each one's body is in example_test.go, line for line.
 func TestTheDocsTestsAreExamples(t *testing.T) {
 	examples := statements(read(t, "example_test.go"))
-	examples = strings.ReplaceAll(examples, `hometest.Options{Types: "devices_test.go"}`, "hometest.Options{}")
+	examples = strings.ReplaceAll(examples, `oikadetest.Options{Types: "devices_test.go"}`, "oikadetest.Options{}")
 	for name, doc := range map[string]string{
-		"the package doc":        commented(read(t, "hometest.go")),
+		"the package doc":        commented(read(t, "oikadetest.go")),
 		"the README":             read(t, "../README.md"),
 		"docs/testing.md":        read(t, "../docs/testing.md"),
 		"oikade init's scaffold": read(t, "../cmd/oikade/home.go"),
@@ -49,7 +49,7 @@ func commented(src string) string {
 }
 
 // testFunc is a test that starts a simulated home, up to the brace that ends it.
-var testFunc = regexp.MustCompile(`(?s)func Test\w+\(t \*testing\.T\) \{\n(\s*h := hometest\.New.*?)\n\}`)
+var testFunc = regexp.MustCompile(`(?s)func Test\w+\(t \*testing\.T\) \{\n(\s*h := oikadetest\.New.*?)\n\}`)
 
 // testBodies are the statements of each test in doc.
 func testBodies(t *testing.T, name, doc string) []string {

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/harrymitchinson/oikade/internal/capability"
+	"oikade.dev/internal/capability"
 )
 
 // Render writes the Go file oikade types commits: a value for each device, with its name and an
@@ -35,7 +35,7 @@ func Render(s Snapshot, pkg string) ([]byte, error) {
 		b.WriteString("// The host has no devices yet. Pair one, and run oikade types again.\n")
 		return format.Source(b.Bytes())
 	}
-	b.WriteString("import \"github.com/harrymitchinson/oikade\"\n\n")
+	b.WriteString("import \"oikade.dev\"\n\n")
 	b.WriteString("// The home's devices: those it declares under their names, and the rest under their app's.\n\n")
 	seen := map[string]string{}
 	for _, d := range names {

@@ -6,9 +6,9 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/devicetype"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/internal/registry"
+	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/registry"
 )
 
 func TestTheTypesFileGivesDevicesAndTheHomeTheirRoomsAndTypes(t *testing.T) {

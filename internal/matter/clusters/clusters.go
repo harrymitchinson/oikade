@@ -10,8 +10,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/harrymitchinson/oikade/internal/matter/im"
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
+	"oikade.dev/internal/matter/im"
+	"oikade.dev/internal/matter/tlv"
 )
 
 const (

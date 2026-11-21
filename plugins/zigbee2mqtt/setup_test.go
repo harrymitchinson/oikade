@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/mqtt"
-	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/mqtt"
+	"oikade.dev/internal/mqtt/mqtttest"
 )
 
 // Written by hand from Zigbee2MQTT's documented bridge/info, with only what setup reads and a network
@@ -49,7 +49,7 @@ func TestBridgeInfoNamesTheSettingsThatAreWrong(t *testing.T) {
 }
 
 // runSetup runs the plugin's setup as the host would, and returns its steps.
-func runSetup(t *testing.T, url string) []contractv1.SetupStep {
+func runSetup(t *testing.T, url string) []contract.SetupStep {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), waitLimit)
 	defer cancel()
@@ -58,20 +58,20 @@ func runSetup(t *testing.T, url string) []contractv1.SetupStep {
 		t.Fatal(err)
 	}
 	defer func() { _ = c.Disconnect(t.Context()) }()
-	got := make(chan contractv1.SetupStep, 16)
+	got := make(chan contract.SetupStep, 16)
 	if _, err := c.Subscribe(ctx, root.SetupOut(), func(m mqtt.Message) {
-		var s contractv1.SetupStep
+		var s contract.SetupStep
 		if json.Unmarshal(m.Payload, &s) == nil {
 			got <- s
 		}
 	}); err != nil {
 		t.Fatal(err)
 	}
-	start, _ := json.Marshal(contractv1.SetupRequest{Session: "s", Start: true})
+	start, _ := json.Marshal(contract.SetupRequest{Session: "s", Start: true})
 	if err := c.Publish(ctx, root.SetupIn(), start, false); err != nil {
 		t.Fatal(err)
 	}
-	var steps []contractv1.SetupStep
+	var steps []contract.SetupStep
 	for {
 		select {
 		case s := <-got:
@@ -85,7 +85,7 @@ func runSetup(t *testing.T, url string) []contractv1.SetupStep {
 	}
 }
 
-func says(steps []contractv1.SetupStep) []string {
+func says(steps []contract.SetupStep) []string {
 	var out []string
 	for _, s := range steps {
 		if s.Say != "" {

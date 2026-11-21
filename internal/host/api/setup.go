@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"oikade.dev/contract/v1"
 )
 
 // SetupStep is one line of a setup's stream: the plugin's step, as the host passes it on. The first
@@ -18,12 +18,12 @@ type SetupStep struct {
 	Seq     int    `json:"seq,omitempty"`
 	Say     string `json:"say,omitempty"`
 	// Ask and Open need a SetupReply naming Seq.
-	Ask  *contractv1.SetupAsk  `json:"ask,omitempty"`
-	Open *contractv1.SetupOpen `json:"open,omitempty"`
+	Ask  *contract.SetupAsk  `json:"ask,omitempty"`
+	Open *contract.SetupOpen `json:"open,omitempty"`
 	// Kept is a secret the host kept for the plugin, by name. Its value never leaves the host.
 	Kept string `json:"kept,omitempty"`
 	// Done ends the setup.
-	Done *contractv1.SetupDone `json:"done,omitempty"`
+	Done *contract.SetupDone `json:"done,omitempty"`
 }
 
 // Setup runs plugin's setup on the host, and hands each step to each until it's done, which is the

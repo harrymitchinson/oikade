@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/host/api"
+	"oikade.dev/internal/cli"
+	"oikade.dev/internal/host/api"
 )
 
 // Each error a person is likely to meet is one sentence in their words, then what fixes it, with the

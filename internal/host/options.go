@@ -7,10 +7,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/harrymitchinson/oikade/internal/fault"
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/internal/matterbridge"
-	"github.com/harrymitchinson/oikade/internal/store"
+	"oikade.dev/internal/fault"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/matterbridge"
+	"oikade.dev/internal/store"
 )
 
 // DefaultMatterName is the Matter bridge's name until a home names it, with oikade.Options'

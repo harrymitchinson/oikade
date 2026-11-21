@@ -14,7 +14,7 @@ import (
 	// Location needs the zones on a machine that has none, as a slim container doesn't.
 	_ "time/tzdata"
 
-	"github.com/harrymitchinson/oikade/internal/logging"
+	"oikade.dev/internal/logging"
 )
 
 const (

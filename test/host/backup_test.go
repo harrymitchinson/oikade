@@ -8,8 +8,8 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/matter/nodetest"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/matter/nodetest"
 )
 
 // copyDataDir copies what's in a data directory, as a backup tool does: it has no use for sockets.

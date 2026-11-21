@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/control"
+	"oikade.dev/internal/control"
 )
 
 // drying is a dehumidifier's budget, by the cellar's humidity.

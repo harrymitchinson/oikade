@@ -21,10 +21,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/matter/cert"
-	"github.com/harrymitchinson/oikade/internal/matter/im"
-	"github.com/harrymitchinson/oikade/internal/matter/securechannel"
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"oikade.dev/internal/matter/cert"
+	"oikade.dev/internal/matter/im"
+	"oikade.dev/internal/matter/securechannel"
+	"oikade.dev/internal/matter/transport"
 )
 
 // MaxFabrics is how many fabrics the table holds, the spec's minimum (SupportedFabrics).

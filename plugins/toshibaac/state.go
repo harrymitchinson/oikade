@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"oikade.dev/contract/v1"
 )
 
 // fcuState is what the plugin keeps of an indoor unit's state, as raw bytes. The cloud sends the
@@ -52,11 +52,11 @@ const (
 
 // modes are the modes a unit reports, by raw value.
 var modes = map[byte]string{
-	modeAuto: contractv1.ModeAuto,
-	0x42:     contractv1.ModeCool,
-	modeHeat: contractv1.ModeHeat,
-	0x44:     contractv1.ModeDry,
-	modeFan:  contractv1.ModeFan,
+	modeAuto: contract.ModeAuto,
+	0x42:     contract.ModeCool,
+	modeHeat: contract.ModeHeat,
+	0x44:     contract.ModeDry,
+	modeFan:  contract.ModeFan,
 }
 
 // stateLength is how many hex digits of a state the plugin reads: the merit A and B fields are a
@@ -130,18 +130,18 @@ func celsius(t int8) (float64, bool) {
 
 // values are the capabilities the state gives, leaving out what isn't known yet. unknownMode is a
 // mode byte the plugin doesn't know, or 0.
-func (s fcuState) values() (v contractv1.State, unknownMode byte) {
-	v = contractv1.State{}
+func (s fcuState) values() (v contract.State, unknownMode byte) {
+	v = contract.State{}
 	switch s.status {
 	case statusOn:
-		v[contractv1.On] = true
+		v[contract.On] = true
 	case statusOff:
-		v[contractv1.On] = false
+		v[contract.On] = false
 	}
 	mode, known := modes[s.mode]
 	switch {
 	case known:
-		v[contractv1.Mode] = mode
+		v[contract.Mode] = mode
 	case s.mode != noneByte && s.mode != 0x00:
 		unknownMode = s.mode
 	}
@@ -149,10 +149,10 @@ func (s fcuState) values() (v contractv1.State, unknownMode byte) {
 		if s.mode == modeHeat && s.meritA == meritHeating8C {
 			t -= heating8COffset
 		}
-		v[contractv1.Setpoint] = t
+		v[contract.Setpoint] = t
 	}
 	if t, ok := celsius(s.indoor); ok {
-		v[contractv1.Temperature] = t
+		v[contract.Temperature] = t
 	}
 	return v, unknownMode
 }
@@ -214,7 +214,7 @@ func (s fcuState) command(capability string, value any, unitModes []byte) (comma
 	c := newCommand()
 	mode := s.mode
 	switch capability {
-	case contractv1.On:
+	case contract.On:
 		on, ok := value.(bool)
 		if !ok {
 			return c, fmt.Errorf("on is a bool, not %T", value)
@@ -227,7 +227,7 @@ func (s fcuState) command(capability string, value any, unitModes []byte) (comma
 				c.selfCleaning = selfCleaningOff
 			}
 		}
-	case contractv1.Mode:
+	case contract.Mode:
 		name, ok := value.(string)
 		if !ok {
 			return c, fmt.Errorf("mode is a name, not %T", value)
@@ -237,7 +237,7 @@ func (s fcuState) command(capability string, value any, unitModes []byte) (comma
 			return c, fmt.Errorf("the unit doesn't do %s: it does %s", name, modeNames(unitModes))
 		}
 		c.mode, mode = b, b
-	case contractv1.Setpoint:
+	case contract.Setpoint:
 		t, ok := value.(float64)
 		if !ok {
 			return c, fmt.Errorf("setpoint is a number, not %T", value)

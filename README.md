@@ -41,7 +41,7 @@ Your code lives in Git, and your home's state lives in the host. Toggling a ligh
 You need Go and `oikade`, and no device or host:
 
 ```sh
-go install github.com/harrymitchinson/oikade/cmd/oikade@main
+go install oikade.dev/cmd/oikade@main
 oikade init home && cd home
 oikade test
 oikade dev
@@ -80,11 +80,11 @@ func home() *oikade.Home {
 
 A decision is everything that sets one capability, as a list read top to bottom: the first case that applies wins, and `Default` is what's left. Here the porch light is on while the sensor sees someone, and for 5 minutes after. `PorchLight` and `PorchSensor` come from `devices.go`, so a misspelt device or a capability it doesn't have doesn't compile.
 
-`oikade test` is `go test`. The `hometest` package runs the real engine in your test, with simulated devices and a fake clock:
+`oikade test` is `go test`. The `oikadetest` package runs the real engine in your test, with simulated devices and a fake clock:
 
 ```go
 func TestPorchLightFollowsThePorchSensor(t *testing.T) {
-	h := hometest.New(t, home(), hometest.Options{})
+	h := oikadetest.New(t, home(), oikadetest.Options{})
 
 	h.Set(PorchSensor.Occupied, true)
 	h.ExpectValue(PorchLight.On, true)
@@ -104,7 +104,7 @@ The guides go on from here, in order: more automations, how to test them, then a
 
 1. [Automations](docs/automations.md): decisions, conditions, times of day, arbitration, budgets, groups and rooms
 2. [Writing flows](docs/writing-flows.md): automations as ordinary Go that survive a crash
-3. [Testing a home](docs/testing.md): `oikade check`, `hometest`, `oikade dev` and `oikade replay`
+3. [Testing a home](docs/testing.md): `oikade check`, `oikadetest`, `oikade dev` and `oikade replay`
 4. [Devices](docs/devices.md): names, refs, declaring devices in code, capabilities and the Matter bridge
 5. [Running a home](docs/running-a-home.md): installing the host, deploying, your values, CI, upgrades and backups
 6. [Working with a running home](docs/working-with-a-home.md): `status`, `history`, `tail`, `set` and `pause`

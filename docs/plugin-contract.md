@@ -257,7 +257,7 @@ The conformance suite is a fake hub: an in-process broker and Oikade's own decod
 A plugin repo runs it with `oikade-conformance`, which is versioned with the contract. A Go plugin adds it as a tool, so its version follows the `oikade` module the plugin already requires for the SDK, and a bump re-checks the plugin against the new contract. As a tool it brings Oikade's own dependencies into the plugin's `go.sum`, and Oikade's minimum Go version into its `go.mod`:
 
 ```sh
-go get -tool github.com/harrymitchinson/oikade/cmd/oikade-conformance
+go get -tool oikade.dev/cmd/oikade-conformance
 go build -o bin/my-plugin .
 go tool oikade-conformance --devices conformance-devices.json -- bin/my-plugin
 ```
@@ -265,7 +265,7 @@ go tool oikade-conformance --devices conformance-devices.json -- bin/my-plugin
 A plugin in another language installs it in CI, which needs Go only there:
 
 ```sh
-go install github.com/harrymitchinson/oikade/cmd/oikade-conformance@vX.Y.Z
+go install oikade.dev/cmd/oikade-conformance@vX.Y.Z
 oikade-conformance --devices conformance-devices.json -- ./bin/my-plugin --simulate
 ```
 

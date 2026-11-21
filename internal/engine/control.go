@@ -6,8 +6,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/control"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/control"
 )
 
 // ControlSettings compiles a Device's control entry into arbiter settings. Errors name the

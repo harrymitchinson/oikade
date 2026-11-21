@@ -7,17 +7,17 @@ import (
 	"log/slog"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/sdk/plugin"
+	"oikade.dev/contract/v1"
+	"oikade.dev/sdk/plugin"
 )
 
 // reporter is what a cloud reports its devices to: the plugin, or its share of the plugin when a
 // Cozytouch account follows two clouds.
 type reporter interface {
-	SetDiscovered(ctx context.Context, discovered []contractv1.DiscoveredDevice) error
-	SetDevices(ctx context.Context, devices []contractv1.DeviceReport, undeclared int) error
+	SetDiscovered(ctx context.Context, discovered []contract.DiscoveredDevice) error
+	SetDevices(ctx context.Context, devices []contract.DeviceReport, undeclared int) error
 	SetAvailability(ctx context.Context, id string, online bool) error
-	ReportState(ctx context.Context, id string, s contractv1.State) error
+	ReportState(ctx context.Context, id string, s contract.State) error
 	SetError(ctx context.Context, problem string) error
 }
 

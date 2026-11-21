@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/host/api"
+	"oikade.dev/internal/host/api"
 )
 
 // eventLog reads the host's event log, as GET /v1/events sends it.

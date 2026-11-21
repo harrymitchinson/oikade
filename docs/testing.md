@@ -30,11 +30,11 @@ If it can reach your host, it also checks your code against the devices on recor
 
 `oikade test` is `go test`, for `./...` unless you name packages, and anything after them is `go test`'s too: `oikade test ./... -run TestNight`.
 
-The `hometest` package runs the real engine, arbiters and planner in your test, with simulated devices and a fake clock. Set device values, move the clock, and look at what your automations did:
+The `oikadetest` package runs the real engine, arbiters and planner in your test, with simulated devices and a fake clock. Set device values, move the clock, and look at what your automations did:
 
 ```go
 func TestPorchLightFollowsThePorchSensor(t *testing.T) {
-	h := hometest.New(t, home(), hometest.Options{})
+	h := oikadetest.New(t, home(), oikadetest.Options{})
 
 	h.Set(PorchSensor.Occupied, true)
 	h.ExpectValue(PorchLight.On, true)
@@ -68,7 +68,7 @@ A restart is one call, and a flow carries on from where it had got to:
 
 ```go
 func TestBedtimeSurvivesACrash(t *testing.T) {
-	h := hometest.New(t, home(), hometest.Options{})
+	h := oikadetest.New(t, home(), oikadetest.Options{})
 	h.Advance(22*time.Hour + 40*time.Minute) // Into the flow's 30-minute wait.
 	h.Restart()
 	h.Advance(21 * time.Minute)
@@ -92,9 +92,9 @@ h.ExpectValue(HallFan.On, true)
 |---|---|
 | `Start` | When the test starts. Zero is midnight UTC on Monday 7 January 2030 |
 | `Types` | The file `oikade types` wrote, beside the test. Empty is `devices.go` |
-| `Devices` | The devices, as `hometest.Device`s. Empty is the ones in `Types`, in the rooms and of the types your home declares |
+| `Devices` | The devices, as `oikadetest.Device`s. Empty is the ones in `Types`, in the rooms and of the types your home declares |
 
-Under `go test` and `hometest`, an `oikade.Var` is empty.
+Under `go test` and `oikadetest`, an `oikade.Var` is empty.
 
 ## Trying it by hand
 

@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"oikade.dev/contract/v1"
 )
 
 // Magellan is Atlantic's own cloud beside Overkiz, behind the same Cozytouch login, where an
@@ -237,7 +237,7 @@ type mExecution struct {
 type mModel struct {
 	capabilities []string
 	// values reads the capabilities from the device's, leaving out any it can't.
-	values func(c capabilities) contractv1.State
+	values func(c capabilities) contract.State
 	// write is what to write to set a capability to v, in order. None means there's nothing to do.
 	write func(capability string, v any, c capabilities) ([]mWrite, error)
 }
@@ -277,23 +277,23 @@ const (
 // Overkiz: off only when its mode is off, and on from off is manual. In its programme it's on, and
 // stays in its programme, and setpoint is the temperature it's aiming for.
 var mTowelDryer = mModel{
-	capabilities: []string{contractv1.On, contractv1.Setpoint, contractv1.Temperature},
-	values: func(c capabilities) contractv1.State {
-		out := contractv1.State{}
+	capabilities: []string{contract.On, contract.Setpoint, contract.Temperature},
+	values: func(c capabilities) contract.State {
+		out := contract.State{}
 		if mode, ok := c[mMode]; ok {
-			out[contractv1.On] = strings.TrimSpace(mode) != mModeOff
+			out[contract.On] = strings.TrimSpace(mode) != mModeOff
 		}
 		if f, ok := c.number(mTarget); ok && f >= 0 && f <= 50 {
-			out[contractv1.Setpoint] = f
+			out[contract.Setpoint] = f
 		}
 		if f, ok := c.number(mRoom); ok && f > -273.15 && f < 1000 {
-			out[contractv1.Temperature] = f
+			out[contract.Temperature] = f
 		}
 		return out
 	},
 	write: func(capability string, v any, c capabilities) ([]mWrite, error) {
 		switch capability {
-		case contractv1.On:
+		case contract.On:
 			on, ok := v.(bool)
 			mode, known := c[mMode]
 			switch {
@@ -305,7 +305,7 @@ var mTowelDryer = mModel{
 				return nil, nil
 			}
 			return []mWrite{{mMode, mModeHeating}, {mProgramme, mManual}}, nil
-		case contractv1.Setpoint:
+		case contract.Setpoint:
 			lowest, ok := c.number(mMinimum)
 			if !ok {
 				lowest = 0
@@ -329,10 +329,10 @@ type mDeviceState struct {
 	id       string
 	deviceID string
 	model    mModel
-	info     contractv1.DiscoveredDevice
+	info     contract.DiscoveredDevice
 	online   bool
 	caps     capabilities
-	values   contractv1.State
+	values   contract.State
 }
 
 // magellanIDPrefix starts every Magellan device's ID, magellan.<deviceId>. No Overkiz protocol is
@@ -620,7 +620,7 @@ func (m *magellan) served(setups []mSetup) map[string]*mDeviceState {
 				continue
 			}
 			id := magellanIDPrefix + string(d.DeviceID)
-			if !contractv1.ValidID(id) || d.DeviceID == "" {
+			if !contract.ValidID(id) || d.DeviceID == "" {
 				m.log.Warn("Skipped Magellan device whose ID makes no Oikade ID", "deviceId", string(d.DeviceID))
 				continue
 			}
@@ -641,7 +641,7 @@ func (m *magellan) served(setups []mSetup) map[string]*mDeviceState {
 			name := strings.TrimSpace(d.Name)
 			devices[id] = &mDeviceState{
 				id: id, deviceID: string(d.DeviceID), model: model, online: online, caps: caps, values: model.values(caps),
-				info: contractv1.DiscoveredDevice{
+				info: contract.DiscoveredDevice{
 					ID: id, Manufacturer: m.cozytouch.manufacturer(), Model: name,
 					Capabilities: slices.Clone(model.capabilities), Name: cmp.Or(zones[d.ZoneID], name),
 				},
@@ -657,14 +657,14 @@ func (m *magellan) report(ctx context.Context, devices map[string]*mDeviceState,
 	type report struct {
 		id     string
 		online *bool
-		values contractv1.State
+		values contract.State
 	}
 	var reports []report
 	m.mu.Lock()
 	all = all || !sameDevices(m.devices, devices)
 	for _, id := range slices.Sorted(maps.Keys(devices)) {
 		d, was := devices[id], m.devices[id]
-		r := report{id: id, values: contractv1.State{}}
+		r := report{id: id, values: contract.State{}}
 		switch {
 		case all:
 			r.online, r.values = &d.online, maps.Clone(d.values)
@@ -714,13 +714,13 @@ func sameDevices(a, b map[string]*mDeviceState) bool {
 	return maps.EqualFunc(a, b, func(x, y *mDeviceState) bool { return reflect.DeepEqual(x.info, y.info) })
 }
 
-func (m *magellan) reportsLocked() ([]contractv1.DiscoveredDevice, []contractv1.DeviceReport) {
-	discovered := make([]contractv1.DiscoveredDevice, 0, len(m.devices))
-	found := make([]contractv1.DeviceReport, 0, len(m.devices))
+func (m *magellan) reportsLocked() ([]contract.DiscoveredDevice, []contract.DeviceReport) {
+	discovered := make([]contract.DiscoveredDevice, 0, len(m.devices))
+	found := make([]contract.DeviceReport, 0, len(m.devices))
 	for _, id := range slices.Sorted(maps.Keys(m.devices)) {
 		d := m.devices[id]
 		discovered = append(discovered, d.info)
-		found = append(found, contractv1.DeviceReport{
+		found = append(found, contract.DeviceReport{
 			ID: id, Found: true, Manufacturer: d.info.Manufacturer, Model: d.info.Model, Capabilities: d.info.Capabilities,
 		})
 	}
@@ -776,7 +776,7 @@ func (m *magellan) absent(ctx context.Context) {
 // set writes a command's capabilities, and returns once Magellan has taken what can go now, before
 // the device has acted on it. A write waits for the device's last execution to end, and is sent by
 // the session's next look at its executions. It fails at once while there's no session.
-func (m *magellan) set(ctx context.Context, cmd contractv1.SetCommand) error {
+func (m *magellan) set(ctx context.Context, cmd contract.SetCommand) error {
 	m.mu.Lock()
 	c, dev := m.client, m.devices[cmd.ID]
 	var (

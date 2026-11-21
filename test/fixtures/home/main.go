@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/harrymitchinson/oikade"
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/plugins/zigbee2mqtt"
-	"github.com/harrymitchinson/oikade/sdk/plugin"
-	"github.com/harrymitchinson/oikade/test/fixtures/simswitch/relays"
+	"oikade.dev"
+	"oikade.dev/contract/v1"
+	"oikade.dev/plugins/zigbee2mqtt"
+	"oikade.dev/sdk/plugin"
+	"oikade.dev/test/fixtures/simswitch/relays"
 )
 
 // The tests bring their own devices, so this home has no devices.go: these are its handles.
@@ -57,10 +57,10 @@ const (
 var variant string
 
 // wired are the relays a home with plugins configures in Go, which are all there are the first time.
-var wired = []contractv1.DeclaredDevice{relay("relay"), relay(valve), relay(panics), relay(hangs), relay(once)}
+var wired = []contract.DeclaredDevice{relay("relay"), relay(valve), relay(panics), relay(hangs), relay(once)}
 
-func relay(id string) contractv1.DeclaredDevice {
-	return contractv1.DeclaredDevice{ID: id, Name: id, DisplayName: id}
+func relay(id string) contract.DeclaredDevice {
+	return contract.DeclaredDevice{ID: id, Name: id, DisplayName: id}
 }
 
 // faulty is a plugin that goes wrong on request, and whose valve always starts open.
@@ -70,10 +70,10 @@ func (f faulty) Serve(ctx context.Context, p *plugin.Plugin) error {
 	if err := f.Handler.Serve(ctx, p); err != nil {
 		return err
 	}
-	return f.Handler.Set(ctx, p, contractv1.SetCommand{ID: valve, Capability: string(oikade.On), Value: true})
+	return f.Handler.Set(ctx, p, contract.SetCommand{ID: valve, Capability: string(oikade.On), Value: true})
 }
 
-func (f faulty) Set(ctx context.Context, p *plugin.Plugin, cmd contractv1.SetCommand) error {
+func (f faulty) Set(ctx context.Context, p *plugin.Plugin, cmd contract.SetCommand) error {
 	switch cmd.ID {
 	case panics:
 		panic("this plugin was told to panic")
@@ -90,12 +90,12 @@ func (f faulty) Set(ctx context.Context, p *plugin.Plugin, cmd contractv1.SetCom
 }
 
 // faultyRelays builds the plugin, unless the test has it staying down.
-func faultyRelays(_ plugin.Environment, devices []contractv1.DeclaredDevice) (plugin.Handler, error) {
+func faultyRelays(_ plugin.Environment, devices []contract.DeclaredDevice) (plugin.Handler, error) {
 	if _, err := os.Stat(os.Getenv("OIKADE_TEST_PLUGIN_DOWN")); err == nil {
 		return nil, errors.New("this plugin was told to stay down")
 	}
 	for _, d := range wired {
-		if !slices.ContainsFunc(devices, func(k contractv1.DeclaredDevice) bool { return k.ID == d.ID }) {
+		if !slices.ContainsFunc(devices, func(k contract.DeclaredDevice) bool { return k.ID == d.ID }) {
 			devices = append(devices, d)
 		}
 	}
@@ -105,7 +105,7 @@ func faultyRelays(_ plugin.Environment, devices []contractv1.DeclaredDevice) (pl
 // quietRelays is a second plugin, whose devices do nothing wrong but one it can't use yet. It
 // says its simulated account refuses its login until the test fixes it, and that it needs its setup
 // run until it is. It says what its setup kept as it starts, by a digest, as the plugin reads it.
-func quietRelays(env plugin.Environment, _ []contractv1.DeclaredDevice) (plugin.Handler, error) {
+func quietRelays(env plugin.Environment, _ []contract.DeclaredDevice) (plugin.Handler, error) {
 	if kept, ok, err := plugin.ReadSecret(env, relays.PairingSecret); err == nil && ok {
 		sum := sha256.Sum256([]byte(kept))
 		fmt.Printf("{\"msg\":\"Read kept secret\",\"variant\":%q,\"sha\":%q}\n", variant, hex.EncodeToString(sum[:8]))
@@ -114,7 +114,7 @@ func quietRelays(env plugin.Environment, _ []contractv1.DeclaredDevice) (plugin.
 	locked.ID += ".needs-key"
 	quiet := relay("quiet")
 	quiet.ID += ".needs-setup"
-	h, _ := relays.New([]contractv1.DeclaredDevice{quiet, locked}).(withSetup)
+	h, _ := relays.New([]contract.DeclaredDevice{quiet, locked}).(withSetup)
 	return refused{h}, nil
 }
 
@@ -287,9 +287,9 @@ func reportVar(role, name, value string) {
 // keyedRelays is a plugin whose config, as a home writes one, has a value from oikade.Var. It says
 // which it was given as it starts.
 func keyedRelays(token string) plugin.Factory {
-	return func(plugin.Environment, []contractv1.DeclaredDevice) (plugin.Handler, error) {
+	return func(plugin.Environment, []contract.DeclaredDevice) (plugin.Handler, error) {
 		reportVar("plugin", fixtureToken, token)
-		return relays.New([]contractv1.DeclaredDevice{relay("keyed")}), nil
+		return relays.New([]contract.DeclaredDevice{relay("keyed")}), nil
 	}
 }
 

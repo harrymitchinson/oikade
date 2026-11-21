@@ -9,7 +9,7 @@ import (
 
 	"golang.org/x/net/dns/dnsmessage"
 
-	"github.com/harrymitchinson/oikade/internal/matter/contain"
+	"oikade.dev/internal/matter/contain"
 )
 
 // serve reads packets from c until it's closed.

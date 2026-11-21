@@ -3,9 +3,9 @@ package engine
 import (
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/hub"
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/hub"
+	"oikade.dev/internal/ident"
 )
 
 func TestAMovedDeviceKeepsItsClaimsUnderItsNewName(t *testing.T) {

@@ -8,13 +8,13 @@
 package main
 
 import (
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/sdk/plugin"
-	"github.com/harrymitchinson/oikade/test/fixtures/simswitch/relays"
+	"oikade.dev/contract/v1"
+	"oikade.dev/sdk/plugin"
+	"oikade.dev/test/fixtures/simswitch/relays"
 )
 
 func main() {
-	plugin.Run(func(_ plugin.Environment, devices []contractv1.DeclaredDevice) (plugin.Handler, error) {
+	plugin.Run(func(_ plugin.Environment, devices []contract.DeclaredDevice) (plugin.Handler, error) {
 		return relays.New(devices), nil
 	})
 }

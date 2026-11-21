@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/control"
-	"github.com/harrymitchinson/oikade/internal/fault"
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/control"
+	"oikade.dev/internal/fault"
+	"oikade.dev/internal/ident"
 )
 
 const (

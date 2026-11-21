@@ -8,7 +8,7 @@ import (
 	"net"
 	"strings"
 
-	"github.com/harrymitchinson/oikade/internal/mdns"
+	"oikade.dev/internal/mdns"
 )
 
 // DefaultPort is the network API's port when an address has none.

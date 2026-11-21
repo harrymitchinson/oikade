@@ -7,12 +7,12 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/devicetype"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/matter/clusters"
-	"github.com/harrymitchinson/oikade/internal/matter/im"
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/matter/clusters"
+	"oikade.dev/internal/matter/im"
+	"oikade.dev/internal/matter/tlv"
 )
 
 type setCall struct {

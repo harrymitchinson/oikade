@@ -7,8 +7,8 @@ import (
 	"io"
 	"sync"
 
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"oikade.dev/internal/matter/tlv"
+	"oikade.dev/internal/matter/transport"
 )
 
 // Client is a minimal Interaction Model client: enough to drive a server in tests and scripted

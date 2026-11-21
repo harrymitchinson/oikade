@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/host/api"
+	"oikade.dev/internal/cli"
+	"oikade.dev/internal/host/api"
 )
 
 // aHealthyHome is a home with nothing wrong: deployed, its automations connected, its bridge serving

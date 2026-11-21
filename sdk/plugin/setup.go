@@ -8,8 +8,8 @@ import (
 	"net/url"
 	"sync"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/mqtt"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/mqtt"
 )
 
 // Setup is a Handler's first-run setup, which oikade setup runs on the host when someone asks. A
@@ -35,7 +35,7 @@ type Session struct {
 
 	mu      sync.Mutex
 	seq     int
-	waiting map[int]chan contractv1.SetupRequest
+	waiting map[int]chan contract.SetupRequest
 }
 
 // Say shows the person a line. An empty one is skipped.
@@ -43,19 +43,19 @@ func (s *Session) Say(ctx context.Context, line string) error {
 	if line == "" {
 		return nil
 	}
-	_, err := s.step(ctx, contractv1.SetupStep{Say: line})
+	_, err := s.step(ctx, contract.SetupStep{Say: line})
 	return err
 }
 
 // Ask asks the person a question, which mustn't be empty, and returns what they typed.
 func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
-	return s.step(ctx, contractv1.SetupStep{Ask: &contractv1.SetupAsk{Prompt: prompt}})
+	return s.step(ctx, contract.SetupStep{Ask: &contract.SetupAsk{Prompt: prompt}})
 }
 
 // AskSecret asks for something that mustn't show as it's typed, such as a password. Keep it with
 // KeepSecret if it's needed again, rather than ask each time.
 func (s *Session) AskSecret(ctx context.Context, prompt string) (string, error) {
-	return s.step(ctx, contractv1.SetupStep{Ask: &contractv1.SetupAsk{Prompt: prompt, Secret: true}})
+	return s.step(ctx, contract.SetupStep{Ask: &contract.SetupAsk{Prompt: prompt, Secret: true}})
 }
 
 // Open opens page, an https URL, in the person's browser, such as a sign-in, and returns the query
@@ -63,7 +63,7 @@ func (s *Session) AskSecret(ctx context.Context, prompt string) (string, error) 
 // http://localhost:PORT/PATH, where oikade setup listens on the person's machine, so it's also the
 // redirect URL to register with the platform.
 func (s *Session) Open(ctx context.Context, page, redirect string) (url.Values, error) {
-	raw, err := s.step(ctx, contractv1.SetupStep{Open: &contractv1.SetupOpen{URL: page, Redirect: redirect}})
+	raw, err := s.step(ctx, contract.SetupStep{Open: &contract.SetupOpen{URL: page, Redirect: redirect}})
 	if err != nil {
 		return nil, err
 	}
@@ -78,17 +78,17 @@ func (s *Session) Open(ctx context.Context, page, redirect string) (url.Values, 
 // disk, so ReadSecret has it straight after, in this process and the plugin's next. A backup has it
 // too. Nothing shows it to the person setting up, and a deploy keeps it. Every plugin on the host
 // shares one secrets directory, so give it a name only this plugin would, such as a device's ID. An
-// invalid name is refused (contractv1.ValidSecretName).
+// invalid name is refused (contract.ValidSecretName).
 func (s *Session) KeepSecret(ctx context.Context, name, value string) error {
-	if !contractv1.ValidSecretName(name) {
+	if !contract.ValidSecretName(name) {
 		return fmt.Errorf("%q isn't a secret's name", name)
 	}
-	_, err := s.step(ctx, contractv1.SetupStep{Keep: &contractv1.SetupKeep{Name: name, Value: value}})
+	_, err := s.step(ctx, contract.SetupStep{Keep: &contract.SetupKeep{Name: name, Value: value}})
 	return err
 }
 
 // step sends one step and, if it needs one, waits for the reply.
-func (s *Session) step(ctx context.Context, step contractv1.SetupStep) (string, error) {
+func (s *Session) step(ctx context.Context, step contract.SetupStep) (string, error) {
 	s.mu.Lock()
 	if s.ctx.Err() != nil {
 		s.mu.Unlock()
@@ -100,9 +100,9 @@ func (s *Session) step(ctx context.Context, step contractv1.SetupStep) (string, 
 		return "", err
 	}
 	s.seq = step.Seq
-	var reply chan contractv1.SetupRequest
+	var reply chan contract.SetupRequest
 	if step.NeedsReply() {
-		reply = make(chan contractv1.SetupRequest, 1)
+		reply = make(chan contract.SetupRequest, 1)
 		s.waiting[step.Seq] = reply
 	}
 	s.mu.Unlock()
@@ -138,7 +138,7 @@ func (s *Session) step(ctx context.Context, step contractv1.SetupStep) (string, 
 }
 
 // deliver hands a reply to the step waiting for it. One for no waiting step is dropped.
-func (s *Session) deliver(r contractv1.SetupRequest) {
+func (s *Session) deliver(r contract.SetupRequest) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if w, ok := s.waiting[r.Reply]; ok {
@@ -157,7 +157,7 @@ type running struct {
 
 // receiveSetup runs on the receive goroutine, so a session runs on its own.
 func (p *Plugin) receiveSetup(m mqtt.Message) {
-	var r contractv1.SetupRequest
+	var r contract.SetupRequest
 	if m.Retained || json.Unmarshal(m.Payload, &r) != nil || r.Session == "" {
 		p.log.Warn("Ignored setup request", "topic", m.Topic)
 		return
@@ -174,7 +174,7 @@ func (p *Plugin) receiveSetup(m mqtt.Message) {
 			current.cancel()
 		}
 		ctx, cancel := context.WithCancel(p.life)
-		s := &Session{p: p, name: r.Session, ctx: ctx, waiting: map[int]chan contractv1.SetupRequest{}}
+		s := &Session{p: p, name: r.Session, ctx: ctx, waiting: map[int]chan contract.SetupRequest{}}
 		p.setup = &running{session: s, cancel: cancel}
 		go p.runSetup(s, cancel)
 	case current == nil || current.session.name != r.Session:
@@ -189,7 +189,7 @@ func (p *Plugin) receiveSetup(m mqtt.Message) {
 // runSetup runs one session and says how it ended, unless it was ended for it.
 func (p *Plugin) runSetup(s *Session, cancel context.CancelFunc) {
 	defer cancel()
-	done := &contractv1.SetupDone{Error: "this plugin has no setup"}
+	done := &contract.SetupDone{Error: "this plugin has no setup"}
 	if p.onSetup != nil {
 		p.log.Info("Started setup", "session", s.name)
 		result, err := p.onSetup(s.ctx, p, s)
@@ -199,16 +199,16 @@ func (p *Plugin) runSetup(s *Session, cancel context.CancelFunc) {
 			return
 		case err != nil:
 			p.log.Warn("Could not set up plugin", "session", s.name, "err", err)
-			done = &contractv1.SetupDone{Error: err.Error()}
+			done = &contract.SetupDone{Error: err.Error()}
 		default:
 			p.log.Info("Set up plugin", "session", s.name)
 			if result == "" {
 				result = "Set up"
 			}
-			done = &contractv1.SetupDone{Result: result}
+			done = &contract.SetupDone{Result: result}
 		}
 	}
-	_, _ = s.step(s.ctx, contractv1.SetupStep{Done: done})
+	_, _ = s.step(s.ctx, contract.SetupStep{Done: done})
 	p.mu.Lock()
 	if p.setup != nil && p.setup.session == s {
 		p.setup = nil
@@ -218,7 +218,7 @@ func (p *Plugin) runSetup(s *Session, cancel context.CancelFunc) {
 
 // publishSetup publishes a step. Steps aren't retained: they mean something only to the session
 // waiting for them.
-func (p *Plugin) publishSetup(ctx context.Context, step contractv1.SetupStep) error {
+func (p *Plugin) publishSetup(ctx context.Context, step contract.SetupStep) error {
 	payload, err := json.Marshal(step)
 	if err != nil {
 		return err

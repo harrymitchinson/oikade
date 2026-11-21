@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/driver"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/mqtt"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/driver"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/mqtt"
 )
 
 // huge is a payload far larger than any message a plugin sends.

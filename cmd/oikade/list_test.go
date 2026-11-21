@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/registry"
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev/internal/cli"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/registry"
+	"oikade.dev/internal/testkit"
 )
 
 // listing is what each kind oikade list takes prints: of a home with some of it, and of one with none.

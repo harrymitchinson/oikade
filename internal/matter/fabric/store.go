@@ -12,8 +12,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/matter/im"
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"oikade.dev/internal/matter/im"
+	"oikade.dev/internal/matter/transport"
 )
 
 // formatVersion is the version of the encoded table. A table with another version doesn't load.

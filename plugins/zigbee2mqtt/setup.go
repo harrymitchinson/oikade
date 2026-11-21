@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/sdk/plugin"
+	"oikade.dev/contract/v1"
+	"oikade.dev/sdk/plugin"
 )
 
 // defaultInfoWait is how long the plugin waits to hear Zigbee2MQTT's bridge/info, which is retained,
@@ -116,9 +116,9 @@ func (b *bridge) awaitInfo(ctx context.Context) {
 		listed := b.reported != nil
 		b.mu.Unlock()
 		if !listed {
-			reports := make([]contractv1.DeviceReport, 0, len(b.declared))
+			reports := make([]contract.DeviceReport, 0, len(b.declared))
 			for _, id := range b.declared {
-				reports = append(reports, contractv1.DeviceReport{ID: id})
+				reports = append(reports, contract.DeviceReport{ID: id})
 			}
 			b.check(b.plugin.SetDevices(ctx, reports, 0), "Could not report devices", "")
 		}

@@ -6,7 +6,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/harrymitchinson/oikade"
+	"oikade.dev"
 )
 
 func home(h *oikade.Home) {

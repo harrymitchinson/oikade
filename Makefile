@@ -66,7 +66,7 @@ test-race-binaries: ## Run test/host and test/cli with the race detector in ever
 cover-binaries: ## Measure the coverage of the binaries test/host and test/cli run.
 	rm -rf $(LOCALBIN)/cover && mkdir -p $(LOCALBIN)/cover
 	OIKADE_COVER=1 GOCOVERDIR=$(LOCALBIN)/cover go test ./test/host ./test/cli -count=1 -timeout 20m
-	go tool covdata textfmt -i=$(LOCALBIN)/cover -pkg='github.com/harrymitchinson/oikade/...' -o cover-binaries.out
+	go tool covdata textfmt -i=$(LOCALBIN)/cover -pkg='oikade.dev/...' -o cover-binaries.out
 	go tool covdata percent -i=$(LOCALBIN)/cover
 
 # The chip-tool image is tagged by its Dockerfile's hash, so it's built once per change to it.

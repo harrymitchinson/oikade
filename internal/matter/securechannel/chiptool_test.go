@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	mcrypto "github.com/harrymitchinson/oikade/internal/matter/crypto"
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	mcrypto "oikade.dev/internal/matter/crypto"
+	"oikade.dev/internal/matter/transport"
 )
 
 // recorded is one message of a capture.

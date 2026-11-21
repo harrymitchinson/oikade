@@ -21,7 +21,7 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
+	"oikade.dev/internal/matter/tlv"
 )
 
 //go:embed testcreds/*.pem

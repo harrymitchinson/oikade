@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/internal/ident"
 )
 
 // MoveDevices takes devices' claims and arbitration state to their new names, from moves' keys to

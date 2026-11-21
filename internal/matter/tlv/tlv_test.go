@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev/internal/testkit"
 )
 
 // specExamples are the encoding examples in the Matter Core Specification, Appendix A.12.

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev/internal/testkit"
 )
 
 // sample prints a table and every kind of line, as a command would.

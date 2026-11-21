@@ -23,11 +23,11 @@ import (
 
 	"golang.org/x/net/dns/dnsmessage"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/mqtt"
-	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
-	"github.com/harrymitchinson/oikade/internal/testkit"
-	"github.com/harrymitchinson/oikade/sdk/plugin"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/mqtt"
+	"oikade.dev/internal/mqtt/mqtttest"
+	"oikade.dev/internal/testkit"
+	"oikade.dev/sdk/plugin"
 )
 
 const (
@@ -36,7 +36,7 @@ const (
 	probeID   = "1000ddeeff"
 )
 
-var root = contractv1.NewRoot("ewelink")
+var root = contract.NewRoot("ewelink")
 
 // fakeLAN is the network, as the plugin sees it.
 type fakeLAN struct {
@@ -282,14 +282,14 @@ func startWith(t *testing.T, c Config, timings timing, cl *cloud, declared ...st
 	}
 
 	env := plugin.Environment{MQTTURL: broker, Root: root, SecretsDir: b.secrets}
-	devices := make([]contractv1.DeclaredDevice, 0, len(declared))
+	devices := make([]contract.DeclaredDevice, 0, len(declared))
 	for _, d := range declared {
 		// id=name is a device the host has under another name.
 		id, name, ok := strings.Cut(d, "=")
 		if !ok {
 			name = id
 		}
-		devices = append(devices, contractv1.DeclaredDevice{ID: id, Name: name, DisplayName: name})
+		devices = append(devices, contract.DeclaredDevice{ID: id, Name: name, DisplayName: name})
 	}
 	b.handler = newBridge(c, env, devices, func() (lan, error) { return b.lan, nil }, timings, b.now, slog.New(slog.DiscardHandler))
 	if cl != nil {
@@ -363,20 +363,20 @@ func (b *bench) eventually(what string, ok func() bool) {
 }
 
 func (b *bench) needsSetup() bool {
-	var msg contractv1.Devices
+	var msg contract.Devices
 	if raw := b.topic(root.Devices()); raw == "" || json.Unmarshal([]byte(raw), &msg) != nil {
 		return false
 	}
 	return msg.NeedsSetup
 }
 
-func (b *bench) reports() map[string]contractv1.DeviceReport {
+func (b *bench) reports() map[string]contract.DeviceReport {
 	raw := b.topic(root.Devices())
-	out := map[string]contractv1.DeviceReport{}
+	out := map[string]contract.DeviceReport{}
 	if raw == "" {
 		return out
 	}
-	var msg contractv1.Devices
+	var msg contract.Devices
 	if err := json.Unmarshal([]byte(raw), &msg); err != nil {
 		b.t.Fatal(err)
 	}
@@ -418,14 +418,14 @@ func TestARelayIsReportedAndCanBeSwitched(t *testing.T) {
 	d := b.device(relayID, "th_plug", relayOf("off"))
 	d.report()
 
-	b.waitAvailability(relayID, contractv1.Online)
+	b.waitAvailability(relayID, contract.Online)
 	b.waitState(relayID, "on", "false")
 	got := b.reports()[relayID]
 	if !got.Found || got.Error != "" || strings.Join(got.Capabilities, ",") != "on,temperature" || got.DeviceType != "" {
 		t.Errorf("got %+v", got)
 	}
 
-	if err := b.handler.Set(t.Context(), b.plugin, contractv1.SetCommand{ID: relayID, Capability: "on", Value: true}); err != nil {
+	if err := b.handler.Set(t.Context(), b.plugin, contract.SetCommand{ID: relayID, Capability: "on", Value: true}); err != nil {
 		t.Fatal(err)
 	}
 	b.waitState(relayID, "on", "true")
@@ -461,7 +461,7 @@ func TestASensorRelayReportsItsReadings(t *testing.T) {
 		t.Errorf("humidity reported unannounced: %v", b.relayState())
 	}
 
-	if err := b.handler.Set(t.Context(), b.plugin, contractv1.SetCommand{ID: probeID, Capability: "on", Value: true}); err != nil {
+	if err := b.handler.Set(t.Context(), b.plugin, contract.SetCommand{ID: probeID, Capability: "on", Value: true}); err != nil {
 		t.Fatal(err)
 	}
 	humid.mu.Lock()
@@ -479,7 +479,7 @@ func TestAReadingThatIsntOneIsLeftOut(t *testing.T) {
 	b.secret(relayID, fixtureKey)
 	d := b.device(relayID, "th_plug", map[string]any{"switch": "on", "currentTemperature": "unavailable"})
 	d.report()
-	b.waitAvailability(relayID, contractv1.Online)
+	b.waitAvailability(relayID, contract.Online)
 	b.waitState(relayID, "on", "true")
 	if _, ok := b.relayState()["temperature"]; ok {
 		t.Errorf("got %v", b.relayState())
@@ -497,18 +497,18 @@ func TestADeviceWithNoKeyShowsThatAndComesUpWhenItsAdded(t *testing.T) {
 	if !b.needsSetup() {
 		t.Error("A device with no key should need the setup run")
 	}
-	b.waitAvailability(relayID, contractv1.Offline)
+	b.waitAvailability(relayID, contract.Offline)
 	if !b.reports()[relayID].Found || strings.Join(b.reports()[relayID].Capabilities, ",") != "on,temperature" {
 		t.Errorf("A device with no key should be reported as what it is: %+v", b.reports()[relayID])
 	}
-	err := b.handler.Set(t.Context(), b.plugin, contractv1.SetCommand{ID: relayID, Capability: "on", Value: true})
+	err := b.handler.Set(t.Context(), b.plugin, contract.SetCommand{ID: relayID, Capability: "on", Value: true})
 	if err == nil || !strings.Contains(err.Error(), "no LAN key") {
 		t.Errorf("got %v", err)
 	}
 
 	// No report follows this: the one already heard is enough.
 	b.secret(relayID, fixtureKey)
-	b.waitAvailability(relayID, contractv1.Online)
+	b.waitAvailability(relayID, contract.Online)
 	b.waitState(relayID, "on", "true")
 	b.eventually("the problem clearing", func() bool { return b.reports()[relayID].Error == "" })
 	b.eventually("setup no longer needed", func() bool { return !b.needsSetup() })
@@ -523,10 +523,10 @@ func TestAWrongKeyShowsAsAProblem(t *testing.T) {
 	b.eventually("the problem", func() bool {
 		return b.reports()[relayID].Error == "wrong LAN key: oikade setup ewelink"
 	})
-	b.waitAvailability(relayID, contractv1.Offline)
+	b.waitAvailability(relayID, contract.Offline)
 
 	b.secret(relayID, fixtureKey)
-	b.waitAvailability(relayID, contractv1.Online)
+	b.waitAvailability(relayID, contract.Online)
 	b.eventually("the problem clearing", func() bool { return b.reports()[relayID].Error == "" })
 }
 
@@ -535,7 +535,7 @@ func TestOneBadReportAmongGoodOnesIsDamage(t *testing.T) {
 	b.secret(relayID, fixtureKey)
 	d := b.device(relayID, "th_plug", relayOf("on"))
 	d.report()
-	b.waitAvailability(relayID, contractv1.Online)
+	b.waitAvailability(relayID, contract.Online)
 
 	b.mu.Lock()
 	lists := b.published[root.Devices()]
@@ -550,7 +550,7 @@ func TestOneBadReportAmongGoodOnesIsDamage(t *testing.T) {
 	if b.published[root.Devices()] != lists {
 		t.Errorf("A damaged report changed the device list: %s", b.topics[root.Devices()])
 	}
-	if got := b.topics[root.Availability(relayID)]; got != contractv1.Online {
+	if got := b.topics[root.Availability(relayID)]; got != contract.Online {
 		t.Errorf("got %s", got)
 	}
 }
@@ -560,7 +560,7 @@ func TestAKeyThatStopsWorkingShowsOnceReportsAreStale(t *testing.T) {
 	b.secret(relayID, fixtureKey)
 	d := b.device(relayID, "th_plug", relayOf("on"))
 	d.report()
-	b.waitAvailability(relayID, contractv1.Online)
+	b.waitAvailability(relayID, contract.Online)
 
 	b.advance(fast.relayAge + time.Second)
 	d.announce("another-key", relayOf("off"))
@@ -574,16 +574,16 @@ func TestADeviceGoesOfflineWhenItGoesQuietAndComesBack(t *testing.T) {
 	b.secret(relayID, fixtureKey)
 	d := b.device(relayID, "th_plug", relayOf("on"))
 	d.report()
-	b.waitAvailability(relayID, contractv1.Online)
+	b.waitAvailability(relayID, contract.Online)
 
 	b.advance(fast.relayAge + time.Second)
-	b.waitAvailability(relayID, contractv1.Offline)
+	b.waitAvailability(relayID, contract.Offline)
 	if !b.reports()[relayID].Found {
 		t.Error("A quiet device should stay reported")
 	}
 
 	d.report()
-	b.waitAvailability(relayID, contractv1.Online)
+	b.waitAvailability(relayID, contract.Online)
 }
 
 func TestARepeatedReportKeepsADeviceOnlineButConfirmsNothing(t *testing.T) {
@@ -599,13 +599,13 @@ func TestARepeatedReportKeepsADeviceOnlineButConfirmsNothing(t *testing.T) {
 	}
 	repeat := func() { d.lan.packets <- d.packet(d.txt(iv, data), true) }
 	repeat()
-	b.waitAvailability(relayID, contractv1.Online)
+	b.waitAvailability(relayID, contract.Online)
 	b.waitState(relayID, "on", "false")
 
 	b.advance(fast.relayAge + time.Second)
-	b.waitAvailability(relayID, contractv1.Offline)
+	b.waitAvailability(relayID, contract.Offline)
 	repeat()
-	b.waitAvailability(relayID, contractv1.Online)
+	b.waitAvailability(relayID, contract.Online)
 
 	b.mu.Lock()
 	states := b.published[root.State(relayID)]
@@ -631,7 +631,7 @@ func TestARepeatedReportKeepsADeviceOnlineButConfirmsNothing(t *testing.T) {
 			}
 		}
 	})
-	err = b.handler.Set(t.Context(), b.plugin, contractv1.SetCommand{ID: relayID, Capability: "on", Value: true})
+	err = b.handler.Set(t.Context(), b.plugin, contract.SetCommand{ID: relayID, Capability: "on", Value: true})
 	if err == nil || !strings.Contains(err.Error(), "didn't report the change") {
 		t.Errorf("got %v", err)
 	}
@@ -650,10 +650,10 @@ func TestAKeyForADeviceLastHeardLongAgoWorksOnItsNextAnswer(t *testing.T) {
 	b.advance(fast.relayAge + time.Second)
 	b.secret(relayID, fixtureKey)
 	b.eventually("the problem clearing", func() bool { return b.reports()[relayID].Error == "" })
-	b.waitAvailability(relayID, contractv1.Offline)
+	b.waitAvailability(relayID, contract.Offline)
 
 	d.lan.packets <- d.packet(d.txt(iv, data), true)
-	b.waitAvailability(relayID, contractv1.Online)
+	b.waitAvailability(relayID, contract.Online)
 }
 
 func TestARepeatOfAGoodReportClearsAFalseProblem(t *testing.T) {
@@ -665,14 +665,14 @@ func TestARepeatOfAGoodReportClearsAFalseProblem(t *testing.T) {
 		t.Fatal(err)
 	}
 	d.lan.packets <- d.packet(d.txt(iv, data), true)
-	b.waitAvailability(relayID, contractv1.Online)
+	b.waitAvailability(relayID, contract.Online)
 
 	b.advance(fast.relayAge + time.Second)
 	d.announce("another-key", relayOf("off"))
 	b.eventually("the problem", func() bool { return b.reports()[relayID].Error != "" })
 	d.lan.packets <- d.packet(d.txt(iv, data), true)
 	b.eventually("the problem clearing", func() bool { return b.reports()[relayID].Error == "" })
-	b.waitAvailability(relayID, contractv1.Online)
+	b.waitAvailability(relayID, contract.Online)
 }
 
 func TestANewKeyHasToDecodeEvenARepeat(t *testing.T) {
@@ -684,7 +684,7 @@ func TestANewKeyHasToDecodeEvenARepeat(t *testing.T) {
 		t.Fatal(err)
 	}
 	d.lan.packets <- d.packet(d.txt(iv, data), true)
-	b.waitAvailability(relayID, contractv1.Online)
+	b.waitAvailability(relayID, contract.Online)
 
 	b.advance(fast.relayAge + time.Second)
 	b.secret(relayID, "not-the-key")
@@ -701,9 +701,9 @@ func TestSettingARelayToWhatItIsNeedsNoNewReport(t *testing.T) {
 	d := b.device(relayID, "th_plug", relayOf("on"))
 	d.silent = true
 	d.report()
-	b.waitAvailability(relayID, contractv1.Online)
+	b.waitAvailability(relayID, contract.Online)
 
-	if err := b.handler.Set(t.Context(), b.plugin, contractv1.SetCommand{ID: relayID, Capability: "on", Value: true}); err != nil {
+	if err := b.handler.Set(t.Context(), b.plugin, contract.SetCommand{ID: relayID, Capability: "on", Value: true}); err != nil {
 		t.Fatal(err)
 	}
 	d.mu.Lock()
@@ -727,7 +727,7 @@ func TestTheFirstReportWaitsAndListsDevicesNotHeard(t *testing.T) {
 	}
 
 	b.waitState(relayID, "on", "true") // what it heard early comes out with the first report
-	b.waitAvailability(probeID, contractv1.Offline)
+	b.waitAvailability(probeID, contract.Offline)
 	got := b.reports()
 	if !got[relayID].Found || got[probeID].Found {
 		t.Errorf("got %+v", got)
@@ -736,7 +736,7 @@ func TestTheFirstReportWaitsAndListsDevicesNotHeard(t *testing.T) {
 	other := b.device(probeID, "th_plug", relayOf("off"))
 	b.secret(probeID, fixtureKey)
 	other.report()
-	b.waitAvailability(probeID, contractv1.Online)
+	b.waitAvailability(probeID, contract.Online)
 	b.eventually("it found", func() bool { return b.reports()[probeID].Found })
 }
 
@@ -755,7 +755,7 @@ func TestWhatIsntADeviceIsNotReported(t *testing.T) {
 
 	d := b.device(relayID, "th_plug", relayOf("on"))
 	d.report()
-	b.waitAvailability(relayID, contractv1.Online)
+	b.waitAvailability(relayID, contract.Online)
 	if got := b.reports(); len(got) != 1 {
 		t.Errorf("got %+v", got)
 	}
@@ -776,7 +776,7 @@ func TestRecordsCanArriveSeparately(t *testing.T) {
 		t.Fatal(err)
 	}
 	d.lan.packets <- d.packet(d.txt(iv, data), false)
-	b.waitAvailability(relayID, contractv1.Online)
+	b.waitAvailability(relayID, contract.Online)
 	send(d.a())
 
 	b.eventually("the address", func() bool {
@@ -785,7 +785,7 @@ func TestRecordsCanArriveSeparately(t *testing.T) {
 		_, _, known := b.handler.records.address(b.handler.records.services["ewelink_"+relayID+"."+serviceType])
 		return known
 	})
-	if err := b.handler.Set(t.Context(), b.plugin, contractv1.SetCommand{ID: relayID, Capability: "on", Value: true}); err != nil {
+	if err := b.handler.Set(t.Context(), b.plugin, contract.SetCommand{ID: relayID, Capability: "on", Value: true}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -798,9 +798,9 @@ func TestACommandMustBeConfirmed(t *testing.T) {
 	d := b.device(relayID, "th_plug", relayOf("off"))
 	d.silent = true
 	d.report()
-	b.waitAvailability(relayID, contractv1.Online)
+	b.waitAvailability(relayID, contract.Online)
 
-	err := b.handler.Set(t.Context(), b.plugin, contractv1.SetCommand{ID: relayID, Capability: "on", Value: true})
+	err := b.handler.Set(t.Context(), b.plugin, contract.SetCommand{ID: relayID, Capability: "on", Value: true})
 	if err == nil || !strings.Contains(err.Error(), "didn't report the change") {
 		t.Errorf("got %v", err)
 	}
@@ -813,9 +813,9 @@ func TestACommandCanBeRefused(t *testing.T) {
 	d.answer = `{"error":400}`
 	d.silent = true
 	d.report()
-	b.waitAvailability(relayID, contractv1.Online)
+	b.waitAvailability(relayID, contract.Online)
 
-	err := b.handler.Set(t.Context(), b.plugin, contractv1.SetCommand{ID: relayID, Capability: "on", Value: true})
+	err := b.handler.Set(t.Context(), b.plugin, contract.SetCommand{ID: relayID, Capability: "on", Value: true})
 	if err == nil || !strings.Contains(err.Error(), "rejected") {
 		t.Errorf("got %v", err)
 	}
@@ -823,7 +823,7 @@ func TestACommandCanBeRefused(t *testing.T) {
 
 func TestDevicesNotHeardCantBeSet(t *testing.T) {
 	b := start(t, Config{}, fast, relayID)
-	err := b.handler.Set(t.Context(), b.plugin, contractv1.SetCommand{ID: relayID, Capability: "on", Value: true})
+	err := b.handler.Set(t.Context(), b.plugin, contract.SetCommand{ID: relayID, Capability: "on", Value: true})
 	if err == nil || !strings.Contains(err.Error(), "hasn't been heard") {
 		t.Errorf("got %v", err)
 	}
@@ -850,7 +850,7 @@ func TestAGoodbyeOrAnAddressIsntHearingFromADevice(t *testing.T) {
 	}
 	txt := d.txt(iv, data)
 	d.lan.packets <- d.packet(txt, true)
-	b.waitAvailability(relayID, contractv1.Online)
+	b.waitAvailability(relayID, contract.Online)
 
 	// Just before it would go offline, it says goodbye with the same report, then sends its address.
 	b.advance(fast.relayAge - time.Second)
@@ -861,7 +861,7 @@ func TestAGoodbyeOrAnAddressIsntHearingFromADevice(t *testing.T) {
 	d.lan.packets <- mustPack(t, dnsmessage.Message{Response: true, Answers: []dnsmessage.Resource{goodbye}})
 	d.lan.packets <- mustPack(t, dnsmessage.Message{Response: true, Answers: []dnsmessage.Resource{d.srv()}})
 	b.advance(2 * time.Second)
-	b.waitAvailability(relayID, contractv1.Offline)
+	b.waitAvailability(relayID, contract.Offline)
 }
 
 // A device's firmware is in the devices list once a report says it, and stays through reports that

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
+	"oikade.dev/contract/v1"
 )
 
 const (
@@ -47,7 +47,7 @@ func TestAMagellanAccountServesItsTowelRadiator(t *testing.T) {
 	b := startCloud(t, cloud, password, cloudFast)
 	b.waitState(towel, towelSays)
 	b.waitAvailability(towel, "online")
-	want := []contractv1.DeviceReport{{
+	want := []contract.DeviceReport{{
 		ID: towel, Found: true, Manufacturer: "Thermor", Model: "RIVA 5 0750W BLC BRI", Capabilities: []string{"on", "setpoint", "temperature"},
 	}}
 	if got := b.devices().Devices; !reflect.DeepEqual(got, want) {
@@ -118,7 +118,7 @@ func TestAnAccountOnBothCloudsServesBothAfterOneLogin(t *testing.T) {
 	}
 	// While a cloud can't see its app, neither does the plugin, so nothing reads as removed.
 	if raw := b.topic(root.Devices()); strings.Contains(raw, `"discovered"`) {
-		var d contractv1.Devices
+		var d contract.Devices
 		_ = json.Unmarshal([]byte(raw), &d)
 		if d.Discovered != nil {
 			t.Errorf("discovered %+v while Magellan is down", d.Discovered)
@@ -212,12 +212,12 @@ func TestMagellanTowelRadiatorValues(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		caps capabilities
-		want contractv1.State
+		want contract.State
 	}{
-		{"heating", capabilities{7: "4", 40: "19.5", 117: "20.1"}, contractv1.State{"on": true, "setpoint": 19.5, "temperature": 20.1}},
-		{"off", capabilities{7: "0", 40: "15"}, contractv1.State{"on": false, "setpoint": 15.0}},
-		{"a mode it doesn't know is heating", capabilities{7: "3"}, contractv1.State{"on": true}},
-		{"unreadable values are left out", capabilities{40: "", 117: "n/a"}, contractv1.State{}},
+		{"heating", capabilities{7: "4", 40: "19.5", 117: "20.1"}, contract.State{"on": true, "setpoint": 19.5, "temperature": 20.1}},
+		{"off", capabilities{7: "0", 40: "15"}, contract.State{"on": false, "setpoint": 15.0}},
+		{"a mode it doesn't know is heating", capabilities{7: "3"}, contract.State{"on": true}},
+		{"unreadable values are left out", capabilities{40: "", 117: "n/a"}, contract.State{}},
 	} {
 		if got := mTowelDryer.values(tc.caps); !reflect.DeepEqual(got, tc.want) {
 			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)

@@ -10,12 +10,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/control"
-	"github.com/harrymitchinson/oikade/internal/devicetype"
-	"github.com/harrymitchinson/oikade/internal/driver"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/logging"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/control"
+	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/driver"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/logging"
 )
 
 // Meta is what the hub is told about a declared Device, as against what its driver reports.

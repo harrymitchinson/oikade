@@ -19,11 +19,11 @@ import (
 	"github.com/mochi-mqtt/server/v2/listeners"
 	"github.com/mochi-mqtt/server/v2/packets"
 
-	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
-	"github.com/harrymitchinson/oikade/internal/logging"
-	"github.com/harrymitchinson/oikade/internal/mqtt"
-	"github.com/harrymitchinson/oikade/internal/mqtt/mqtttest"
-	"github.com/harrymitchinson/oikade/sdk/plugin"
+	"oikade.dev/contract/v1"
+	"oikade.dev/internal/logging"
+	"oikade.dev/internal/mqtt"
+	"oikade.dev/internal/mqtt/mqtttest"
+	"oikade.dev/sdk/plugin"
 )
 
 const (
@@ -35,7 +35,7 @@ const (
 	base       = "z2m"
 )
 
-var root = contractv1.NewRoot("zigbee")
+var root = contract.NewRoot("zigbee")
 
 // heard follows what the plugin publishes, as the host would.
 type heard struct {
@@ -100,28 +100,28 @@ func (h *heard) waitFor(t *testing.T, topic, want string) {
 	h.wait(t, topic+" = "+want, func(topics map[string]string) bool { return topics[topic] == want })
 }
 
-func (h *heard) waitState(t *testing.T, id string, want contractv1.State) {
+func (h *heard) waitState(t *testing.T, id string, want contract.State) {
 	t.Helper()
 	h.wait(t, id+" state", func(topics map[string]string) bool {
-		var got contractv1.State
+		var got contract.State
 		return json.Unmarshal([]byte(topics[root.State(id)]), &got) == nil && reflect.DeepEqual(got, want)
 	})
 }
 
 // run serves the plugin until the returned func is called, and waits for it to come online.
-func run(t *testing.T, url string, declared ...contractv1.DeclaredDevice) (stop func()) {
+func run(t *testing.T, url string, declared ...contract.DeclaredDevice) (stop func()) {
 	t.Helper()
 	return runOn(t, url, url, declared...)
 }
 
 // runOn runs the plugin with Oikade on one broker and Zigbee2MQTT on another. Under the host, its
 // link to Oikade is a socket, which outlives the broker.
-func runOn(t *testing.T, oikade, zigbee string, declared ...contractv1.DeclaredDevice) (stop func()) {
+func runOn(t *testing.T, oikade, zigbee string, declared ...contract.DeclaredDevice) (stop func()) {
 	t.Helper()
 	return runWith(t, oikade, Config{Broker: zigbee, BaseTopic: base}, declared...)
 }
 
-func runWith(t *testing.T, oikade string, c Config, declared ...contractv1.DeclaredDevice) (stop func()) {
+func runWith(t *testing.T, oikade string, c Config, declared ...contract.DeclaredDevice) (stop func()) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	h, err := factory(c, logging.Test(t))(plugin.Environment{Root: root}, declared)
@@ -166,9 +166,9 @@ func bridgeDevices(t *testing.T) string {
 	return string(raw)
 }
 
-func reported(t *testing.T, payload string) contractv1.Devices {
+func reported(t *testing.T, payload string) contract.Devices {
 	t.Helper()
-	var d contractv1.Devices
+	var d contract.Devices
 	if payload != "" {
 		if err := json.Unmarshal([]byte(payload), &d); err != nil {
 			t.Fatal(err)
@@ -272,44 +272,44 @@ func TestEveryPairedDeviceIsReportedAndCanBeSet(t *testing.T) {
 	url := mqtttest.StartBroker(t)
 	h := hear(t, url)
 	h.publish(t, base+"/bridge/devices", bridgeDevices(t), true)
-	run(t, url, contractv1.DeclaredDevice{ID: "0x00aa000000000000", Name: "gone", DisplayName: "gone"})
+	run(t, url, contract.DeclaredDevice{ID: "0x00aa000000000000", Name: "gone", DisplayName: "gone"})
 
 	h.wait(t, "devices", func(topics map[string]string) bool {
 		return len(reported(t, topics[root.Devices()]).Discovered) > 0
 	})
 	got := reported(t, h.copy()[root.Devices()])
 
-	if i := slices.IndexFunc(got.Discovered, func(d contractv1.DiscoveredDevice) bool { return d.ID == plugIEEE }); i < 0 ||
+	if i := slices.IndexFunc(got.Discovered, func(d contract.DiscoveredDevice) bool { return d.ID == plugIEEE }); i < 0 ||
 		got.Discovered[i].Name != "desk-plug" || !slices.Equal(got.Discovered[i].Capabilities, []string{"on"}) {
 		t.Errorf("the plug: %+v", got.Discovered)
 	}
-	if slices.ContainsFunc(got.Discovered, func(d contractv1.DiscoveredDevice) bool { return d.ID == "0x00124b0000000001" }) {
+	if slices.ContainsFunc(got.Discovered, func(d contract.DiscoveredDevice) bool { return d.ID == "0x00124b0000000001" }) {
 		t.Error("the coordinator was reported")
 	}
-	if i := slices.IndexFunc(got.Devices, func(d contractv1.DeviceReport) bool { return d.ID == "0x00aa000000000000" }); i < 0 || got.Devices[i].Found {
+	if i := slices.IndexFunc(got.Devices, func(d contract.DeviceReport) bool { return d.ID == "0x00aa000000000000" }); i < 0 || got.Devices[i].Found {
 		t.Errorf("a device on record that's gone: %+v", got.Devices)
 	}
-	if i := slices.IndexFunc(got.Devices, func(d contractv1.DeviceReport) bool { return d.ID == plugIEEE }); i < 0 || !got.Devices[i].Found ||
+	if i := slices.IndexFunc(got.Devices, func(d contract.DeviceReport) bool { return d.ID == plugIEEE }); i < 0 || !got.Devices[i].Found ||
 		got.Devices[i].DeviceType != "" {
 		t.Errorf("the plug: %+v", got.Devices)
 	}
 	// The light says what it is, and its firmware, in both lists, with nobody setting it.
-	if i := slices.IndexFunc(got.Devices, func(d contractv1.DeviceReport) bool { return d.ID == lampIEEE }); i < 0 ||
-		got.Devices[i].DeviceType != contractv1.DimmableLight || got.Devices[i].FirmwareVersion != "2.3.087" {
+	if i := slices.IndexFunc(got.Devices, func(d contract.DeviceReport) bool { return d.ID == lampIEEE }); i < 0 ||
+		got.Devices[i].DeviceType != contract.DimmableLight || got.Devices[i].FirmwareVersion != "2.3.087" {
 		t.Errorf("the lamp: %+v", got.Devices)
 	}
-	if i := slices.IndexFunc(got.Discovered, func(d contractv1.DiscoveredDevice) bool { return d.ID == lampIEEE }); i < 0 ||
-		got.Discovered[i].DeviceType != contractv1.DimmableLight || got.Discovered[i].FirmwareVersion != "2.3.087" {
+	if i := slices.IndexFunc(got.Discovered, func(d contract.DiscoveredDevice) bool { return d.ID == lampIEEE }); i < 0 ||
+		got.Discovered[i].DeviceType != contract.DimmableLight || got.Discovered[i].FirmwareVersion != "2.3.087" {
 		t.Errorf("the lamp: %+v", got.Discovered)
 	}
 
 	// A sleeping sensor reports one value at a time, and that's published as far as it's known.
 	h.publish(t, base+"/hallway-motion", `{"occupancy":true}`, false)
-	h.waitState(t, motionIEEE, contractv1.State{"occupied": true})
+	h.waitState(t, motionIEEE, contract.State{"occupied": true})
 	h.publish(t, base+"/hallway-motion", `{"battery":90}`, false)
-	h.waitState(t, motionIEEE, contractv1.State{"occupied": true, "battery": 90.0})
+	h.waitState(t, motionIEEE, contract.State{"occupied": true, "battery": 90.0})
 
-	cmd, err := contractv1.SetCommand{ID: plugIEEE, Capability: "on", Value: true}.Payload()
+	cmd, err := contract.SetCommand{ID: plugIEEE, Capability: "on", Value: true}.Payload()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,8 +326,8 @@ func TestARestartKeepsWhatZigbee2MQTTRetains(t *testing.T) {
 	h.publish(t, base+"/front-door", `{"contact":true}`, true)
 	h.publish(t, base+"/front-door/availability", `{"state":"offline"}`, true)
 	stop := run(t, url)
-	h.waitState(t, doorIEEE, contractv1.State{"open": false})
-	h.waitFor(t, root.Availability(doorIEEE), contractv1.Offline)
+	h.waitState(t, doorIEEE, contract.State{"open": false})
+	h.waitFor(t, root.Availability(doorIEEE), contract.Offline)
 
 	// A deploy waits for this, with the automations stopped.
 	began := time.Now()
@@ -341,8 +341,8 @@ func TestARestartKeepsWhatZigbee2MQTTRetains(t *testing.T) {
 	h.mu.Unlock()
 
 	run(t, url)
-	h.waitState(t, doorIEEE, contractv1.State{"open": false})
-	h.waitFor(t, root.Availability(doorIEEE), contractv1.Offline)
+	h.waitState(t, doorIEEE, contract.State{"open": false})
+	h.waitFor(t, root.Availability(doorIEEE), contract.Offline)
 }
 
 func TestDevicesFollowZigbee2MQTTOfflineAndBack(t *testing.T) {
@@ -353,21 +353,21 @@ func TestDevicesFollowZigbee2MQTTOfflineAndBack(t *testing.T) {
 	h.publish(t, base+"/front-door/availability", `{"state":"offline"}`, true)
 	h.publish(t, base+"/desk-plug/availability", `{"state":"online"}`, true)
 	run(t, url)
-	h.waitFor(t, root.Availability(plugIEEE), contractv1.Online)
-	h.waitFor(t, root.Availability(doorIEEE), contractv1.Offline)
+	h.waitFor(t, root.Availability(plugIEEE), contract.Online)
+	h.waitFor(t, root.Availability(doorIEEE), contract.Offline)
 
 	h.publish(t, base+"/bridge/state", `{"state":"offline"}`, true)
-	h.waitFor(t, root.Availability(plugIEEE), contractv1.Offline)
+	h.waitFor(t, root.Availability(plugIEEE), contract.Offline)
 
 	h.publish(t, base+"/bridge/state", "online", true) // The bare form, from before 2.x.
-	h.waitFor(t, root.Availability(plugIEEE), contractv1.Online)
+	h.waitFor(t, root.Availability(plugIEEE), contract.Online)
 	// A device with no word of its own counts as online, and one that was offline stays so.
-	h.waitFor(t, root.Availability(motionIEEE), contractv1.Online)
+	h.waitFor(t, root.Availability(motionIEEE), contract.Online)
 	if got := func() string {
 		h.mu.Lock()
 		defer h.mu.Unlock()
 		return h.topics[root.Availability(doorIEEE)]
-	}(); got != contractv1.Offline {
+	}(); got != contract.Offline {
 		t.Errorf("the door = %s", got)
 	}
 }
@@ -375,7 +375,7 @@ func TestDevicesFollowZigbee2MQTTOfflineAndBack(t *testing.T) {
 func TestAWriteIsRefusedWhileZigbee2MQTTIsOffline(t *testing.T) {
 	bus := mqtt.NewMemory()
 	b := &bridge{up: false, instance: &Instance{BaseTopic: base, Bus: bus}}
-	err := b.Set(t.Context(), nil, contractv1.SetCommand{ID: plugIEEE, Capability: "on", Value: true})
+	err := b.Set(t.Context(), nil, contract.SetCommand{ID: plugIEEE, Capability: "on", Value: true})
 	if !errors.Is(err, errBridgeOffline) {
 		t.Fatalf("got %v", err)
 	}
@@ -389,13 +389,13 @@ func TestADeviceThatLeftStaysOffline(t *testing.T) {
 	h := hear(t, url)
 	h.publish(t, base+"/bridge/devices", bridgeDevices(t), true)
 	const gone = "0x00aa000000000000"
-	run(t, url, contractv1.DeclaredDevice{ID: gone, Name: "gone", DisplayName: "gone"})
-	h.waitFor(t, root.Availability(gone), contractv1.Offline)
+	run(t, url, contract.DeclaredDevice{ID: gone, Name: "gone", DisplayName: "gone"})
+	h.waitFor(t, root.Availability(gone), contract.Offline)
 	h.publish(t, base+"/bridge/state", `{"state":"offline"}`, true)
-	h.waitFor(t, root.Availability(plugIEEE), contractv1.Offline)
+	h.waitFor(t, root.Availability(plugIEEE), contract.Offline)
 	h.publish(t, base+"/bridge/state", `{"state":"online"}`, true)
-	h.waitFor(t, root.Availability(plugIEEE), contractv1.Online)
-	h.waitFor(t, root.Availability(gone), contractv1.Offline)
+	h.waitFor(t, root.Availability(plugIEEE), contract.Online)
+	h.waitFor(t, root.Availability(gone), contract.Offline)
 }
 
 func TestLosingTheBrokerMarksDevicesOffline(t *testing.T) {
@@ -406,10 +406,10 @@ func TestLosingTheBrokerMarksDevicesOffline(t *testing.T) {
 	z.publish(t, base+"/bridge/state", `{"state":"online"}`, true)
 	z.publish(t, base+"/bridge/devices", bridgeDevices(t), true)
 	runOn(t, oikade, zigbee.URL)
-	h.waitFor(t, root.Availability(plugIEEE), contractv1.Online)
+	h.waitFor(t, root.Availability(plugIEEE), contract.Online)
 
 	zigbee.Restart(t)
-	h.waitFor(t, root.Availability(plugIEEE), contractv1.Offline)
+	h.waitFor(t, root.Availability(plugIEEE), contract.Offline)
 	// This client is reconnecting too.
 	deadline := time.Now().Add(waitLimit)
 	for z.bus.Publish(t.Context(), base+"/bridge/state", []byte(`{"state":"online"}`), true) != nil {
@@ -419,7 +419,7 @@ func TestLosingTheBrokerMarksDevicesOffline(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	z.publish(t, base+"/bridge/devices", bridgeDevices(t), true)
-	h.waitFor(t, root.Availability(plugIEEE), contractv1.Online)
+	h.waitFor(t, root.Availability(plugIEEE), contract.Online)
 }
 
 func TestItGivesUpOnABrokerItCantReach(t *testing.T) {
@@ -461,7 +461,7 @@ func TestAMessageIsReportedWholeAndOnceEvenIfNothingChanged(t *testing.T) {
 	h.wait(t, "devices", func(topics map[string]string) bool { return topics[root.Devices()] != "" })
 
 	h.publish(t, base+"/hallway-motion", `{"occupancy":true,"battery":90}`, false)
-	h.waitState(t, motionIEEE, contractv1.State{"occupied": true, "battery": 90.0})
+	h.waitState(t, motionIEEE, contract.State{"occupied": true, "battery": 90.0})
 	h.publish(t, base+"/hallway-motion", `{"occupancy":true,"battery":90}`, false)
 	deadline := time.Now().Add(waitLimit)
 	for time.Now().Before(deadline) {
@@ -486,7 +486,7 @@ func TestStartsWithZigbee2MQTTAlreadyOffline(t *testing.T) {
 	h.publish(t, base+"/bridge/state", `{"state":"offline"}`, true)
 	h.publish(t, base+"/bridge/devices", bridgeDevices(t), true)
 	run(t, url)
-	h.waitFor(t, root.Availability(plugIEEE), contractv1.Offline)
+	h.waitFor(t, root.Availability(plugIEEE), contract.Offline)
 }
 
 func TestItFollowsADefaultBaseTopic(t *testing.T) {

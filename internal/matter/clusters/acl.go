@@ -3,10 +3,10 @@ package clusters
 import (
 	"slices"
 
-	"github.com/harrymitchinson/oikade/internal/matter/fabric"
-	"github.com/harrymitchinson/oikade/internal/matter/im"
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"oikade.dev/internal/matter/fabric"
+	"oikade.dev/internal/matter/im"
+	"oikade.dev/internal/matter/tlv"
+	"oikade.dev/internal/matter/transport"
 )
 
 // The Access Control cluster's limits, the spec's minimums.

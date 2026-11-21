@@ -15,12 +15,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/cli"
-	"github.com/harrymitchinson/oikade/internal/engine"
-	"github.com/harrymitchinson/oikade/internal/flow"
-	"github.com/harrymitchinson/oikade/internal/host/api"
-	"github.com/harrymitchinson/oikade/internal/ident"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/cli"
+	"oikade.dev/internal/engine"
+	"oikade.dev/internal/flow"
+	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/ident"
 )
 
 // target says which host a command is for.

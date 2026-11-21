@@ -7,12 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/fault"
-	"github.com/harrymitchinson/oikade/internal/matter/clusters"
-	"github.com/harrymitchinson/oikade/internal/matter/im"
-	"github.com/harrymitchinson/oikade/internal/matter/nodetest"
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
-	"github.com/harrymitchinson/oikade/test/fixtures/simswitch/relays"
+	"oikade.dev/internal/fault"
+	"oikade.dev/internal/matter/clusters"
+	"oikade.dev/internal/matter/im"
+	"oikade.dev/internal/matter/nodetest"
+	"oikade.dev/internal/matter/tlv"
+	"oikade.dev/test/fixtures/simswitch/relays"
 )
 
 // These kill the host at a write that must survive, once it's on disk and before it's answered or

@@ -23,8 +23,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/host/wire"
-	"github.com/harrymitchinson/oikade/test/internal/childrace"
+	"oikade.dev/internal/host/wire"
+	"oikade.dev/test/internal/childrace"
 )
 
 const (
@@ -100,7 +100,7 @@ func buildArgs(extra ...string) []string {
 	// the CLI, already in the pattern, and the home's main package for a home, which isn't. A binary
 	// whose main package isn't measured writes no coverage at all.
 	if os.Getenv("OIKADE_COVER") != "" {
-		args = append(args, "-cover", "-coverpkg=github.com/harrymitchinson/oikade/...,.")
+		args = append(args, "-cover", "-coverpkg=oikade.dev/...,.")
 	}
 	return args
 }
@@ -125,8 +125,8 @@ func writeModule(repo, module string) error {
 		return err
 	}
 	mod := regexp.MustCompile(`(?m)^module .*$`).ReplaceAllString(string(raw), "module example.com/home")
-	mod += "\nrequire github.com/harrymitchinson/oikade v0.0.0\n"
-	mod += "\nreplace github.com/harrymitchinson/oikade => " + repo + "\n"
+	mod += "\nrequire oikade.dev v0.0.0\n"
+	mod += "\nreplace oikade.dev => " + repo + "\n"
 	if err := os.WriteFile(filepath.Join(module, "go.mod"), []byte(mod), 0o600); err != nil {
 		return err
 	}

@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/control"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/control"
 )
 
 const defaultMaxAge = 30 * time.Minute

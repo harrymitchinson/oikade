@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/harrymitchinson/oikade/internal/capability"
-	"github.com/harrymitchinson/oikade/internal/driver"
-	"github.com/harrymitchinson/oikade/internal/ident"
-	"github.com/harrymitchinson/oikade/internal/testkit"
+	"oikade.dev/internal/capability"
+	"oikade.dev/internal/driver"
+	"oikade.dev/internal/ident"
+	"oikade.dev/internal/testkit"
 )
 
 // A hold's off-delay runs out while its when can't be evaluated, as when a room it reads loses its

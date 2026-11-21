@@ -126,7 +126,7 @@ It must not block, because it holds up every other rule. Its label is how the ho
 
 `oikade.Clock("23:30")` is a local time, in the host machine's zone, from `"00:00"` to `"23:59"`. A `Daily` takes two of them, and a flow's [`At`](writing-flows.md#triggers) fires at them.
 
-`oikade.Sunrise` and `oikade.Sunset` are the day's sunrise and sunset, moved by an offset of up to 6 hours either way. They need the home's `Location`, made by `oikade.NewLocation` from its latitude and longitude in degrees (north and east are positive). Your process, `oikade dev`, `oikade replay` and `hometest` all read it from the home:
+`oikade.Sunrise` and `oikade.Sunset` are the day's sunrise and sunset, moved by an offset of up to 6 hours either way. They need the home's `Location`, made by `oikade.NewLocation` from its latitude and longitude in degrees (north and east are positive). Your process, `oikade dev`, `oikade replay` and `oikadetest` all read it from the home:
 
 ```go
 home := oikade.NewHome(oikade.Options{Location: oikade.NewLocation(51.48, -0.01)}) // round to 2 decimals

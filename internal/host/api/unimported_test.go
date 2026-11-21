@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/registry"
+	"oikade.dev/internal/registry"
 )
 
 func TestUnimportedListsOnlyDevicesOfPluginsNothingRuns(t *testing.T) {

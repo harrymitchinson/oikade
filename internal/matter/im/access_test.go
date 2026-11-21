@@ -6,8 +6,8 @@ import (
 
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/matter/tlv"
-	"github.com/harrymitchinson/oikade/internal/matter/transport"
+	"oikade.dev/internal/matter/tlv"
+	"oikade.dev/internal/matter/transport"
 )
 
 // grantView lets fabric 1's node 7 view, and nothing else.

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/harrymitchinson/oikade/internal/capability"
+	"oikade.dev/internal/capability"
 )
 
 const root = "../.."
@@ -85,6 +85,27 @@ func TestTheDashboardQueriesCapabilitiesThatExist(t *testing.T) {
 			if _, ok := capability.Lookup(name); !ok {
 				t.Errorf("the dashboard queries capability %q, which the registry doesn't have", name)
 			}
+		}
+	}
+}
+
+func TestTheSiteTellsGoWhereTheModuleIs(t *testing.T) {
+	mod, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	module := regexp.MustCompile(`(?m)^module (\S+)$`).FindSubmatch(mod)
+	if module == nil {
+		t.Fatal("go.mod names no module")
+	}
+	want := `<meta name="go-import" content="` + string(module[1]) + ` git https://github.com/harrymitchinson/oikade">`
+	for _, page := range []string{"index.html", "404.html"} {
+		raw, err := os.ReadFile(filepath.Join(root, "site", page))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("site/%s doesn't have %s", page, want)
 		}
 	}
 }
