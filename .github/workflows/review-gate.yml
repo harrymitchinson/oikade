@@ -2,10 +2,9 @@ name: Review gate
 
 # A PR the user labelled needs-review waits for their Approve (docs/planning.md).
 # hack/plan pr copies a feature's needs-review label onto each of its PRs.
-# hack/plan merge merges a held PR only once main's hack/owner-approval says
-# the user's Approve covers its head, as this check does. Agents open
-# PRs as oikade-agent[bot], so the user can approve them. "Approved by the
-# owner" is a required check on main, and it fails until they do. Any other PR
+# "Approved by the owner", a required check on main, fails on a held PR until
+# main's hack/owner-approval says the user's Approve covers its head. Agents
+# open PRs as oikade-agent[bot], so the user can approve them. Any other PR
 # passes, so hack/plan merge merges it once its checks pass.
 #
 # GitHub runs this from the PR's own branch, so a PR could change it. That

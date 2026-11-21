@@ -43,7 +43,8 @@ func TestAStopCutOffAtItsTimeoutKillsWhatIsLeft(t *testing.T) {
 	r.waitFor(func(l line) bool { return l.is(attached) })
 	r.sync()
 	automations := r.pid()
-	// The home's condition never returns, so its process can't stop when asked, for 5 s.
+	// The home's condition never returns, so its process won't stop when asked, and the host would
+	// wait 5 s for it, past --stop-timeout.
 	r.change("trap", "open", true)
 	r.until("the condition to spin", func() bool { _, err := os.Stat(trapped); return err == nil })
 

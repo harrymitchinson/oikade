@@ -253,7 +253,7 @@ func (r *rig) metric(series string) string {
 }
 
 // A host that stops ends a tail's stream, over TLS too, after the tail has sat idle for longer than
-// the host gives a write (OIK-210).
+// the host gives a write.
 func TestATailEndsCleanlyWhenTheHostStops(t *testing.T) {
 	t.Parallel()
 	r := start(t, "--api-addr", "127.0.0.1:0")

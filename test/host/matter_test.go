@@ -22,7 +22,8 @@ const (
 	turnOn  = 0x01
 	turnOff = 0x00
 
-	// labelAttribute and uniqueIDAttribute are in Bridged Device Basic Information.
+	// labelAttribute, reachableAttribute and uniqueIDAttribute are in Bridged Device Basic
+	// Information.
 	labelAttribute     = 0x05
 	reachableAttribute = 0x11
 	uniqueIDAttribute  = 0x12
@@ -76,7 +77,6 @@ func (r *rig) serveMatter(port uint16, launch func(flag string)) uint16 {
 	return 0
 }
 
-// portTaken says a bridge is down because its port is taken.
 func portTaken(problem string) bool { return strings.Contains(problem, "address already in use") }
 
 // relaunch launches the host again with launch, as serveMatter does, and has the controller reach

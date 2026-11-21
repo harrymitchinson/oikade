@@ -1,8 +1,8 @@
 # The oikade image: oikade-host, for linux/arm64 and linux/amd64. It holds no Node and nothing else to
-# run, because you bring your own Zigbee2MQTT and broker (OIK-155), and your code arrives by deploy.
+# run, because you bring your own Zigbee2MQTT and broker, and your code arrives by deploy.
 #
 # It compiles nothing: the context holds oikade-host already built, at <os>/<arch>/oikade-host, as
-# GoReleaser's dockers_v2 lays it out for a release and make docker-build does locally (OIK-170).
+# GoReleaser's dockers_v2 lays it out for a release and make docker-build does locally.
 FROM gcr.io/distroless/static:nonroot
 ARG TARGETPLATFORM
 WORKDIR /

@@ -9,7 +9,7 @@
 //	                            (default test/conformance/testdata/devices.json)
 //	OIKADE_CONFORMANCE_SECRETS  a directory to pass as OIKADE_SECRETS_DIR (optional)
 //	OIKADE_CONFORMANCE_IMPORTED the name of a plugin the command's home imports, to drive through
-//	                            the Go API rather than MQTT (optional)
+//	                            the host's socket rather than MQTT (optional)
 package conformance
 
 import (
@@ -50,7 +50,6 @@ func TestConformance(t *testing.T) {
 	}
 }
 
-// fromRepo resolves a path given relative to the repository root, leaving absolute paths alone.
 func fromRepo(repo, path string) string {
 	if filepath.IsAbs(path) {
 		return path

@@ -26,7 +26,8 @@ const (
 	rejectedMessage = "Rejected plugin message"
 )
 
-// pluginDevices is the usual simulated home, with its valve on the relays plugin instead.
+// pluginDevices writes the simulated devices for a home with plugins: the usual ones but the valve,
+// which the relays plugin has, and a sensor and two switches the plugins variant's rules use.
 func pluginDevices(t *testing.T) string {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("testdata", "devices-novalve.json"))
@@ -583,7 +584,7 @@ func TestAVersionThatDropsAPluginSaysWhatItLeftBehind(t *testing.T) {
 }
 
 // Stopping goes a phase at a time, and a plugin is asked to stop and says it's offline itself, before
-// its socket goes (OIK-219).
+// its socket goes.
 func TestTheHostStopsInOrderAndPluginsSayGoodbye(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)

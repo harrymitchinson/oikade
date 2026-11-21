@@ -16,8 +16,7 @@ import (
 
 const (
 	zigbeeBase = zigbee2mqtt.DefaultBaseTopic
-	// zigbeeBrokerEnv is the broker the fixture home's zigbee2mqtt.Config names, which a test's
-	// broker decides.
+	// zigbeeBrokerEnv is the broker the fixture home's zigbee2mqtt.Config names: each test's own.
 	zigbeeBrokerEnv = "OIKADE_TEST_ZIGBEE_BROKER"
 	deskPlug        = "0x00124b0000000004"
 )

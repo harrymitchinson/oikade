@@ -9,9 +9,9 @@ import (
 // quickly is well short of a hold's look a minute on, with room for a busy machine.
 const quickly = 20 * time.Second
 
-// A rule that names a device keeps hearing it after the device moves room (OIK-216): a flow on its
-// handle fires on its next change, and a case reading it by name decides at once, not on its look a
-// minute on.
+// A rule that names a device keeps hearing it after the device moves room: a flow on its handle
+// fires on its next change, and a case reading it by name decides at once, not on its look a minute
+// on.
 func TestRulesThatNameADeviceHearItAfterItMoves(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)

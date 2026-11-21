@@ -173,9 +173,9 @@ func TestKilledAsAnUploadMovesDeploysNothingAndLeavesNothing(t *testing.T) {
 	}
 }
 
-// OIK-299: a case is saved as started before it claims, so your process killed right after the claim
-// keeps the case's latch. Here the overheat passes while the process is held there, and the heater
-// stays off until the door opens, rather than held off by a claim nothing ends.
+// A case is saved as started before it claims, so your process killed right after the claim keeps
+// the case's latch. Here the overheat passes while the process is held there, and the heater stays
+// off until the door opens, rather than held off by a claim nothing ends.
 func TestACaseKilledAsItClaimsKeepsItsLatch(t *testing.T) {
 	t.Parallel()
 	r := faultRig(t)

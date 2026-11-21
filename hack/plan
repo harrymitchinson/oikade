@@ -3,15 +3,15 @@
 # hand. How planning works is in docs/planning.md.
 #
 # The plan lives in plan/, a folder in the main checkout that is its own git
-# repository (OIK-350). Each folder at its top is a status, and each issue is
-# a folder in one. A feature is a top-level issue, and its PR-sized steps are
-# the checklist lines under its "## Steps" heading, in order, or its sub-issues
-# where it has them. A feature with neither is a single step. A feature is
-# claimed by creating the remote branch claim/OIK-N: the push only succeeds if
-# that branch doesn't exist yet, so two agents can't both claim it. Line k of
-# OIK-N is built on work/OIKN-stepk, and sync ticks the line once its PR
-# merges. A sub-issue's step is built on work/OIK-S, named for it. While a step
-# waits for review, the next one stacks on it.
+# repository. Each folder at its top is a status, and each issue is a folder in
+# one. A feature is a top-level issue, and its PR-sized steps are the checklist
+# lines under its "## Steps" heading, in order, or its sub-issues where it has
+# them. A feature with neither is a single step. A feature is claimed by
+# creating the remote branch claim/OIK-N: the push only succeeds if that branch
+# doesn't exist yet, so two agents can't both claim it. Line k of OIK-N is built
+# on work/OIKN-stepk, and sync ticks the line once its PR merges. A sub-issue's
+# step is built on work/OIK-S, named for it. While a step waits for review, the
+# next one stacks on it.
 #
 # GitHub writes go out as oikade-agent[bot] inside Claude Code
 # (hack/agent-token), so an agent's work never passes for the user's
@@ -273,8 +273,8 @@ history() {
 		(if ($h | length) > 0 and $h[-1].t != .state.name then ["-", $h[-1].t, .state.name, "the user, by hand"] | @tsv else empty end)' <<<"$1"
 }
 
-# is_user WHO: whether the change was the user's: what approve writes, a move
-# by hand, or the export's name for the workspace's one human admin.
+# is_user WHO: whether the change was the user's: what approve writes, or a
+# move by hand.
 is_user() { [[ "$1" == "$USER_NAME" || "$1" == "$USER_NAME, by hand" ]]; }
 
 # --- Writing the plan ---------------------------------------------------------
@@ -307,18 +307,17 @@ lock() {
 # Bash makes it itself, under noclobber, with an open that fails if the file is
 # there, so of two processes at once only one does. Not with mkdir, which isn't
 # always atomic: Ubuntu 26.04's, from uutils, lets two at once both make one
-# directory (OIK-359).
+# directory.
 make_lock() { (set -C && echo $$ >"$1") 2>/dev/null; }
 # drop_stale_lock LOCK PID: remove the lock PID left behind, PID having gone,
 # and say whether it did. The lock may have changed hands since PID was read
-# from it: its holder finished and went, and another process took it. So this
-# looks again, and removes the lock only if it's still PID's, which it then
-# stays, since a process that has gone gives nothing back. Only one process at
-# a time may look and remove, under a lock of its own, LOCK.stale, or two could
-# each see PID's lock and the slower remove the one the faster then took
-# (OIK-357). That lock is never taken over, as that would race the same way one
-# level up. It's held for a moment, uninterrupted, so only a kill -9 leaves it
-# behind, and lock's error then names it, and whose it is.
+# from it, so this looks again, and removes it only if it's still PID's, which
+# it then stays, since a process that has gone gives nothing back. One process
+# at a time looks and removes, under LOCK.stale, or two could each see PID's
+# lock and the slower remove the one the faster then took. LOCK.stale is never
+# taken over, as that would race the same way one level up. It's held briefly
+# and uninterrupted, so only a kill -9 leaves it behind, and lock's error then
+# names it, and whose it is.
 drop_stale_lock() {
 	local l="$1" pid="$2" dropped=1
 	make_lock "$l.stale" || return 1
@@ -365,7 +364,7 @@ plan_write() {
 
 # add_aliases: give every issue without one its ID as an alias, so Obsidian,
 # with plan/ as its vault, resolves [[OIK-N]] and finds each mention of it,
-# though every issue's file is issue.md (OIK-351). It adds that one line before
+# though every issue's file is issue.md. It adds that one line before
 # the front matter's end, with the ID from the folder's name, and rewrites
 # nothing else, so front matter it can't read is left as it was. Any aliases
 # line counts, in either YAML style, as Obsidian writes a list in block style.
@@ -660,7 +659,7 @@ step_prs() {
 		[[ "$repo" == - ]] || continue
 		IFS=$'\t' read -r pr st base oid <<<"$(step_pr "$s")"
 		[[ "$st" == OPEN || "$st" == MERGED ]] || continue
-		# Not a step's Done alone: a step is done when its PR merges into the
+		# A step's own Done isn't enough: it's Done once its PR merges into the
 		# step below it, before the change reaches main.
 		if [[ "$st $base" == "MERGED main" ]]; then
 			printf '%s\t%s\tx\n' "$i" "$pr"

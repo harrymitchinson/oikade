@@ -13,9 +13,10 @@ trap 'rm -rf "$tmp"' EXIT
 failed=0
 fail() { echo "FAIL: $*" >&2; failed=1; }
 
-# gh: "pr view N" answers from pr-N.json, "pr list --head B" from list-B.json (with / as _), or [] if
-# there's none, and "repo view" from repo.json. Writes (-X other than GET, or
-# fields on api) answer {"html_url": ".../pull/21"} and are logged to writes.log.
+# gh: "pr view N" answers from pr-N.json, "pr list --head B" from list-B.json
+# (with / as _), or [] if there's none, and "repo view" from repo.json. Writes
+# (-X other than GET, or fields on api) answer {"html_url": ".../pull/21"} and
+# are logged to writes.log.
 mkdir "$tmp/bin" "$tmp/fx"
 cat >"$tmp/bin/gh" <<'STUB'
 #!/usr/bin/env bash
