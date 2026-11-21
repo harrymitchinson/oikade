@@ -32,9 +32,9 @@ const (
 	// DefaultLate is how late a flow may wake and still carry on.
 	DefaultLate = 10 * time.Minute
 	// MaxSteps bounds a run's journal, because replay reads all of it. This isn't a workflow
-	// engine: a flow that loops forever is a hold or a moment.
+	// engine: what loops forever is a hold, or a flow its trigger starts again.
 	MaxSteps = 10000
-	// MaxResult bounds what one Do records.
+	// MaxResult bounds the bytes one Do records.
 	MaxResult = 1 << 20
 	// MaxRunBytes bounds a run's journal, which reaches a new process as one message. Past the
 	// socket's limit the process couldn't read it, and would die at every start.
@@ -124,11 +124,10 @@ const (
 	stopCancelled stopReason = iota + 1
 	// stopLost is a run that can't reach the journal.
 	stopLost
-	// stopLate is a run that woke too late.
 	stopLate
 	// stopEdited is a run whose code no longer matches its journal.
 	stopEdited
-	// stopTooLong is a run with too many steps.
+	// stopTooLong is a run whose journal is past MaxSteps or MaxRunBytes.
 	stopTooLong
 )
 
@@ -255,11 +254,11 @@ type Saved struct {
 	Entries [][]byte
 }
 
-// Recover works out what to resume from the runs a host kept, and returns a body for each flow
-// that has one to continue. A run a newer one of its flow replaced, or with an unreadable journal, is
-// dropped and logged. Unless a run of its flow carries on, its flow's claims go first, as when any run
-// ends badly. A run of a flow this binary doesn't have is left alone: this binary hasn't proved itself,
-// so the host ends those once a deploy has. Call it before the engine runs.
+// Recover works out what to resume from the runs a host kept, and returns a body for each flow that
+// has one to continue. A run a newer one of its flow replaced, or with an unreadable journal, is
+// dropped and logged. Unless a run of its flow carries on, its flow's claims go first, as when any
+// run ends badly. A run of a flow this binary doesn't have is left alone: this binary hasn't proved
+// itself, so the host ends those once a deploy has. Call it before the engine runs.
 func Recover(ctx context.Context, flows map[string]*Flow, saved []Saved, journal Journal, actions Actions) map[string]engine.Body {
 	log := logging.FromContext(ctx)
 	type candidate struct {

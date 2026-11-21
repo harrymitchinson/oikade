@@ -13,10 +13,9 @@ import (
 	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
-// TestAnOffDelayThatEndsWhileWhenIsUnknownLeavesTheEngineFree is OIK-216: a hold's off-delay
-// ran out while its when couldn't be evaluated, as when a room it reads loses its only sensor. Its
-// next look was the delay's end, already past, so Run fired it again and again and never took
-// another change.
+// A hold's off-delay runs out while its when can't be evaluated, as when a room it reads loses its
+// only sensor. Its next look mustn't be the delay's end, already past, or Run fires it again and
+// again and never takes another change.
 func TestAnOffDelayThatEndsWhileWhenIsUnknownLeavesTheEngineFree(t *testing.T) {
 	var unknown atomic.Bool
 	occupied := isTrue("hall-motion", capability.Occupied)
@@ -61,9 +60,8 @@ func TestAnOffDelayThatEndsWhileWhenIsUnknownLeavesTheEngineFree(t *testing.T) {
 		call{"hall-light", capability.On, false})
 }
 
-// TestAHoldWhoseWhenStaysUnknownLogsTheStretchOnceAtInfo is OIK-228: a hold whose when couldn't
-// be evaluated logged that only at Debug, so a stretch of it was invisible in the journal. It logs
-// the start and the end once each at Info, however many looks fall in between.
+// A hold whose when can't be evaluated logs the start and the end of that stretch once each at
+// Info, so it shows in the journal, however many looks fall in between.
 func TestAHoldWhoseWhenStaysUnknownLogsTheStretchOnceAtInfo(t *testing.T) {
 	var unknown atomic.Bool
 	occupied := isTrue("hall-motion", capability.Occupied)

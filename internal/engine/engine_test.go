@@ -75,7 +75,6 @@ func (s steps) body(key ident.ID) Body {
 	}
 }
 
-// flowRule compiles steps as a flow.
 func flowRule(t *testing.T, name string, s steps) *Compiled {
 	t.Helper()
 	key := ident.ID{Name: name}
@@ -86,7 +85,6 @@ func flowRule(t *testing.T, name string, s steps) *Compiled {
 	return c
 }
 
-// holdRule compiles a hold.
 func holdRule(t *testing.T, name string, h Hold) *Compiled {
 	t.Helper()
 	c, err := NewHold(ident.ID{Name: name}, h)
@@ -96,8 +94,8 @@ func holdRule(t *testing.T, name string, h Hold) *Compiled {
 	return c
 }
 
-// reading is a device's value, as a condition sees it. Like a condition reading a device that hasn't
-// reported, it's an error until there is one.
+// reading is a device's value, as a condition sees it. Like a condition reading a device that
+// hasn't reported, it's an error until there is one.
 func reading(v Vars, device, name string) (any, error) {
 	devices, _ := v["devices"].(map[string]map[string]any)
 	value, ok := devices[device][name]
@@ -107,7 +105,6 @@ func reading(v Vars, device, name string) (any, error) {
 	return value, nil
 }
 
-// isTrue holds while a bool reading is true.
 func isTrue(device, name string) Condition {
 	return func(v Vars) (bool, error) {
 		value, err := reading(v, device, name)
@@ -116,7 +113,6 @@ func isTrue(device, name string) Condition {
 	}
 }
 
-// above holds while a number reading is above limit.
 func above(device, name string, limit float64) Condition {
 	return func(v Vars) (bool, error) {
 		value, err := reading(v, device, name)
@@ -125,7 +121,6 @@ func above(device, name string, limit float64) Condition {
 	}
 }
 
-// below holds while a number reading is below limit.
 func below(device, name string, limit float64) Condition {
 	return func(v Vars) (bool, error) {
 		value, err := reading(v, device, name)
@@ -134,7 +129,7 @@ func below(device, name string, limit float64) Condition {
 	}
 }
 
-// triggered returns what fired the moment.
+// triggered is what fired the flow.
 func triggered(v Vars) map[string]any {
 	m, _ := v["trigger"].(map[string]any)
 	return m

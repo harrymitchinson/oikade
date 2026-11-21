@@ -11,10 +11,8 @@ import (
 	"github.com/harrymitchinson/oikade/internal/control"
 )
 
-// defaultMaxAge is a bands input's maxAge when it has none.
 const defaultMaxAge = 30 * time.Minute
 
-// hhmm is planningTime's and a window's time of day.
 var hhmm = regexp.MustCompile(`^([01][0-9]|2[0-3]):([0-5][0-9])$`)
 
 // Budget is a compiled budget: everything the planner needs except the day's clock and readings,
@@ -28,8 +26,7 @@ type Budget struct {
 	Rules          []Rule
 	Constraints    Constraints
 	// bands is nil when the budget is a function.
-	bands *Bands
-	// inputDevice and inputCapability are what bands read.
+	bands                        *Bands
 	inputDevice, inputCapability string
 	minutes                      MinutesFunc
 }
@@ -214,7 +211,6 @@ func (out *Budget) Input(year int, month time.Month, day int, now time.Time, loc
 	return in
 }
 
-// compileWindow compiles a budget window.
 func compileWindow(w WindowSpec) (*Window, error) {
 	var errs []error
 	start, err := minuteOfDay(w.Start)

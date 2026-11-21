@@ -17,7 +17,7 @@ const (
 )
 
 // LineOverride and LineFlows are the override line and the flows' line among Settings.Lines. A
-// claim's source is never one: it's Matter, Device or Rule/<name>.
+// claim's source is never one: it's Matter, Device, Command or Rule/<key>.
 const (
 	LineOverride = "override"
 	LineFlows    = "flows"
@@ -47,7 +47,7 @@ type Status struct {
 
 // ClaimStatus is one claim on a capability.
 type ClaimStatus struct {
-	// Source is the path the claim came in by: Matter, Device or Rule/<name>.
+	// Source is the path the claim came in by: Matter, Device, Command or Rule/<key>.
 	Source string `json:"source"`
 	Level  string `json:"level"`
 	// Value is the claimed JSON value.
@@ -92,10 +92,8 @@ func (e Entry) Equal(other Entry) bool {
 // Duration is a time.Duration written as "30m".
 type Duration time.Duration
 
-// MarshalText implements encoding.TextMarshaler.
 func (d Duration) MarshalText() ([]byte, error) { return []byte(time.Duration(d).String()), nil }
 
-// UnmarshalText implements encoding.TextUnmarshaler.
 func (d *Duration) UnmarshalText(b []byte) error {
 	v, err := time.ParseDuration(string(b))
 	*d = Duration(v)

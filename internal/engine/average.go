@@ -78,7 +78,7 @@ type AverageBucket struct {
 	Seconds float64   `json:"seconds"`
 }
 
-// AverageStates keeps AverageStates, by Average's Key.
+// AverageStates keeps each Average's AverageState, at its Key.
 type AverageStates = States[AverageState]
 
 // averages are the engine's rolling averages, which take every reading of the capabilities they
@@ -188,8 +188,8 @@ func (e *Engine) averageState(a Average, now time.Time) *averageState {
 	return s
 }
 
-// observeAverages takes a report's readings into the averages of their capabilities, and saves those
-// whose bucket has moved on since they were last saved.
+// observeAverages takes a report's readings into the averages of their capabilities, and saves
+// those whose bucket has moved on since they were last saved.
 func (e *Engine) observeAverages(changes []driver.Update, now time.Time) {
 	if len(e.Averages) == 0 {
 		return

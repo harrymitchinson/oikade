@@ -14,7 +14,6 @@ import (
 
 var paris = testkit.Location("Europe/Paris")
 
-// saturday is 2026-07-04, a Saturday in Paris.
 var saturday = time.Date(2026, time.July, 4, 0, 0, 0, 0, paris)
 
 func hm(s string) int {

@@ -1,5 +1,5 @@
-// Package clock is the time Oikade runs on: the real one in the host, and a fake one that a simulated
-// home and the tests move by hand.
+// Package clock is the time Oikade runs on: the real one in the host, and a fake one that a
+// simulated home and the tests move by hand.
 package clock
 
 import (
@@ -8,16 +8,14 @@ import (
 	"time"
 )
 
-// Clock tells the time and waits for it.
 type Clock interface {
 	Now() time.Time
 	NewTimer(d time.Duration) Timer
 }
 
-// Timer is a wait that can be stopped. A wait that ends early has to stop its timer: on a Fake, a timer
-// left running still counts as something waiting on the clock.
+// Timer is a wait that can be stopped. A wait that ends early has to stop its timer: on a Fake, a
+// timer left running still counts as something waiting on the clock.
 type Timer interface {
-	// C receives the time when the timer fires.
 	C() <-chan time.Time
 	Stop()
 }
@@ -25,10 +23,8 @@ type Timer interface {
 // Real is the system clock.
 type Real struct{}
 
-// Now returns the current time.
 func (Real) Now() time.Time { return time.Now() }
 
-// NewTimer returns a timer that fires once d has passed.
 func (Real) NewTimer(d time.Duration) Timer { return realTimer{time.NewTimer(d)} }
 
 type realTimer struct{ timer *time.Timer }
@@ -36,9 +32,9 @@ type realTimer struct{ timer *time.Timer }
 func (t realTimer) C() <-chan time.Time { return t.timer.C }
 func (t realTimer) Stop()               { t.timer.Stop() }
 
-// AfterFunc calls f in its own goroutine once d has passed on c, unless the returned Timer is stopped
-// first. As with time.AfterFunc, a stop as it fires may come too late, and the Timer's C is nil: f is
-// how it fires.
+// AfterFunc calls f in its own goroutine once d has passed on c, unless the returned Timer is
+// stopped first. As with time.AfterFunc, a stop as it fires may come too late, and the Timer's C is
+// nil: f is how it fires.
 func AfterFunc(c Clock, d time.Duration, f func()) Timer {
 	if _, ok := c.(Real); ok {
 		return funcTimer{time.AfterFunc(d, f)}
@@ -73,25 +69,22 @@ func (t *waitTimer) Stop() {
 	t.once.Do(func() { close(t.stop) })
 }
 
-// Fake is a clock that only moves when it's told to. A wait fires when the clock is moved to or past
-// its time, so a wait of zero or less fires on the next move, not at once.
+// Fake is a clock that only moves when it's told to. A wait fires when the clock is moved to or
+// past its time, so a wait of zero or less fires on the next move, not at once.
 type Fake struct {
 	mu      sync.Mutex
 	now     time.Time
 	waiters []*fakeTimer
 }
 
-// NewFake returns a fake clock set to t.
 func NewFake(t time.Time) *Fake { return &Fake{now: t} }
 
-// Now returns the fake clock's time.
 func (f *Fake) Now() time.Time {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.now
 }
 
-// NewTimer returns a timer that fires once the clock has moved on by d.
 func (f *Fake) NewTimer(d time.Duration) Timer {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -100,22 +93,20 @@ func (f *Fake) NewTimer(d time.Duration) Timer {
 	return t
 }
 
-// Step moves the clock on by d.
 func (f *Fake) Step(d time.Duration) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.set(f.now.Add(d))
 }
 
-// SetTime moves the clock to t.
 func (f *Fake) SetTime(t time.Time) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.set(t)
 }
 
-// set moves the clock to now and fires what was waiting for it. Each channel has room for its one
-// send, so this never blocks with the lock held.
+// set fires every wait due by now. Each channel has room for its one send, so this never blocks
+// with the lock held.
 func (f *Fake) set(now time.Time) {
 	f.now = now
 	f.waiters = slices.DeleteFunc(f.waiters, func(t *fakeTimer) bool {
@@ -127,15 +118,13 @@ func (f *Fake) set(now time.Time) {
 	})
 }
 
-// HasWaiters reports whether anything is waiting on the clock.
 func (f *Fake) HasWaiters() bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.waiters) > 0
 }
 
-// NextWait returns when the soonest wait on the clock fires, and false if nothing is waiting. A
-// test reads it to see what a goroutine is waiting for before it moves the clock.
+// NextWait returns when the soonest wait fires, and false if nothing waits.
 func (f *Fake) NextWait() (time.Time, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

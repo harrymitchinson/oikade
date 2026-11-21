@@ -66,13 +66,11 @@ func startRig(t *testing.T, now time.Time, states HoldStates, values map[string]
 
 // rigOptions are what a run of the host starts from.
 type rigOptions struct {
-	now      time.Time
-	holds    HoldStates
-	controls ControlStates
-	values   map[string]map[string]any
-	// control is each device's control entries.
-	control map[string][]control.Entry
-	// averages are the rolling averages, kept in averageStates.
+	now           time.Time
+	holds         HoldStates
+	controls      ControlStates
+	values        map[string]map[string]any
+	control       map[string][]control.Entry
 	averages      []Average
 	averageStates AverageStates
 	// arbitration, when set, takes the engine's claims, as the host does for your process.
@@ -633,8 +631,8 @@ func (r *rig) put(metas map[string]hub.Meta) {
 	r.settle()
 }
 
-// An active room hold writes a device that moves into the room at once, and only that device
-// (OIK-195). One that leaves and comes back is written again.
+// An active room hold writes a device that moves into the room at once, and only that device.
+// One that leaves and comes back is written again.
 func TestAnActiveRoomHoldTakesUpADeviceThatMovesIn(t *testing.T) {
 	r := startRig(t, local("2026-10-21 12:00 BST"), nil, nil, nil)
 	r.put(map[string]hub.Meta{"towel-rail": {Room: "porch"}})
@@ -701,8 +699,8 @@ func TestARestartedRoomHoldDoesntRewriteItsMembers(t *testing.T) {
 	again.expect()
 }
 
-// A member a Safety room hold claimed lets go of the claim when it leaves the room, so it isn't held
-// at Safety by a hold it's no longer in.
+// A member a Safety room hold claimed lets go of the claim when it leaves the room, so it isn't
+// held at Safety by a hold it's no longer in.
 func TestAClaimedMemberThatLeavesARoomHoldIsReleased(t *testing.T) {
 	rail := entry(capability.On, "false", control.NameOverride, "1h")
 	r := startRigWith(t, rigOptions{
@@ -722,7 +720,7 @@ func TestAClaimedMemberThatLeavesARoomHoldIsReleased(t *testing.T) {
 	}
 }
 
-// OIK-215: oikade status says why a hold keeps its state, and since when it's been active.
+// oikade status says why a hold keeps its state, and since when it's been active.
 func TestAHoldSaysWhyItStoppedAndWhenItStarted(t *testing.T) {
 	var mu sync.Mutex
 	var heard []string
@@ -752,7 +750,8 @@ func TestAHoldSaysWhyItStoppedAndWhenItStarted(t *testing.T) {
 	}
 }
 
-// A paused hold is unloaded, and comes back with nothing stopped, so the host mustn't keep its reason.
+// A paused hold is unloaded, and comes back with nothing stopped, so the host mustn't keep its
+// reason.
 func TestAnUnloadedHoldIsNoLongerStopped(t *testing.T) {
 	var mu sync.Mutex
 	var heard []string
@@ -788,8 +787,8 @@ func TestARulesSeriesAndLogLinesNameItByItsRef(t *testing.T) {
 	}
 }
 
-// OIK-321: a group hold whose start claims one member but can't reach another, not discovered yet,
-// is active, so the claim it made ends when its when does. Saved inactive, nothing would end it.
+// A group hold whose start claims one member but can't reach another, not discovered yet, is
+// active, so the claim it made ends when its when does. Saved inactive, nothing would end it.
 func TestAGroupHoldStartedOnSomeMembersEndsTheirClaims(t *testing.T) {
 	r := partlyStarted(t)
 	r.change("workshop-temp", capability.Temperature, 20.0)

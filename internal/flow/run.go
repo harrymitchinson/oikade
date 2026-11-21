@@ -12,7 +12,6 @@ import (
 	"github.com/harrymitchinson/oikade/internal/engine"
 )
 
-// Kinds of journal entry.
 const (
 	kindStart = "start"
 	kindNow   = "now"
@@ -38,7 +37,7 @@ type entry struct {
 	Err    string          `json:"e,omitempty"`
 	// OK is what a wait for a condition returned.
 	OK bool `json:"ok,omitempty"`
-	// size is its length in the journal.
+	// size is its encoded length, in bytes.
 	size int
 }
 
@@ -96,8 +95,8 @@ func (r *Run) replay(kind, id string) (entry, bool) {
 	return entry{}, false
 }
 
-// inTail reports whether e, just replayed, is the last thing the run did, so a wait it recorded
-// hasn't ended.
+// inTail reports whether the step just replayed is the last thing the run did, so a wait it
+// recorded hasn't ended.
 func (r *Run) inTail() bool { return r.pos == len(r.recorded) }
 
 // checkLate gives up on a run that's more than its limit past when it was due. Safety flows run
@@ -223,9 +222,9 @@ func (r *Run) WaitFor(cond engine.Condition, timeout time.Duration) bool {
 }
 
 // Look reads the home once, through read, which sets result, a pointer, and records it, so a replay
-// sets the same. An error, as from a read of a value nobody has reported yet, is recorded too, and a
-// replay returns one with its message. id tells a flow's looks apart, so a replay notices code that
-// reads something else.
+// sets the same. An error, as from a read of a value nobody has reported yet, is recorded too, and
+// a replay returns one with its message. id tells a flow's looks apart, so a replay notices code
+// that reads something else.
 func (r *Run) Look(id string, result any, read engine.Condition) error {
 	if e, ok := r.replay(kindLook, id); ok {
 		if e.Err != "" {
@@ -333,8 +332,8 @@ func recordedErr(e entry) error {
 	return errors.New(e.Err)
 }
 
-// CallIn reads an outside call from a journal entry: its name, what it returned and its error. ok is
-// false for any other step.
+// CallIn reads an outside call from a journal entry: its name, what it returned and its error. ok
+// is false for any other step.
 func CallIn(raw []byte) (name string, result any, failure string, ok bool) {
 	var e entry
 	if json.Unmarshal(raw, &e) != nil || e.Kind != kindDo {

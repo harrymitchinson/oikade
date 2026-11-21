@@ -43,7 +43,7 @@ func TestAFollowedHoldWritesOnlyWhenTheRoundedValueChanges(t *testing.T) {
 	r.change("outdoor-temp", capability.Temperature, 2.06)
 	r.expect(call{"bay-blind", capability.Position, int64(20)}, call{"bay-blind", capability.Position, int64(21)})
 	r.change("outdoor-temp", capability.Temperature, 20.0)
-	// Rounded to the capability's bounds.
+	// Kept within the capability's bounds.
 	r.expect(call{"bay-blind", capability.Position, int64(20)}, call{"bay-blind", capability.Position, int64(21)},
 		call{"bay-blind", capability.Position, int64(100)})
 }

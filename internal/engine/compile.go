@@ -1,4 +1,5 @@
-// Package engine runs Rules: holds, and flows, which run when a trigger fires and the condition holds.
+// Package engine runs rules and arbitrates capabilities. A hold keeps a capability at a value while
+// its window, when or budget says so. A flow runs when its trigger fires and its condition holds.
 package engine
 
 import (
@@ -10,8 +11,7 @@ import (
 
 // Compiled is a validated rule, ready to run.
 type Compiled struct {
-	Key ident.ID
-	// Generation is the rule's version.
+	Key        ident.ID
 	Generation int64
 	Mode       Mode
 	// changes are the rule's change triggers, and timers its at and sun triggers.
@@ -25,8 +25,7 @@ type Compiled struct {
 	sinceLoad bool
 	// condition is nil when there is none.
 	condition Condition
-	// body is what a flow runs.
-	body Body
+	body      Body
 	// hold is nil for a flow.
 	hold *hold
 }

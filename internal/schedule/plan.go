@@ -1,5 +1,5 @@
-// Package schedule plans and runs Schedules: a day of slots, shaped by rules and an optional
-// daily budget, that decides when one bool capability is on.
+// Package schedule is the day planner: it lays a day out in slots, shaped by rules and an optional
+// daily budget, that decide when one bool capability is on.
 package schedule
 
 import (
@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// maxSlots bounds a planning day: 25 hours of 15-minute slots is 100.
+// maxSlots is what a plan's [2]uint64 holds. 25 hours of 15-minute slots is 100.
 const maxSlots = 128
 
 // Effect is what a rule does to the slots it matches.
@@ -55,7 +55,6 @@ type Slot struct {
 	Start, End time.Time
 }
 
-// Rule is a planning rule. Live rules never reach the planner.
 type Rule struct {
 	Name string
 	// Window is nil for the whole day.
@@ -67,7 +66,6 @@ type Rule struct {
 	Prefer int
 }
 
-// Reading is a capability value and when it was reported.
 type Reading struct {
 	Value float64
 	At    time.Time
@@ -102,15 +100,12 @@ type Constraints struct {
 	MaximumStarts int
 }
 
-// PlanInput is everything the planner needs for one planning day.
 type PlanInput struct {
 	// Now is the planning time, which judges the age of a bands input.
 	Now time.Time
 	// NotBefore makes slots that end at or before it unavailable. The slot in progress stays
-	// available, so planning a moment after a slot edge doesn't lose the slot. But once a minute
-	// or more of it has passed, a block the budget starts there counts MinimumRun from
-	// NotBefore, not from the slot's start: it needs a slot more than MinimumRun there, or starts
-	// later. The planner works in minutes, so planning less than a minute late keeps the slot whole.
+	// available, but once a minute or more of it has passed, it doesn't count towards the
+	// MinimumRun of a block the budget starts there.
 	NotBefore time.Time
 	// Slots are the planning day's slots, contiguous and all of one length, as from DaySlots.
 	// Windows match against the slots' own location.
@@ -139,7 +134,6 @@ type Block struct {
 	Start, End time.Time
 }
 
-// Day is a planned day.
 type Day struct {
 	TargetSource TargetSource
 	// TargetMinutes is the budget rounded up to whole slots. Without a budget, it is the required
@@ -352,7 +346,6 @@ type key struct {
 	prevFixed bool
 }
 
-// plan is a candidate: the slots it puts on, its score and its starts.
 type plan struct {
 	on     [2]uint64
 	score  int

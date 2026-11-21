@@ -1,6 +1,7 @@
-// Package control arbitrates one capability of a device (OIK-64, OIK-298). Rules, Matter and the
-// device itself make claims on it. The arbiter picks the winner by level, then by the decision's
-// order of lines, then the latest claim, and holds the winner back by the device's equipment limits.
+// Package control arbitrates one capability of a device. Rules, Matter controllers, oikade
+// commands and the device itself make claims on it. The arbiter picks the winner by level, then by
+// the decision's order of lines, then the latest claim, and holds the winner back by the device's
+// equipment limits.
 //
 // A decision's lines map onto levels: a line above the override line is Safety, an outside change
 // is Override, and a line below it is Normal. So the level is what a safety line is, and Lines
@@ -18,7 +19,6 @@ import (
 	"time"
 )
 
-// Kind is the capability's value kind.
 type Kind int
 
 const (
@@ -90,7 +90,6 @@ func (l Limit) String() string {
 	return fmt.Sprintf("Limit(%d)", int(l))
 }
 
-// Settings are a capability's control settings.
 type Settings struct {
 	Kind Kind
 	// Names is how many names a Name has.
@@ -154,7 +153,7 @@ func (s Settings) Validate() error {
 
 // Claim is one source's claim on the capability. A source has at most one claim.
 type Claim struct {
-	// Source is the path the claim came in by: "Rule/<name>", "Matter" or "Device".
+	// Source is the path the claim came in by: "Rule/<key>", "Matter", "Device" or "Command".
 	Source string  `json:"source"`
 	Level  Level   `json:"level"`
 	Value  float64 `json:"value"`
@@ -216,7 +215,6 @@ func cloneRevert(r *Revert) *Revert {
 
 // Decision is what the device should be, and why.
 type Decision struct {
-	// Value is what the device should be.
 	Value float64
 	// Write is set when Value isn't the device's known value.
 	Write bool
@@ -328,11 +326,11 @@ func (a *Arbiter) Wrote(v float64) {
 	a.record(v)
 }
 
-// Outside records a change the arbiter didn't decide, from source ("Matter" or "Device"). It
-// counts towards the limits and isn't fought by them. Under ExternalOverride it replaces any
-// earlier outside claim with an Override claim. Under ExternalRevert, the next decision writes
-// the device's earlier value back, exempt from the limits, if that is still the winner;
-// otherwise the change is accepted. A value the device already has is no change.
+// Outside records a change the arbiter didn't decide, from source ("Matter", "Device" or
+// "Command"). It counts towards the limits and isn't fought by them. Under ExternalOverride it
+// replaces any earlier outside claim with an Override claim. Under ExternalRevert, the next
+// decision writes the device's earlier value back, exempt from the limits, if that is still the
+// winner, and otherwise the change is accepted. A value the device already has is no change.
 func (a *Arbiter) Outside(source string, v float64) error {
 	if source == "" {
 		return errors.New("outside change has no source")

@@ -18,7 +18,7 @@ import (
 // ControlState is what a Device's arbiters remember, by capability.
 type ControlState map[string]control.State
 
-// ControlStates keeps ControlStates, by Device.
+// ControlStates keeps each Device's ControlState.
 type ControlStates = States[ControlState]
 
 // unreadableStates is States that can tell a state it can't read from one that isn't there.
@@ -41,18 +41,19 @@ const (
 	SourceMatter = control.SourceMatter
 	// SourceCommand is a change oikade asked for.
 	SourceCommand = control.SourceCommand
-	// rulePrefix starts a Rule's source, Rule/<name>.
+	// rulePrefix starts a Rule's source, Rule/<key>.
 	rulePrefix = control.SourceRule
 )
 
-// bridgeSlack is how much longer than a capability's settle a bridge's write is waited for: after
-// it announces a write, the device's change to that value is taken as the write. It allows for slow
-// plugins and for a report held back while the write settles, so it's 30 s for a capability that
-// settles in the default 5 s.
+// bridgeSlack is how much longer than a capability's settle a bridge's or a command's write is
+// waited for: after it announces a write, the device's change to that value is taken as the write.
+// It allows for slow plugins and for a report held back while the write settles, so it's 30 s for a
+// capability that settles in the default 5 s.
 const bridgeSlack = 25 * time.Second
 
-// bridgeWrite is a bridge's write, waiting for the device to report it until it expires. Until it
-// has settled, the device's other reports are it catching up, as for the engine's own writes.
+// bridgeWrite is a write a Matter bridge or an oikade command announced, waiting for the device to
+// report it until it expires. Until it has settled, the device's other reports are it catching up,
+// as for the engine's own writes.
 type bridgeWrite struct {
 	source           string
 	value            float64
@@ -94,8 +95,8 @@ func claimLevel(p Priority) control.Level {
 }
 
 // Arbitration decides arbitrated capabilities for an engine that runs none itself, as in your
-// process, whose claims live in the host so they outlive it (OIK-143). Its methods may block, so the
-// engine never calls them with its lock held.
+// process, whose claims live in the host so they outlive it. Its methods may block, so the engine
+// never calls them with its lock held.
 type Arbitration interface {
 	// Claim makes a claim, and reports false when the capability isn't arbitrated.
 	Claim(ctx context.Context, dev ident.ID, name string, c control.Claim) bool
@@ -432,8 +433,8 @@ func (e *Engine) outside(ctx context.Context, u driver.Update) {
 	e.signal()
 }
 
-// settles is when the last write to a capability has settled: the engine's, or a bridge's on its way.
-// Call with e.mu held.
+// settles is when the last write to a capability has settled: the engine's, or a bridge's or a
+// command's on its way. Call with e.mu held.
 func (e *Engine) settles(dev ident.ID, name string, ar *arb) time.Time {
 	t := ar.wrote.Add(capability.SettleOf(name))
 	if w, ok := e.bridgeWrites[dev][name]; ok && w.settled.After(t) {
@@ -671,8 +672,8 @@ func (e *Engine) ReleaseFlow(ctx context.Context, key ident.ID) error {
 	return e.endClaims(ctx, ruleSource(key.Name), control.Safety)
 }
 
-// ReleaseRule ends the claims of a rule that runs elsewhere, but for Safety ones, as ReleaseFlow does,
-// and returns once that's saved. ctx is the engine's, as with Claim.
+// ReleaseRule ends the claims of a rule that runs elsewhere, but for Safety ones, as ReleaseFlow
+// does, and returns once that's saved. ctx is the engine's, as with Claim.
 func (e *Engine) ReleaseRule(ctx context.Context, key ident.ID) error {
 	return e.ReleaseClaims(ctx, ruleSource(key.Name), control.Safety)
 }
@@ -701,7 +702,8 @@ func (e *Engine) unreadableClaims(dev ident.ID) error {
 }
 
 // UnreadableClaim is the Safety claim a device's saved claims count as while they can't be read,
-// because they might be one. It holds the whole device until they can be, or ForgetDevice clears them.
+// because they might be one. It holds the whole device until they can be, or ForgetDevice clears
+// them.
 func (e *Engine) UnreadableClaim(dev ident.ID) (control.Claim, bool) {
 	if e.unreadableClaims(dev) == nil {
 		return control.Claim{}, false
@@ -749,7 +751,6 @@ func (e *Engine) SavedSafety(dev ident.ID, name string, value float64) (control.
 	return control.Claim{}, false
 }
 
-// ClaimedCapability is a capability of a device that a source holds a claim on.
 type ClaimedCapability struct {
 	Device     string
 	Capability string
@@ -773,7 +774,6 @@ func (e *Engine) SourceClaims(source string, below control.Level) []ClaimedCapab
 	return claimed
 }
 
-// ClaimOf returns a source's claim on a capability, if it has one.
 func (e *Engine) ClaimOf(dev ident.ID, name, source string) (control.Claim, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -846,8 +846,8 @@ func (e *Engine) savedDevices() []ident.ID {
 	return devices
 }
 
-// endSaved ends a source's claims that are only on disk. A device whose record can't be read is left
-// alone: what's in it isn't known.
+// endSaved ends a source's claims that are only on disk. A device whose record can't be read is
+// left alone: what's in it isn't known.
 func (e *Engine) endSaved(ctx context.Context, source string) error {
 	e.mu.Lock()
 	devices := e.savedDevices()
@@ -875,8 +875,8 @@ func (e *Engine) endSaved(ctx context.Context, source string) error {
 	return errors.Join(errs...)
 }
 
-// EndRule ends every claim of a rule that no longer exists, Safety ones included, as Remove does for
-// one in this engine. It returns once that's saved. ctx is the engine's, as with Claim.
+// EndRule ends every claim of a rule that no longer exists, Safety ones included, as Remove does
+// for one in this engine. It returns once that's saved. ctx is the engine's, as with Claim.
 func (e *Engine) EndRule(ctx context.Context, rule string) error {
 	e.mu.Lock()
 	e.ensureDue()
@@ -914,7 +914,6 @@ func (e *Engine) releaseSource(ctx context.Context, source string, below control
 	return changed
 }
 
-// arbitrated reports whether a device arbitrates a capability.
 func (e *Engine) arbitrated(dev ident.ID, name string) bool {
 	snap, ok := e.Store.Get(dev)
 	return ok && snap.Controls(name)
@@ -1044,8 +1043,9 @@ func (e *Engine) flushControls(ctx context.Context, devices ...ident.ID) error {
 }
 
 // saveDevices saves the devices marked for saving, unless their state is as last saved, and
-// returns those it couldn't save, marked for saving again. A device whose arbiters have all gone has its saved state
-// deleted, unless it has left the store, as when it moves between driver instances.
+// returns those it couldn't save, marked for saving again. A device whose arbiters have all gone
+// has its saved state deleted, unless it has left the store, as when it moves between driver
+// instances.
 func (e *Engine) saveDevices(ctx context.Context) []ident.ID {
 	e.saveMu.Lock()
 	defer e.saveMu.Unlock()

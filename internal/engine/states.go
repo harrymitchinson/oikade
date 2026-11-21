@@ -48,13 +48,12 @@ type HoldTarget struct {
 
 // States keeps state, by Rule or Device, where it survives a restart.
 type States[T any] interface {
-	// Get returns the saved state, if there is one.
 	Get(key ident.ID) (T, bool)
 	Put(ctx context.Context, key ident.ID, s T) error
 	Delete(ctx context.Context, key ident.ID) error
 }
 
-// HoldStates keeps HoldStates, by Rule.
+// HoldStates keeps each Rule's HoldState.
 type HoldStates = States[HoldState]
 
 // Namespaces of the store's saved state.
@@ -76,8 +75,8 @@ type Stored[T any] struct {
 
 var _ HoldStates = (*Stored[HoldState])(nil)
 
-// Get implements States. A state it can't decode counts as none, as with Retained. The store fails
-// a read only once it's closed, when Put fails too, so that can't overwrite a state.
+// Get implements States. A state it can't decode counts as none. The store fails a read only once
+// it's closed, when Put fails too, so that can't overwrite a state.
 func (s *Stored[T]) Get(key ident.ID) (T, bool) {
 	state, ok, err := s.read(key)
 	if err != nil {
@@ -106,7 +105,6 @@ func (s *Stored[T]) read(key ident.ID) (T, bool, error) {
 	return state, true, nil
 }
 
-// Names returns the names of the saved states.
 func (s *Stored[T]) Names() ([]string, error) {
 	return s.Values.Keys()
 }

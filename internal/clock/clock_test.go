@@ -13,7 +13,6 @@ var (
 	_ Clock = (*Fake)(nil)
 )
 
-// fired reports whether c has received, and what.
 func fired(c <-chan time.Time) (time.Time, bool) {
 	select {
 	case t := <-c:
@@ -126,7 +125,6 @@ func TestFakeTimerStopAfterFiring(t *testing.T) {
 	other.Stop()
 }
 
-// Stopping one timer leaves the others waiting.
 func TestFakeTimerStopLeavesOtherWaits(t *testing.T) {
 	c := NewFake(start)
 	before, stopped, after := c.NewTimer(time.Minute), c.NewTimer(time.Minute), c.NewTimer(time.Minute)
@@ -206,7 +204,8 @@ func TestAfterFuncOnTheRealClock(t *testing.T) {
 	time.Sleep(10 * time.Millisecond) // for the stopped one, had it not stopped
 }
 
-// The engine and its runs wait on the clock while a simulated home moves it. go test -race checks this.
+// The engine and its runs wait on the clock while a simulated home moves it. go test -race checks
+// this.
 func TestFakeConcurrentUse(t *testing.T) {
 	c := NewFake(start)
 	var wg sync.WaitGroup

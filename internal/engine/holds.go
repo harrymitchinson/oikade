@@ -17,7 +17,6 @@ import (
 	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
-// Hold timings.
 const (
 	// whenEvery is how often a hold with when looks again with no device change, since when may
 	// read now.
@@ -25,7 +24,7 @@ const (
 	// retryUndiscovered is how soon a hold retries a write to a device its driver hasn't reported
 	// on yet, as on startup.
 	retryUndiscovered = 10 * time.Second
-	// retryFailed is how soon a hold retries a write that failed.
+	// retryFailed is how soon a failed write or save is tried again.
 	retryFailed = 30 * time.Second
 )
 
@@ -104,9 +103,9 @@ func sameTarget(a, b HoldTarget) bool {
 	return err1 == nil && err2 == nil && string(x) == string(y)
 }
 
-// condition reports whether the hold's while is true at now, and when the window next changes.
-// known is false when when can't be evaluated, as before a device it reads has reported. devices
-// are the home's, or nil to read them.
+// condition reports whether the hold's window is open and its when true at now, and when the window
+// next changes. known is false when when can't be evaluated, as before a device it reads has
+// reported. devices are the home's, or nil to read them.
 func (e *Engine) condition(key ident.ID, hs *holdState, h *hold, now time.Time, devices *home) (on, known bool, next time.Time) {
 	on = true
 	if h.window != nil {
@@ -286,8 +285,7 @@ func (e *Engine) addReads(key ident.ID, hs *holdState, reads []RoomRead) {
 }
 
 // evaluate works out whether a hold is active now, starts the write and save that follow, and
-// sets when to look again. devices are the home's, or nil to read them. Call with
-// e.mu held.
+// sets when to look again. devices are the home's, or nil to read them. Call with e.mu held.
 func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.Time, devices *home) {
 	hs, h := s.hold, s.c.hold
 	if hs.writing {
@@ -396,9 +394,8 @@ type holdWrite struct {
 	level  control.Level
 	key    ident.ID
 	target HoldTarget
-	// ends is whether the write ends the hold.
-	ends bool
-	run  func()
+	ends   bool
+	run    func()
 }
 
 // pendingTrigger is a flow a look set off, to start once that look's hold writes are done.
@@ -417,14 +414,13 @@ func (e *Engine) triggerAfterWrites(key ident.ID, s *state, vars Vars) {
 
 // startWrites runs the hold writes evaluate queued, and then the flows the same look set off.
 // Writes that can reach the same device, those in one room or to one device with no room, run one
-// after another. Claims go first: those that start before those that end, so a hold taking over from
-// another at the same moment has claimed before the other lets go and the arbiter never falls back to
-// the default (OIK-343), and then highest level first: a Safety claim is in before a Normal one, so
-// the arbiter never writes the Normal value. Plain writes, with nothing to arbitrate, go after: ends
-// first, since a bool's end writes the opposite of its value, then lowest level first, so a start's
-// value, and the highest level's, is the one that stays. Writes elsewhere run
-// alongside, so a slow device holds up only its own room. Call with e.mu held, after every
-// evaluate of the look.
+// after another. Claims go first: those that start before those that end, so a hold taking over
+// from another at the same moment has claimed before the other lets go and the arbiter never falls
+// back to the default, and then highest level first: a Safety claim is in before a Normal one, so
+// the arbiter never writes the Normal value. Plain writes, with nothing to arbitrate, go after:
+// ends first, since a bool's end writes the opposite of its value, then lowest level first, so a
+// start's value, and the highest level's, is the one that stays. Writes elsewhere run alongside, so
+// a slow device holds up only its own room. Call with e.mu held, after every evaluate of the look.
 func (e *Engine) startWrites(ctx context.Context) {
 	writes, triggers := e.holdWrites, e.triggers
 	e.holdWrites, e.triggers = nil, nil
@@ -462,7 +458,7 @@ func (e *Engine) startWrites(ctx context.Context) {
 				return 1
 			case a.ends != b.ends && a.claims:
 				// A claim ends after the starts, so a hold that takes over from it at the same
-				// moment has claimed before it lets go (OIK-343).
+				// moment has claimed before it lets go.
 				if a.ends {
 					return 1
 				}
@@ -609,7 +605,7 @@ func (h *hold) step(st HoldState, on, known bool, now time.Time) (HoldState, boo
 
 // lookAgain returns when a hold next needs evaluating without a device change. It's always after
 // now: a delay that ended while when was unknown is still in st, and looking again at once would
-// keep Run firing it and never taking a change (OIK-216).
+// keep Run firing it and never taking a change.
 func lookAgain(h *hold, st HoldState, next, now time.Time) time.Time {
 	at := now.Add(recheck)
 	for _, t := range []time.Time{next, st.OnAt, st.OffAt} {
@@ -654,7 +650,7 @@ func (e *Engine) write(ctx context.Context, key ident.ID, hs *holdState, st Hold
 		written, d, err := e.applyHold(ctx, key, onlyMembers(st.Target, only), active, claim)
 		if err != nil && active && len(written) > 0 && isGroup(st.Target) {
 			// A write to one member failed. What it reached is held: inactive, nothing would end those
-			// claims (OIK-321). The rest join it at the retry, as members that join a room hold do.
+			// claims. The rest join it at the retry, as members that join a room hold do.
 			joinRetry, saved, partial = d, false, true
 			err = nil
 		}
@@ -727,11 +723,11 @@ func (e *Engine) write(ctx context.Context, key ident.ID, hs *holdState, st Hold
 
 // saveStart saves a hold as active before its start claims, and reports whether that's on disk. A
 // claim outlives your process, in the host, so a process killed between the two loads the hold
-// active and claims again, latch and all, rather than inactive with nothing to end the claim
-// (OIK-299). A plain write ends with your process, so a hold that writes any device is saved after:
-// the next process writes the start again if it's still due, where one loaded active would only
-// claim again. A failed save is logged and the start goes ahead, so a Safety hold still acts on a
-// failing disk, though the claim waits for the save's answer.
+// active and claims again, latch and all, rather than inactive with nothing to end the claim. A
+// plain write ends with your process, so a hold that writes any device is saved after: the next
+// process writes the start again if it's still due, where one loaded active would only claim again.
+// A failed save is logged and the start goes ahead, so a Safety hold still acts on a failing disk,
+// though the claim waits for the save's answer.
 func (e *Engine) saveStart(ctx context.Context, key ident.ID, st HoldState, since time.Time) bool {
 	if !e.onlyClaims(st.Target) {
 		return false
@@ -766,8 +762,8 @@ func isGroup(t HoldTarget) bool { return t.Room != "" || len(t.Devices) > 0 }
 
 // joined are the members of an active group or room hold that it doesn't hold yet and can write, as
 // a device that moved into the room, or was retyped into its types, while it was active, or one its
-// start couldn't write. left are those it held that aren't members now. A failed write waits for its
-// retry. Call with e.mu held.
+// start couldn't write. left are those it held that aren't members now. A failed write waits for
+// its retry. Call with e.mu held.
 func (e *Engine) joined(hs *holdState, st HoldState, active bool, end *HoldTarget, now time.Time) (joined, left []ident.ID) {
 	t := st.Target
 	if !isGroup(t) || !active || !st.Active || end != nil {
@@ -816,8 +812,8 @@ func (e *Engine) joined(hs *holdState, st HoldState, active bool, end *HoldTarge
 	return joined, left
 }
 
-// holdJoined writes an active group or room hold's start to the members that joined it, and returns those it
-// wrote. One that fails is left out, so it's tried again at the retry.
+// holdJoined writes an active group or room hold's start to the members that joined it, and
+// returns those it wrote. One that fails is left out, so it's tried again at the retry.
 func (e *Engine) holdJoined(ctx context.Context, key ident.ID, t HoldTarget, claim control.Claim,
 	joined []ident.ID,
 ) ([]ident.ID, time.Duration) {
@@ -841,8 +837,9 @@ func (e *Engine) holdJoined(ctx context.Context, key ident.ID, t HoldTarget, cla
 }
 
 // applyHold writes a hold's start (its value) or end (the opposite of a bool, and nothing for a
-// number or for a capability with NoEndWrite, such as locked). On an arbitrated capability, the start is claim with the hold's value, and the end
-// releases it. It returns the devices it wrote or claimed, and how soon to retry when it fails.
+// number or for a capability with NoEndWrite, such as locked). On an arbitrated capability, the
+// start is a claim of the hold's value, and the end releases it. It returns the devices it wrote or
+// claimed, and how soon to retry when it fails.
 func (e *Engine) applyHold(ctx context.Context, key ident.ID, t HoldTarget, start bool, claim control.Claim) (written []ident.ID, retry time.Duration, failed error) {
 	claim.Value = capability.Float(t.Value)
 	value := t.Value
@@ -902,9 +899,9 @@ func (e *Engine) applyHold(ctx context.Context, key ident.ID, t HoldTarget, star
 	return written, retry, failed
 }
 
-// roomTargets are the members of a room hold's room it writes: discovered with the capability, and of
-// its types. waiting says some member isn't discovered yet. A member of another type is left out,
-// and reported on a start, and an end lets go of a claim it may still hold.
+// roomTargets are the members of a room hold's room it writes: discovered with the capability, and
+// of its types. waiting says some member isn't discovered yet. A member of another type is left
+// out, and reported on a start, and an end lets go of a claim it may still hold.
 func (e *Engine) roomTargets(ctx context.Context, key ident.ID, t HoldTarget, start bool, source string) (devices []ident.ID, waiting bool) {
 	var skipped []string
 	for _, dev := range e.roomMembers(t) {

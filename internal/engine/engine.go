@@ -36,7 +36,6 @@ const (
 	ResultMissed = "missed"
 )
 
-// Metric labels.
 const (
 	labelRule = "rule"
 )
@@ -50,7 +49,6 @@ const recheck = 24 * time.Hour
 
 // Schedule is what the engine reports about a Rule's at and sun triggers, or its hold.
 type Schedule struct {
-	// Generation is the Rule generation the schedule is for.
 	Generation int64
 	// Cleared is set when the Rule no longer has at or sun triggers, or is gone.
 	Cleared bool
@@ -60,8 +58,7 @@ type Schedule struct {
 	// hasn't changed since the Rule loaded.
 	LastFire time.Time
 	// Hold is set for a Rule with a hold, which reports Active rather than fires.
-	Hold bool
-	// Active is whether the hold is active.
+	Hold   bool
 	Active bool
 }
 
@@ -92,10 +89,11 @@ type Engine struct {
 	ControlMetrics *metrics.Set
 	// OnStart, if set, is called when a Rule's actions start. It must not block.
 	OnStart func(key ident.ID, t time.Time)
-	// OnRun, if set, is called with each outcome Runs counts, perhaps with e.mu held. It must not block.
+	// OnRun, if set, is called with each outcome Runs counts, perhaps with e.mu held. It must not
+	// block.
 	OnRun func(key ident.ID, result string)
-	// OnSchedule, if set, is called with e.mu held when a Rule with at or sun triggers loads or
-	// fires. It must not block.
+	// OnSchedule, if set, is called with e.mu held when a Rule with at or sun triggers loads, fires
+	// or goes, and when a hold's state or next change changes. It must not block.
 	OnSchedule func(key ident.ID, s Schedule)
 	// OnRoomReads, if set, is called with e.mu held when the rooms a hold's when has read grow, with
 	// all of them. It must not block.
@@ -157,7 +155,7 @@ type Engine struct {
 	holdWrites []holdWrite
 	averages   averages
 	triggers   []pendingTrigger
-	// bridgeWrites are the Matter bridges' writes waiting for their device to report them.
+	// bridgeWrites are Matter's and oikade commands' writes waiting for their device to report them.
 	bridgeWrites map[ident.ID]map[string]bridgeWrite
 
 	// saveMu orders saves of arbiters' state, so an older one never lands on a newer one. Take it
@@ -480,7 +478,7 @@ func (e *Engine) arm(ctx context.Context) clock.Timer {
 		return timer
 	}
 	// Still due: Run fires it again after taking the changes waiting, so something that never
-	// stops being due can't shut them out, or the stop (OIK-216).
+	// stops being due can't shut them out, or the stop.
 	e.setArmed(time.Time{})
 	e.signal()
 	return nil
@@ -494,7 +492,7 @@ func (e *Engine) setArmed(at time.Time) {
 	e.busy.tell()
 }
 
-// earliest returns the earliest next fire of any Rule, or zero.
+// earliest is when the next Rule or arbiter is due, or zero.
 func (e *Engine) earliest() time.Time {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -606,7 +604,8 @@ func (e *Engine) conditionVars(now time.Time, h *home) Vars {
 }
 
 // handle takes in one report, its changes all from one device. Every value is in the store before
-// any rule looks, so a hold sees the whole report, and the holds' writes start once all have looked.
+// any rule looks, so a hold sees the whole report, and the holds' writes start once all have
+// looked.
 func (e *Engine) handle(ctx context.Context, changes []driver.Update) {
 	dev := changes[0].Device
 	var room string
@@ -876,7 +875,6 @@ func (e *Engine) setRoom(ctx context.Context, key ident.ID, a action) (ok bool, 
 // ends reports whether a set has an end, which a set on an arbitrated capability needs.
 func (a action) ends() bool { return a.claimFor > 0 || a.until != "" }
 
-// setClaim is a set's claim on an arbitrated capability.
 func (e *Engine) setClaim(key ident.ID, a action) control.Claim {
 	c := control.Claim{
 		Source: ruleSource(key.Name), Level: claimLevel(a.priority), Value: capability.Float(a.value),

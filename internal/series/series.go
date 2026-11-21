@@ -16,7 +16,6 @@ import (
 
 func init() { metrics.ExposeMetadata(true) }
 
-// The types a family's # TYPE line names.
 const (
 	TypeCounter = "counter"
 	TypeGauge   = "gauge"
@@ -89,7 +88,8 @@ func (v Vec) Counter(values ...string) *metrics.Counter {
 	return v.set.GetOrCreateCounter(v.Name(values...))
 }
 
-// FloatCounter returns the float counter for values, making it at 0 if it's new. The Set mustn't be nil.
+// FloatCounter returns the float counter for values, making it at 0 if it's new. The Set mustn't be
+// nil.
 func (v Vec) FloatCounter(values ...string) *metrics.FloatCounter {
 	return v.set.GetOrCreateFloatCounter(v.Name(values...))
 }
@@ -99,7 +99,6 @@ func (v Vec) Gauge(values ...string) *metrics.Gauge {
 	return v.set.GetOrCreateGauge(v.Name(values...), nil)
 }
 
-// Inc adds one to the counter for values.
 func (v Vec) Inc(values ...string) {
 	if v.set != nil {
 		v.Counter(values...).Inc()
@@ -113,14 +112,12 @@ func (v Vec) Add(n float64, values ...string) {
 	}
 }
 
-// Set sets the gauge for values to n.
 func (v Vec) Set(n float64, values ...string) {
 	if v.set != nil {
 		v.Gauge(values...).Set(n)
 	}
 }
 
-// Delete removes the series for values.
 func (v Vec) Delete(values ...string) {
 	if v.set != nil {
 		v.set.UnregisterMetric(v.Name(values...))
@@ -150,7 +147,7 @@ func hasPair(labels, pair string) bool {
 	return false
 }
 
-// Names returns the family's series, sorted.
+// Names returns the family's series with labels, sorted.
 func (v Vec) Names() []string {
 	if v.set == nil {
 		return nil

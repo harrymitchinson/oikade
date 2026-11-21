@@ -13,7 +13,6 @@ import (
 
 var london = testkit.Location("Europe/London")
 
-// day is 2026-10-21 in London.
 var day = time.Date(2026, time.October, 21, 0, 0, 0, 0, london)
 
 // at is HH:MM on day, or on following days with "+1 06:00".
