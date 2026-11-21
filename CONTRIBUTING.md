@@ -28,6 +28,7 @@ The plugin SDK, the conformance suite and the simswitch fixture are Go, in the s
 | Journeys (`journeys.yml`) | `make test-journeys` on an arm64 runner, and the image build and `make release-snapshot` | Main after a merge, nightly and before a release. A PR that changes code gets only the image build and the snapshot |
 | Fuzz (`fuzz.yml`) | `make fuzz`, keeping a failing input as the `crashers` artifact | Nightly, and a PR that changes `fuzz.yml` or `hack/fuzz` |
 | Release (`release.yml`) | release-please, then Tests, Lint and Journeys on the release commit, then GoReleaser | Every push to main |
+| Pages (`pages.yml`) | Publishes `site/` to oikade.dev, whose go-import tag tells Go the module `oikade.dev` is this repo | Main, when `site/` or `pages.yml` changes, or by hand |
 | Review gate (`review-gate.yml`) | "Approved by the owner", a required check | Every PR ([docs/planning.md](docs/planning.md#the-review-gate)) |
 
 A PR or merge that changes only docs and planning files (Markdown, `docs/`, `.claude/`, `hack/plan`) skips Tests and Lint's Go jobs (`changes.yml`), but not `make test-hack`. `docs/plugin-contract.md` counts as code, because `contract/v1`'s tests check it.
