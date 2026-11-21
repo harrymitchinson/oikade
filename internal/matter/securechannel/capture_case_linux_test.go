@@ -24,9 +24,10 @@ import (
 )
 
 // TestCaptureChipToolCASE records chip-tool commissioning an Oikade node, which ends in a full
-// CASE, and then, once chip-tool has expired that session, reading from it, which resumes it, into testdata/case-chip-tool.json. It
-// runs only where chip-tool is, named by OIKADE_CHIP_TOOL, and needs to sniff the node's port, as
-// root. testdata/README.md says how to run it in the journeys' chip-tool image.
+// CASE, and then, once chip-tool has expired that session, reading from it, which resumes it, into
+// testdata/case-chip-tool.json. It runs only where chip-tool is, named by OIKADE_CHIP_TOOL, and
+// needs to sniff the node's port, as root. testdata/README.md says how to run it in the journeys'
+// chip-tool image.
 func TestCaptureChipToolCASE(t *testing.T) {
 	chipTool := os.Getenv("OIKADE_CHIP_TOOL")
 	if chipTool == "" {

@@ -239,7 +239,6 @@ func (d *caseDevice) session(t *testing.T) *transport.Session {
 	}
 }
 
-// basicInformation is the Basic Information cluster's ID.
 const basicInformation = 0x0028
 
 // allowAll lets every CASE session do anything.

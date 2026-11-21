@@ -86,9 +86,9 @@ func secureChannelStatus(general, code uint16) StatusReport {
 	return StatusReport{General: general, Protocol: transport.SecureChannel, Code: code}
 }
 
-// removeOnPanic takes a session out again if a panic interrupts its handshake before the node has it,
-// so that a panic contained further up leaves no secure session the node doesn't know of. Defer it
-// directly: recover works only there.
+// removeOnPanic takes a session out again if a panic interrupts its handshake before the node has
+// it, so that a panic contained further up leaves no secure session the node doesn't know of. Defer
+// it directly: recover works only there.
 func removeOnPanic(tr *transport.Transport, s *transport.Session) {
 	if r := recover(); r != nil {
 		tr.RemoveSession(s)

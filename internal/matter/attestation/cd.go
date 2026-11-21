@@ -198,7 +198,6 @@ func ParseCD(cd []byte, signers map[string]*ecdsa.PublicKey) (*Declaration, erro
 	return decodeDeclaration(sd.EncapContent.Content)
 }
 
-// covers reports whether the CD covers a product.
 func (d *Declaration) covers(vid, pid uint16) bool {
 	return d.VendorID == vid && slices.Contains(d.ProductIDs, pid)
 }

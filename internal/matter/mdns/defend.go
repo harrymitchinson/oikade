@@ -29,9 +29,8 @@ func newProbe(names []dnsmessage.Name, e *entry) *probe {
 	}
 }
 
-// defenceState returns the announced services and whether the host name is announced and not
-// being probed again, with the records of every service and the probes running. It answers
-// packets, so its lock goes with defer.
+// defenceState returns the announced services, and whether the host name is announced and not
+// being probed again. It answers packets, so its lock goes with defer.
 func (r *Responder) defenceState() (announced []*entry, host bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

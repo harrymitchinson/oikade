@@ -64,7 +64,7 @@ func newLinkedResponder(t *testing.T) (*Responder, *fakeConn, *testLinks) {
 	return r, c, links
 }
 
-// addrs returns the A and AAAA records among rs, as name and address.
+// addrsIn returns the addresses of the A and AAAA records among rs, sorted.
 func addrsIn(rs []dnsmessage.Resource) (out []string) {
 	for _, r := range rs {
 		switch b := r.Body.(type) {

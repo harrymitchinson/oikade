@@ -123,9 +123,9 @@ func (r *Responder) goodbyeAddrs(ifIndex int, gone []netip.Addr) {
 }
 
 // announceOn announces, on one interface, each announced service with the host's addresses there
-// and their NSEC records, which tell caches that a family has come or gone,
-// twice, a second apart (RFC 6762, 8.3), or the addresses alone if no service is announced. Each
-// time, it sends what's announced then, so a goodbye in between isn't undone.
+// and their NSEC records, which tell caches that a family has come or gone, twice, a second apart
+// (RFC 6762, 8.3), or the addresses alone if no service is announced. Each time, it sends what's
+// announced then, so a goodbye in between isn't undone.
 func (r *Responder) announceOn(ifIndex int) {
 	send := func() {
 		r.sendMu.Lock()
@@ -174,7 +174,6 @@ func (r *Responder) served() []int {
 	return r.ifaces
 }
 
-// serves reports whether the Responder serves an interface.
 func (r *Responder) serves(ifIndex int) bool { return slices.Contains(r.served(), ifIndex) }
 
 // zoneNames returns the names of the interfaces the Responder serves, by index. The map is never

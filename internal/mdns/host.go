@@ -35,10 +35,10 @@ const maxRequery = time.Hour
 var lookupTimeout = 5 * time.Second
 
 // LookupHost finds the addresses of host, a name in .local, by asking on the network over mDNS:
-// Go's own resolver, which a binary built without cgo uses on Linux, never does. It asks again after
-// 1, 2, 4… seconds (RFC 6762, 5.2) until a response gives an address, or ctx ends, or lookupTimeout
-// passes. It leaves out link-local IPv6 addresses, since it can't tell which interface they're on.
-// It keeps nothing: DialContext caches what it finds.
+// Go's own resolver, which a binary built without cgo uses on Linux, never does. It asks again
+// after 1, 2, 4… seconds (RFC 6762, 5.2) until a response gives an address, or ctx ends, or
+// lookupTimeout passes. It leaves out link-local IPv6 addresses, since it can't tell which
+// interface they're on. It keeps nothing: DialContext caches what it finds.
 func LookupHost(ctx context.Context, host string) ([]netip.Addr, error) {
 	l, err := ListenMulticast()
 	if err != nil {
@@ -158,7 +158,6 @@ var defaultDialer = newDialer(LookupHost, func(ctx context.Context, host string)
 
 func init() { defaultDialer.systemOnly = runtime.GOOS == "darwin" }
 
-// lookupFunc finds a host's addresses.
 type lookupFunc func(ctx context.Context, host string) ([]netip.Addr, error)
 
 // dialer is DialContext's, with the lookups tests replace.
@@ -263,10 +262,10 @@ func ipv4First(addrs []netip.Addr) []netip.Addr {
 }
 
 // lookup returns the host's addresses kept from before, or finds them afresh. A host's mDNS
-// responder misses the odd query, since multicast is lossy, so if nothing finds a host it has found
-// before, it returns what it found then, for another keepFor, and stale says why it couldn't find
-// them afresh. Looking such a host up gets at most half the time left, so there's time to dial
-// them. Only forget, once none of them answers, drops them.
+// responder misses the odd query, since multicast is lossy, so if nothing finds a host it has
+// found before, it returns what it found then, for another keepFor, and stale says why it couldn't
+// find them afresh. Looking such a host up gets at most half the time left, so there's time to
+// dial them. Only forget, once none of them answers, drops them.
 func (d *dialer) lookup(ctx context.Context, host string) (f *found, stale, err error) {
 	key := hostKey(host)
 	d.mu.Lock()
@@ -308,8 +307,8 @@ func (d *dialer) lookup(ctx context.Context, host string) (f *found, stale, err 
 }
 
 // find asks over mDNS and with the system's resolver at once, so falling back costs no more time
-// than mDNS takes to give up, and takes mDNS's answer if it has one, since a router's DNS may answer
-// for any name. If neither finds the host, the error says what each found.
+// than mDNS takes to give up, and takes mDNS's answer if it has one, since a router's DNS may
+// answer for any name. If neither finds the host, the error says what each found.
 func (d *dialer) find(ctx context.Context, host string) ([]netip.Addr, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()

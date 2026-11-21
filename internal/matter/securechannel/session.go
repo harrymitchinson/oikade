@@ -16,7 +16,6 @@ type SessionKeys struct {
 	AttestationChallenge []byte
 }
 
-// deriveSessionKeys expands a shared secret into session keys.
 func deriveSessionKeys(secret, salt []byte, info string) (SessionKeys, error) {
 	k, err := hkdf.Key(sha256.New, secret, salt, info, 3*mcrypto.SymmetricKeySize)
 	if err != nil {

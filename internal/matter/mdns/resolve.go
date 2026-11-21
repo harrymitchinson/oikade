@@ -16,8 +16,8 @@ import (
 // ErrNotFound means no host answered for a service instance before the lookup's context ended.
 var ErrNotFound = errors.New("mdns: not found")
 
-// firstRequery is how long a lookup first waits before asking again. It doubles each time, as RFC 6762,
-// 5.2 has for a continuous query, and tests shorten it.
+// firstRequery is how long a lookup first waits before asking again. It doubles each time, as
+// RFC 6762, 5.2 has for a continuous query, and tests shorten it.
 var firstRequery = time.Second
 
 // Resolved is where a service instance is: its SRV record's target and port, and the target's
@@ -31,7 +31,8 @@ type Resolved struct {
 	Addrs []netip.AddrPort
 }
 
-// lookup is a ResolveOperational waiting for the records it needs. The read loop hands it every response.
+// lookup is a ResolveOperational waiting for the records it needs. The read loop hands it every
+// response.
 type lookup struct {
 	instance dnsmessage.Name
 	resp     chan heard // buffered

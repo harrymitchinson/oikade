@@ -141,7 +141,6 @@ func (r *Reader) Size() int {
 	return r.size
 }
 
-// IsNull reports whether the current element is null.
 func (r *Reader) IsNull() bool { return r.Type() == Null }
 
 // Int returns the current element's value, which must be a signed integer.

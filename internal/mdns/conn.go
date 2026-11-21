@@ -1,7 +1,7 @@
 // Package mdns is the home network's multicast DNS (RFC 6762): sockets on port 5353 that share it
-// with any responder on the host, a Listener for something that asks and listens, and LookupHost and
-// DialContext, which find a host in .local. It knows nothing of Matter, so oikade links it too. The
-// Matter responder is internal/matter/mdns, built on it.
+// with any responder on the host, a Listener for something that asks and listens, and LookupHost
+// and DialContext, which find a host in .local. It knows nothing of Matter, so oikade links it too.
+// The Matter responder is internal/matter/mdns, built on it.
 package mdns
 
 import (
@@ -37,7 +37,6 @@ type PacketConn interface {
 	// WriteMulticast sends b to the mDNS group on an interface. It does nothing if the conn
 	// hasn't joined the group there.
 	WriteMulticast(b []byte, ifIndex int) error
-	// WriteUnicast sends b to dst.
 	WriteUnicast(b []byte, dst *net.UDPAddr) error
 	// Join joins the mDNS group on ifi, unless the conn already has. A responder calls it for an
 	// interface that comes up, or gains an address, after the conn opened.

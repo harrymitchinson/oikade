@@ -117,7 +117,6 @@ func (s *ResumptionStore) RemoveFabric(fabric uint8) {
 	s.entries = slices.DeleteFunc(s.entries, func(e resumption) bool { return e.fabric == fabric })
 }
 
-// Len returns how many peers the store remembers.
 func (s *ResumptionStore) Len() int {
 	if s == nil {
 		return 0

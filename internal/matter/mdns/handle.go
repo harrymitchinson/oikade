@@ -215,8 +215,8 @@ func asks(q, typ dnsmessage.Type) bool {
 	return q == typ
 }
 
-// answering returns the announced services' records, whether the host name has been probed, and whether
-// the Responder is still open. It answers packets, so its lock goes with defer.
+// answering returns the announced services' records, whether the host name has been probed, and
+// whether the Responder is still open. It answers packets, so its lock goes with defer.
 func (r *Responder) answering() (recs []record, hostReady, open bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -305,8 +305,8 @@ func legacyReply(q *dnsmessage.Message, answers, additionals []record) ([]byte, 
 	return m.Pack()
 }
 
-// probing returns the probes running and the records of every service of ours. It answers packets, so its
-// lock goes with defer.
+// probing returns the probes running and the records of every service of ours. It answers
+// packets, so its lock goes with defer.
 func (r *Responder) probing() (probes []*probe, ours []record) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

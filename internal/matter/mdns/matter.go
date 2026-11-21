@@ -18,7 +18,6 @@ const (
 // CommissioningMode is the CM key: whether the commissioning window is open, and how.
 type CommissioningMode uint8
 
-// Commissioning modes.
 const (
 	CommissioningClosed   CommissioningMode = 0
 	CommissioningBasic    CommissioningMode = 1 // opened with the passcode the node was made with

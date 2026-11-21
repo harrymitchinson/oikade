@@ -64,7 +64,6 @@ func (c *faultyConn) packets() [][]byte {
 	return append([][]byte(nil), c.sent...)
 }
 
-// logBuffer collects log lines.
 type logBuffer struct {
 	mu sync.Mutex
 	b  strings.Builder

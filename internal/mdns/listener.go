@@ -9,7 +9,6 @@ type Listener struct {
 	conn *mcastConn
 }
 
-// ListenMulticast opens a Listener.
 func ListenMulticast() (*Listener, error) {
 	ifaces, err := MulticastInterfaces()
 	if err != nil {
@@ -32,8 +31,8 @@ func (l *Listener) Read(b []byte) (int, error) {
 }
 
 // Send sends b to the group on every interface the Listener joined it on. It tries them all, and
-// fails only if it went out on none, with what went wrong on each. So an interface that can join the
-// group but not send to it, such as a container bridge, doesn't fail every send.
+// fails only if it went out on none, with what went wrong on each, so that an interface that can
+// join the group but not send to it, such as a container bridge, doesn't fail every send.
 func (l *Listener) Send(b []byte) error {
 	joined := l.conn.joined()
 	errs := make([]error, 0, len(joined))

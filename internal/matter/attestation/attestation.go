@@ -138,8 +138,8 @@ var test = sync.OnceValues(func() (*Credentials, error) {
 // for them signed with its test CD key.
 func Test() (*Credentials, error) { return test() }
 
-// TestDACPEM returns connectedhomeip's test DAC and its private key as PEM, for a node's
-// attestation Secret.
+// TestDACPEM returns connectedhomeip's test DAC and its private key as PEM, as the host saves
+// them in its Matter identity.
 func TestDACPEM() (cert, key []byte, err error) {
 	if cert, err = testcreds.ReadFile("testcreds/Chip-Test-DAC-FFF1-8000-0000-Cert.pem"); err != nil {
 		return nil, nil, err
