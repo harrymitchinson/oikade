@@ -1,16 +1,21 @@
-# Deploying Oikade on a Raspberry Pi
+# A host on a Raspberry Pi
 
-Oikade runs as one process on one machine, so one Pi is all a home needs (OIK-143).
+From a bare Pi to a home paired with the Home app, step by step. Oikade runs as one process on one machine, so one Pi is all a home needs. [Running a home](running-a-home.md) says more about each step.
 
-## One Pi, with the host
+## What you need
 
-**What you need:** a Raspberry Pi 4 or 5 with a 64-bit OS, booting from an SSD if you can, on the same subnet as your iPhone and home hub, with IPv6 on. You run [Zigbee2MQTT](https://www.zigbee2mqtt.io) and an MQTT broker yourself, on this Pi or another. Your Mac needs Go, and `oikade`:
+- **A Raspberry Pi 4 or 5** with a 64-bit OS, booting from an SSD if you can.
+- **The same subnet** as your phone and your controller's home hub, with IPv6 on.
+- **For Zigbee,** a [Zigbee2MQTT](https://www.zigbee2mqtt.io) and an MQTT broker you run, on this Pi or another.
+- **On your laptop,** Go, and `oikade` at the release the Pi runs:
 
 ```sh
-go install github.com/harrymitchinson/oikade/cmd/oikade@<version>   # the release the Pi runs
+go install github.com/harrymitchinson/oikade/cmd/oikade@<version>
 ```
 
-**Install.** The Pi needs only `oikade-host`, from the release's `oikade-host-linux-arm64.tar.gz`. It installs itself:
+## Install the host
+
+The Pi needs only `oikade-host`, from the release's `oikade-host-linux-arm64.tar.gz`, and it installs itself:
 
 ```console
 $ curl -fsSL https://github.com/harrymitchinson/oikade/releases/download/<version>/oikade-host-linux-arm64.tar.gz | tar xz oikade-host
@@ -20,41 +25,58 @@ Created user oikade
 Wrote /etc/systemd/system/oikade.service, with the API on :8443
 Starting oikade, and waiting for it to serve
 Installed oikade-host v0.3.0, running as oikade
-On laptop, by 14:32, run:
+On laptop, by 14:32:05, run:
   oikade login pi.home:8443 --pin sha256:9f2c… --code k7Qx…
+The code works once. client/laptop is added once it's used, and oikade remove client/laptop cancels it. If the host's name doesn't reach it from there, use its address.
 ```
 
-It copies itself to `/usr/local/bin/oikade-host`, makes the system user `oikade`, writes the unit `/etc/systemd/system/oikade.service`, starts it, and waits until the host answers. The unit keeps the host's data in `/var/lib/oikade` and gives it `/run/oikade`, in memory and only its user's, where it writes [your values](running-a-home.md#your-values) for the processes it starts. `--api-addr` is how your Mac reaches it (`:8443` unless you say), and `--client` who the login line is for (`laptop`). Change the unit with `sudo systemctl edit oikade`, whose drop-in `install` never touches. It writes the unit itself only on the first install, or when you give it `--api-addr`.
+The host keeps its data in `/var/lib/oikade`, logs to `journalctl -u oikade`, and serves metrics on `http://pi.home:8080/metrics`. [Under systemd](running-a-home.md#under-systemd) has the unit it writes, and how to add flags.
 
-That's all the unit says: the rest, such as where Zigbee2MQTT's broker is, is in your home's code and its `.env`, which `oikade deploy` brings. If the broker needs a password, it's one of those values too, `Password: oikade.Var("BROKER_PASSWORD")` in the plugin's config, with `BROKER_PASSWORD=…` in `.env` on your Mac. A new one is a deploy, which starts the plugin again with it.
+If the Pi runs a firewall, open Matter's port, mDNS and the API. `install` prints the line if ufw is on, and leaves the firewall to you:
 
-`journalctl -u oikade -f` on the Pi is its log, and `http://pi:8080/metrics` its metrics.
+```sh
+sudo ufw allow 5540/udp && sudo ufw allow 5353/udp && sudo ufw allow 8443/tcp
+```
 
-If that Pi runs a firewall, open Matter's port, mDNS and the API: `sudo ufw allow 5540/udp`, `sudo ufw allow 5353/udp` and `sudo ufw allow 8443/tcp`. `install` prints that line if ufw is on, and leaves the firewall to you.
+## Log in from your laptop
 
-**Log in from your Mac.** Run the `oikade login` line `install` printed on your Mac within 10 minutes. From then on, `oikade status` on your Mac answers from the Pi. For another machine, or once the code has expired, run `sudo oikade-host add client/NAME` on the Pi for a new line.
+Run the `oikade login` line `install` printed, on your laptop, within 10 minutes. From then on, `oikade status` on your laptop answers from the Pi. For another machine, or once the code has expired, run `sudo oikade-host add client/NAME` on the Pi for a new line.
 
-**Your home.** Start a repo and deploy it:
+## Deploy your home
+
+Start a home, if you haven't, and deploy it:
 
 ```sh
 oikade init home && cd home
 oikade deploy
 ```
 
-The [README](../README.md#getting-started-in-go) has the rest, including the token its workflow deploys with. `oikade status matter` shows the code to pair with the Home app.
+What your plugins need, such as where Zigbee2MQTT's broker is and its password, goes in your home's code and its [values](running-a-home.md#your-values), which `oikade deploy` brings. Once your devices are on record, `oikade types` writes `devices.go` from them. [Deploying from CI](running-a-home.md#deploying-from-ci) says how to deploy what reaches `main` from GitHub.
 
-**Back up.** Your backup has two parts:
+## Pair the Home app
 
 ```sh
-oikade backup
-rsync -a --rsync-path="sudo rsync" pi:/var/lib/oikade/ pi-backup/oikade/          # everything Oikade has
+oikade status matter   # the codes, and the QR code to scan
+```
+
+In the Home app, choose **Add Accessory** and scan the code, or **More options** and enter the 11-digit one, then choose Add Anyway at the warning that it's uncertified. The window to pair is open for 15 minutes after the host starts, and `oikade pair matter` opens it again. [Pairing](devices.md#pairing) has the rest.
+
+## Back up
+
+Your backup has two parts:
+
+```sh
+oikade backup                                                                 # a snapshot of the store, on the Pi
+rsync -a --rsync-path="sudo rsync" pi.home:/var/lib/oikade/ pi-backup/oikade/   # everything Oikade has
 ```
 
 The second part is Zigbee2MQTT's own data directory, wherever you keep it, which holds the network key and the database. It isn't Oikade's, and Oikade's backup doesn't have it. Losing it means pairing every Zigbee device again.
 
-The copy holds your values, what plugins' setups kept and the bridge's keys in the clear, so keep it private.
+The copy holds your values, what plugins' setups kept, and the bridge's keys, in the clear, so keep it private.
 
-**Restore to a new Pi.** Install `oikade-host` as above, and ignore its login line: it's for the empty host it starts, whose identity the restore replaces. Then stop it and put the copy in its place. The same address and subnet keep the Home app happy, and nothing needs pairing again:
+## Restore to a new Pi
+
+Install `oikade-host` as above, and ignore its login line: it's for the empty host it starts, whose identity the restore replaces. Then stop it, and put the copy in its place:
 
 ```sh
 ssh new-pi sudo systemctl stop oikade
@@ -62,9 +84,11 @@ rsync -a --delete --rsync-path="sudo rsync" pi-backup/oikade/ new-pi:/var/lib/oi
 ssh new-pi "sudo sh -c 'cd /var/lib/oikade && cp \"\$(ls -d backups/* | tail -1)\" oikade.db && chown -R oikade: . && systemctl start oikade'"
 ```
 
-The `cp` puts the snapshot where the store goes, since the `oikade.db` in the copy was changing as it was copied. A controller paired since that backup isn't in it, and needs pairing again. The pin and your logins come back with it, so your Mac carries on as before.
+The `cp` puts the snapshot where the store goes, since the `oikade.db` in the copy was changing as it was copied. The same address and subnet keep the Home app happy, and nothing needs pairing again, though a controller paired since that backup isn't in it. The pin and your logins come back with it, so your laptop carries on as before.
 
-**Upgrade.** Run the new release's `oikade-host install` on the Pi:
+## Upgrade
+
+Run the new release's `install` on the Pi:
 
 ```console
 $ curl -fsSL https://github.com/harrymitchinson/oikade/releases/download/<version>/oikade-host-linux-arm64.tar.gz | tar xz oikade-host
@@ -75,29 +99,20 @@ Starting oikade, and waiting for it to serve
 Upgraded to v0.3.1. The previous version is /usr/local/bin/oikade-host.previous
 ```
 
-It backs up the store through the running host, keeps the old binary as `oikade-host.previous`, and restarts the host on the new one. If the new version doesn't serve within a minute, it puts the old binary and unit back, restarts that, and fails. If the host isn't serving, say because it crashes on start, `install` stops it and copies the store instead. It keeps your unit as it is, unless you give it `--api-addr`, except that a unit from before Oikade kept your values gains `RuntimeDirectory=oikade`, for `/run/oikade`. A host installed by hand upgrades the same way, as long as its unit is `/etc/systemd/system/oikade.service` and runs `/usr/local/bin/oikade-host`.
+If the new version doesn't serve within a minute, `install` puts the old one back. Matter stops with the host, so the Home app shows no response until it's back, which took 2 s on a Pi 4. Then, on your laptop, `go install` the same version of `oikade`, bump `github.com/harrymitchinson/oikade` in your home's `go.mod`, and run `oikade deploy`. [Upgrading the host](running-a-home.md#upgrading-the-host) says what else it does.
 
-Matter stops with the host, so the Home app shows no response until it's back, which took 2 s on a Pi 4. Afterwards, `go install` the same version of `cmd/oikade` on your Mac, update `github.com/harrymitchinson/oikade` in your home's `go.mod` and run `oikade deploy`, as your code is built against the old version.
+## Monitor
 
-**Monitor.** Oikade serves Prometheus metrics, so point any Prometheus at it. This job is the whole of what it needs:
-
-```yaml
-scrape_configs:
-- job_name: oikade
-  static_configs:
-  - targets: ["pi:8080"]
-```
-
-Then import [`config/grafana/oikade-home.json`](../config/grafana/oikade-home.json) into Grafana, for the **Oikade home** dashboard: temperature and humidity per room, light and door timelines, motion events, battery levels, availability, rule runs, active holds, their next changes, and which level is winning each arbitrated capability. Metrics show device names and values, so keep that port on your own network, or move it with `--metrics-addr`.
+`oikade status` and `oikade tail` say what your home is doing: see [Working with a running home](working-with-a-home.md). For history, point any Prometheus at `pi.home:8080`, and import the Grafana dashboard, as [Metrics](metrics.md#prometheus-and-grafana) says. Metrics show device names and values, so keep that port on your own network, or move it with `--metrics-addr`.
 
 ## Troubleshooting
 
 | Symptom | Check |
 |---|---|
-| Bridge doesn't appear in the Home app | `dns-sd -B _matterc._udp` from a Mac on the same network. If it's missing: has the 15-minute window passed (`oikade status matter` says, and `oikade pair matter` opens it again)? Is the Pi on the same subnet as the home hub? Does a firewall drop mDNS? |
-| "Accessory not found" or pairing fails | `journalctl -u oikade` on the Pi. Is IPv6 on for the Pi and the network? Is there a home hub? |
-| A capability is missing | Oikade doesn't map that expose yet, e.g. colour, colour temperature or multi-gang switches (`state_l2`). |
-| The Home app shows "No Response" | Does `oikade status` show the device offline? Is Zigbee2MQTT or the broker down? Is the host itself up? |
-| A rule never fires | Is it in `oikade status`, and not paused? `oikade tail` shows changes and runs as they happen, and `oikade_rule_runs_total` shows whether it's hitting `condition_false`. Rules use the machine's time zone, so check it if the condition uses the time. |
+| The bridge doesn't appear in the Home app | `dns-sd -B _matterc._udp` from a Mac on the same network. If it's missing: has the 15-minute window passed (`oikade status matter` says, and `oikade pair matter` opens it again)? Is the Pi on the same subnet as the home hub? Does a firewall drop mDNS? |
+| "Accessory not found", or pairing fails | `journalctl -u oikade` on the Pi. Is IPv6 on for the Pi and the network? Is there a home hub? |
+| A capability is missing | Oikade has no [capability](capabilities.md) for it yet, such as colour, colour temperature, or a switch's second gang. |
+| The Home app shows "No Response" | Does `oikade status` show the device offline, or its plugin with a problem? Is Zigbee2MQTT or its broker down? Is the host itself up? |
+| A rule never fires | Is it in `oikade status`, and not paused? `oikade tail` shows changes and runs as they happen, and `oikade_rule_runs_total` shows whether it's hitting `condition_false`. Rules use the Pi's time zone, so check it if the condition uses the time. |
 | A plugin keeps restarting | `journalctl -u oikade` on the Pi has its output and why it stopped. |
-| `oikade` on your Mac can't reach the host | Is `--api-addr` in the unit, and the port open? `journalctl -u oikade` says `Serving API over TLS` with the pin, which must match the one you logged in with. |
+| `oikade` on your laptop can't reach the host | Is `--api-addr` in the unit, and the port open? `journalctl -u oikade` says `Serving API over TLS` with the pin, which must match the one you logged in with. |

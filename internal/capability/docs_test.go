@@ -16,12 +16,13 @@ func table() string {
 	var b strings.Builder
 	b.WriteString("<!-- Generated from internal/capability by its tests: go test ./internal/capability -update -->\n\n")
 	b.WriteString("# Capabilities\n\n")
-	b.WriteString("Every capability Oikade knows, named for people rather than for a protocol ")
-	b.WriteString("(OIK-181). A home names them through `oikade`'s ")
-	b.WriteString("constants and the handles `oikade types` writes, and a plugin through `contract/v1`'s. ")
-	b.WriteString("Any other name is unknown.\n\n")
-	b.WriteString("A name's number, in brackets, is what claims hold and the `oikade_capability_value` gauge exports. ")
-	b.WriteString("Names are only ever added, so a number keeps its name.\n\n")
+	b.WriteString("Every capability Oikade knows, named as a person would say them rather than as a protocol does. ")
+	b.WriteString("A home names them through `oikade`'s constants and the handles `oikade types` writes, and a ")
+	b.WriteString("plugin through `contract/v1`'s. Any other name is unknown. ")
+	b.WriteString("[Devices](devices.md#capabilities) says what each one means, and how the Matter bridge shows it.\n\n")
+	b.WriteString("A `name` capability's value is one of its names. The number in brackets after each is what claims ")
+	b.WriteString("hold and the `oikade_capability_value` gauge exports, and names are only ever added, so a number ")
+	b.WriteString("keeps its name.\n\n")
 	b.WriteString("| Name | In a home | Type | Range | Writable | Matter |\n|---|---|---|---|---|---|\n")
 	for _, name := range Names() {
 		s := registry[name]
