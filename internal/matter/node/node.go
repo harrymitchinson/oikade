@@ -47,7 +47,6 @@ const (
 	DefaultWindowTimeout = 15 * time.Minute
 )
 
-// Config configures a Node.
 type Config struct {
 	// DataDir holds the fabric table, unless Fabrics does. Losing it means re-commissioning.
 	DataDir string
@@ -71,16 +70,15 @@ type Config struct {
 	Info clusters.Info
 	// DeviceName is the DN key of the commissionable service.
 	DeviceName string
-	// MDNS configures the mDNS responder.
-	MDNS mdns.Options
+	MDNS       mdns.Options
 	// FabricsChanged, if set, is called after a fabric is committed or removed. It runs in the
 	// order of the changes, and may block briefly.
 	FabricsChanged func()
 	// Listening, if set, is called once the node's sockets are open.
 	Listening func()
-	// WindowChanged, if set, is called when a commissioning window opens, once it's advertised, and
-	// when one that was closes. A window still open when Run starts again isn't a new one, and one
-	// that couldn't be advertised never opened. It must not block.
+	// WindowChanged, if set, is called when a commissioning window opens, once it's advertised,
+	// and when one that was closes. A window still open when Run starts again isn't a new one, and
+	// one that couldn't be advertised never opened. It must not block.
 	WindowChanged func(open bool)
 	// Observer, if set, hears what controllers do, for metrics.
 	Observer im.Observer
@@ -162,8 +160,8 @@ type running struct {
 	ctx  context.Context
 }
 
-// New loads the node's fabric table and builds its bridge, with no bridged devices. Add them through
-// Bridge before Run.
+// New loads the node's fabric table and builds its bridge, with no bridged devices. Add them
+// through Bridge before Run.
 func New(cfg Config) (*Node, error) {
 	cfg.Log = logging.OrDiscard(cfg.Log)
 	if cfg.DataDir == "" && cfg.Fabrics == nil {
@@ -238,8 +236,8 @@ func New(cfg Config) (*Node, error) {
 // Bridge returns the node's bridge, to add devices to.
 func (n *Node) Bridge() *clusters.Bridge { return n.bridge }
 
-// Rename renames the node in place: its NodeLabel, which subscribers are told of, and the DN key of
-// the commissionable service it next advertises. name is at most 32 bytes. It says whether the
+// Rename renames the node in place: its NodeLabel, which subscribers are told of, and the DN key
+// of the commissionable service it next advertises. name is at most 32 bytes. It says whether the
 // NodeLabel was another, such as one a controller wrote.
 func (n *Node) Rename(name string) (changed bool) {
 	n.name.Store(&name)
@@ -247,7 +245,6 @@ func (n *Node) Rename(name string) (changed bool) {
 	return changed
 }
 
-// Fabrics returns the node's fabric table.
 func (n *Node) Fabrics() *fabric.Table { return n.table }
 
 // Payload returns the node's onboarding payload, for its QR and manual pairing codes.
@@ -361,8 +358,9 @@ func (n *Node) resumeSubscriptions(ctx context.Context, tr *transport.Transport,
 	}
 }
 
-// closeSessions tells every controller with a session that it's over, so that it finds the node again
-// now rather than at its own timeout. The mDNS goodbye comes after, as Run's responder closes.
+// closeSessions tells every controller with a session that it's over, so that it finds the node
+// again now rather than at its own timeout. The mDNS goodbye comes after, as Run's responder
+// closes.
 func (n *Node) closeSessions() {
 	sessions := n.sessions.list()
 	for _, s := range sessions {
@@ -371,8 +369,8 @@ func (n *Node) closeSessions() {
 	n.log.Info("Ended Matter sessions", "sessions", len(sessions))
 }
 
-// Sessions returns how many CASE sessions controllers hold on fabrics the node is still on: those a
-// commissioned controller uses. A removed fabric's last a moment longer, to hear the answer.
+// Sessions returns how many CASE sessions controllers hold on fabrics the node is still on: those
+// a commissioned controller uses. A removed fabric's last a moment longer, to hear the answer.
 func (n *Node) Sessions() int {
 	count := 0
 	for _, s := range n.sessions.list() {
@@ -394,25 +392,24 @@ func (n *Node) panicked() contain.Panicked {
 	return n.cfg.Observer.Panicked
 }
 
-// WindowOpen reports whether a commissioning window is open.
 func (n *Node) WindowOpen() bool { return n.comm.WindowOpen() }
 
 // OwnersWindow is a commissioning window the node's owner opened.
 type OwnersWindow struct {
 	// Payload pairs a controller in it.
 	Payload setup.Payload
-	// Fresh is a window with a passcode of its own, which pairs nothing once it closes: the node was
-	// already paired. Otherwise Payload is the node's own.
+	// Fresh is a window with a passcode of its own, which pairs nothing once it closes: the node
+	// was already paired. Otherwise Payload is the node's own.
 	Fresh bool
 	// Closes is when it times out.
 	Closes time.Time
 }
 
 // OpenWindow opens a commissioning window for the node's owner, such as to pair it again once the
-// initial window has closed, for timeout: from MinWindowTimeout to DefaultWindowTimeout. While the node
-// is on no fabric, it's the initial window, with the node's own passcode. Once it's on one, it's an
-// enhanced window with a passcode made for it, as a controller opens to share the node (Core spec,
-// 5.6.3). Opening one again replaces it, with a new passcode. It refuses with
+// initial window has closed, for timeout: from MinWindowTimeout to DefaultWindowTimeout. While the
+// node is on no fabric, it's the initial window, with the node's own passcode. Once it's on one,
+// it's an enhanced window with a passcode made for it, as a controller opens to share the node
+// (Core spec, 5.6.3). Opening one again replaces it, with a new passcode. It refuses with
 // clusters.ErrWindowBusy while a controller is pairing or has a window open. It returns once the
 // window answers PASE and is advertised, which takes about a second, or once ctx is done.
 func (n *Node) OpenWindow(ctx context.Context, timeout time.Duration) (OwnersWindow, error) {
@@ -666,7 +663,8 @@ func (n *Node) advertiseFabric(index uint8) {
 	n.advertising.Info("Advertised operational service", "fabric", index, "instance", svc.Instance)
 }
 
-// commissioned advertises a fabric CommissioningComplete committed, again for an UpdateNOC.
+// commissioned advertises a fabric CommissioningComplete committed, again for an UpdateNOC, and
+// tells FabricsChanged.
 func (n *Node) commissioned(index uint8) {
 	n.advertiseFabric(index)
 	if n.cfg.FabricsChanged != nil {
@@ -674,7 +672,6 @@ func (n *Node) commissioned(index uint8) {
 	}
 }
 
-// endPASE ends every PASE session.
 func (n *Node) endPASE() {
 	for _, s := range n.sessions.list() {
 		if s.AuthMode() == transport.AuthPASE {
@@ -712,8 +709,8 @@ func (n *Node) statusReport(_ context.Context, ex *transport.Exchange, m transpo
 	n.run.Load().tr.RemoveSession(s)
 }
 
-// fabricRemoved ends a fabric's sessions and resumptions, and its advertisement. A node left on
-// no fabric opens its initial window again.
+// fabricRemoved ends a fabric's resumptions, saved subscriptions and advertisement, and its
+// sessions after fabricSessionGrace. A node left on no fabric opens its initial window again.
 func (n *Node) fabricRemoved(index uint8) {
 	n.resumption.RemoveFabric(index)
 	n.server.RemoveFabric(index)
@@ -777,7 +774,6 @@ func (s *sessionSet) list() []*transport.Session {
 	return l
 }
 
-// cancelled returns a context that's already done.
 func cancelled() context.Context {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

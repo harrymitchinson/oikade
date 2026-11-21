@@ -31,7 +31,6 @@ var tagRevision = tlv.Context(0xFF)
 // Status is an Interaction Model status code (Core spec, 8.10).
 type Status uint8
 
-// Status codes.
 const (
 	StatusSuccess               Status = 0x00
 	StatusFailure               Status = 0x01
@@ -71,7 +70,7 @@ var statusNames = map[Status]string{
 	StatusFailsafeRequired: "failsafe_required", StatusInvalidInState: "invalid_in_state",
 }
 
-// Name is the status's name in snake case, such as unsupported_access, or its code for one with no name.
+// Name is the status's snake-case name, such as unsupported_access, or its code if it has none.
 func (s Status) Name() string {
 	if name, ok := statusNames[s]; ok {
 		return name

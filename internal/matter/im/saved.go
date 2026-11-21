@@ -56,7 +56,8 @@ func (s *Server) newSubscriptionID() uint32 {
 }
 
 // LoadSubscriptions returns the saved subscriptions, and keeps their IDs from new ones. Call it at
-// the start of each run, before serving. Each is to be resumed with Resume, or given up with Forget.
+// the start of each run, before serving. Each is to be resumed with Resume, or given up with
+// Forget.
 func (s *Server) LoadSubscriptions() ([]SavedSubscription, error) {
 	if s.Saved == nil {
 		return nil, nil

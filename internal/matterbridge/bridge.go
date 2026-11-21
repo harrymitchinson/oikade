@@ -32,8 +32,8 @@ type endpoint struct {
 
 func (e *endpoint) device() ident.ID { return *e.key.Load() }
 
-// Bridge keeps a Matter bridge's clusters in step with its devices. It's a driver.Sink for the hub's
-// Store, and Apply sets which devices it has.
+// Bridge keeps a Matter bridge's clusters in step with its devices. It's a driver.Sink for the
+// hub's Store, and Apply sets which devices it has.
 type Bridge struct {
 	hub.NopSink
 	// Matter is the node's bridge, to add and remove endpoints on.
@@ -74,8 +74,8 @@ func (b *Bridge) Availability(dev ident.ID, online bool) {
 	}
 }
 
-// Restore takes a capability's clusters back after a write that didn't happen: to the device's value,
-// or to otherwise if the device hasn't reported one. Nil leaves them.
+// Restore takes a capability's clusters back after a write that didn't happen: to the device's
+// value, or to otherwise if the device hasn't reported one. Nil leaves them.
 func (b *Bridge) Restore(dev ident.ID, name string, otherwise any) {
 	v := otherwise
 	if snap, ok := b.Store.Get(dev); ok {
@@ -114,8 +114,8 @@ func (b *Bridge) after(d time.Duration, f func()) (stop func()) {
 	return clock.AfterFunc(c, d, func() { b.Matter.Node.Update(f) }).Stop
 }
 
-// Apply adds, removes and rebuilds endpoints to match want, by endpoint ID. An endpoint whose device
-// takes another name keeps its clusters, and its writes go to the new name.
+// Apply adds, removes and rebuilds endpoints to match want, by endpoint ID. An endpoint whose
+// device takes another name keeps its clusters, and its writes go to the new name.
 func (b *Bridge) Apply(log *slog.Logger, want map[uint16]Device) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -135,8 +135,8 @@ func (b *Bridge) Apply(log *slog.Logger, want map[uint16]Device) error {
 		delete(b.endpoints, id)
 		log.Info("Removed bridged device", "device", e.device(), "endpoint", id)
 	}
-	// Names can swap, so what each endpoint is called now is worked out in one go. Different hardware
-	// can have taken a name with no event at all, so each is brought up to date.
+	// Names can swap, so what each endpoint is called now is worked out in one go. Different
+	// hardware can have taken a name with no event at all, so each is brought up to date.
 	byDevice := map[ident.ID]*endpoint{}
 	for id, e := range b.endpoints {
 		d := want[id]
@@ -164,7 +164,7 @@ func (b *Bridge) Apply(log *slog.Logger, want map[uint16]Device) error {
 		}
 		e.key.Store(&d.Key)
 		d.After = b.after
-		// So the log says what a controller asked for, as well as what was written (OIK-337).
+		// So the log says what a controller asked for, as well as what was written.
 		d.Command = func(command string, args ...any) {
 			log.Info("Took Matter command", append([]any{"device", e.device(), "command", command}, args...)...)
 		}

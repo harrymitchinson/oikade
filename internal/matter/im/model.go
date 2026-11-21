@@ -41,7 +41,6 @@ const (
 	Append
 )
 
-// Attribute is one attribute of a cluster.
 type Attribute struct {
 	ID uint32
 	// Read writes the value with tag. It runs under the Node's read lock.
@@ -56,7 +55,6 @@ type Attribute struct {
 	FabricScoped bool
 }
 
-// Command is one command a cluster accepts.
 type Command struct {
 	ID uint32
 	// Invoke runs the command. fields is on its fields structure, or nil if it had none. It runs
@@ -75,7 +73,6 @@ type Response struct {
 	Fields func(w *tlv.Writer)
 }
 
-// Cluster is one cluster on an endpoint.
 type Cluster struct {
 	ID         uint32
 	Revision   uint16
@@ -135,7 +132,7 @@ func (c *Cluster) attributeIDs() []uint32 {
 	return append(ids, globalAttributes...)
 }
 
-// readGlobal writes a global attribute.
+// readGlobal writes global attribute id, and reports whether id is one.
 func (c *Cluster) readGlobal(id uint32, w *tlv.Writer, tag tlv.Tag) bool {
 	list := func(ids []uint32) {
 		w.StartArray(tag)
@@ -165,13 +162,11 @@ func (c *Cluster) readGlobal(id uint32, w *tlv.Writer, tag tlv.Tag) bool {
 	return true
 }
 
-// DeviceType is a device type an endpoint implements.
 type DeviceType struct {
 	ID       uint32
 	Revision uint16
 }
 
-// Endpoint is one endpoint of a Node.
 type Endpoint struct {
 	ID          uint16
 	DeviceTypes []DeviceType

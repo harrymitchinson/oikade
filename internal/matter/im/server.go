@@ -22,8 +22,7 @@ const (
 	// fields.
 	reportBudget = 1024
 	// responseTimeout bounds how long the server waits for a client's Status Response.
-	responseTimeout = 30 * time.Second
-	// maxSubscriptions caps the subscriptions the server holds.
+	responseTimeout  = 30 * time.Second
 	maxSubscriptions = 32
 )
 
@@ -35,8 +34,8 @@ type Server struct {
 	Access AccessControl
 	// Observer, if set, hears what controllers do, for metrics.
 	Observer Observer
-	// EndSession, if set, ends the session of a subscription that panicked, so its controller starts
-	// again rather than wait for reports that won't come. Nil leaves the session.
+	// EndSession, if set, ends the session of a subscription that panicked, so its controller
+	// starts again rather than wait for reports that won't come. Nil leaves the session.
 	EndSession func(*transport.Session)
 	// Saved, if set, keeps subscriptions over CASE so they can be resumed after a restart.
 	Saved SubscriptionStore
@@ -51,17 +50,17 @@ type Server struct {
 	saveMu   sync.Mutex                   // orders writes to Saved
 }
 
-// Observer hears what controllers do. It's called on the goroutine serving the interaction, after the
-// Node's lock is let go, so its methods should be quick.
+// Observer hears what controllers do. It's called on the goroutine serving the interaction, after
+// the Node's lock is let go, so its methods should be quick.
 type Observer interface {
-	// Wrote is one attribute write's outcome. A write refused as a whole, before any attribute in it
-	// was looked at, has cluster 0, which no node serves.
+	// Wrote is one attribute write's outcome. A write refused as a whole, before any attribute in
+	// it was looked at, has cluster 0, which no node serves.
 	Wrote(cluster uint32, st Status)
 	// Invoked is one command's outcome, with cluster 0 for an invoke refused as a whole.
 	Invoked(cluster uint32, st Status)
 	// Reported is a report sent on a subscription, a keep-alive included.
 	Reported()
-	// Panicked is a panic contained, with where (contain.Parts).
+	// Panicked is a contained panic and its site, one of contain.Parts.
 	Panicked(part string)
 }
 
@@ -102,7 +101,6 @@ func (s *Server) serve(ctx context.Context, ex *transport.Exchange, m transport.
 	}
 }
 
-// panicked tells the Observer of a contained panic.
 func (s *Server) panicked(part string) {
 	if s.Observer != nil {
 		s.Observer.Panicked(part)
@@ -570,8 +568,8 @@ func statusOf(err error) Status {
 	return StatusFailure
 }
 
-// putCommandStatus writes a StatusIB for a command's result: nil, a Status or a ClusterStatus, whose
-// cluster-specific code goes with it.
+// putCommandStatus writes a StatusIB for a command's result: nil, a Status or a ClusterStatus,
+// whose cluster-specific code goes with it.
 func putCommandStatus(w *tlv.Writer, tag tlv.Tag, err error) {
 	if cs, ok := errors.AsType[ClusterStatus](err); ok {
 		w.StartStructure(tag)

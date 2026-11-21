@@ -8,8 +8,8 @@ import (
 )
 
 // DeviceRoomAirConditioner is the Room Air Conditioner device type, at the revision matter.js
-// serves. It needs Identify, which every bridged endpoint has, On/Off and Thermostat. Groups is only
-// for a device that starts things itself, as for a Thermostat.
+// serves. It needs Identify, which every bridged endpoint has, On/Off and Thermostat. Groups is
+// only for a device that starts things itself, as for a Thermostat.
 var DeviceRoomAirConditioner = im.DeviceType{ID: 0x0072, Revision: 2}
 
 // The other SystemMode values an air conditioner uses (SystemModeEnum).
@@ -34,8 +34,9 @@ const FeatureDeadFront = 1 << 1
 const controlCoolingAndHeating = 4
 
 // AirConditioner is a Thermostat cluster with the Heating, Cooling and Auto features, for an air
-// conditioner or heat pump with one target temperature: both occupied setpoints are it, so the dead
-// band between them is 0. Its temperatures are in hundredths of a degree Celsius, as Matter's are.
+// conditioner or heat pump with one target temperature: both occupied setpoints are it, so the
+// dead band between them is 0. Its temperatures are in hundredths of a degree Celsius, as Matter's
+// are.
 type AirConditioner struct {
 	cluster *im.Cluster
 	local   *int64
@@ -48,8 +49,8 @@ type AirConditioner struct {
 	// OnSetpoint is called, under the Node's lock, when a client sets the setpoint of the side in
 	// use, in degrees Celsius. It must not block.
 	OnSetpoint func(celsius float64)
-	// OnSystemMode is called, under the Node's lock, when a client sets SystemMode: Off is on false,
-	// and any other is on true in that mode. It must not block.
+	// OnSystemMode is called, under the Node's lock, when a client sets SystemMode: Off is on
+	// false, and any other is on true in that mode. It must not block.
 	OnSystemMode func(on bool, mode uint64)
 }
 
@@ -183,7 +184,8 @@ func (a *AirConditioner) SetLocal(celsius float64) {
 }
 
 // SetSetpoint records the unit's setpoint, in degrees Celsius, as the device reports it: both
-// occupied setpoints. One outside the limits shows as the nearest limit. Call it inside Node.Update.
+// occupied setpoints. One outside the limits shows as the nearest limit. Call it inside
+// Node.Update.
 func (a *AirConditioner) SetSetpoint(celsius float64) {
 	a.set(clampSetpoint(hundredths(celsius)))
 }
@@ -196,8 +198,8 @@ func (a *AirConditioner) SetOn(on bool) {
 	}
 }
 
-// SetMode records the unit's mode, a SystemMode other than Off, which SystemMode shows while it's on.
-// Call it inside Node.Update.
+// SetMode records the unit's mode, a SystemMode other than Off, which SystemMode shows while it's
+// on. Call it inside Node.Update.
 func (a *AirConditioner) SetMode(mode uint64) {
 	if mode != a.mode {
 		a.mode = mode
@@ -237,8 +239,8 @@ func (a *AirConditioner) command(on bool, mode uint64) {
 	}
 }
 
-// raiseLower is SetpointRaiseLower: Mode Heat (0), Cool (1) or Both (2) moves the setpoint by Amount
-// tenths of a degree, within the limits, unless it names only the side not in use.
+// raiseLower is SetpointRaiseLower: Mode Heat (0), Cool (1) or Both (2) moves the setpoint by
+// Amount tenths of a degree, within the limits, unless it names only the side not in use.
 func (a *AirConditioner) raiseLower(_ *im.Request, fields *tlv.Reader) (*im.Response, error) {
 	mode, amount, err := readRaiseLower(fields)
 	if err != nil {

@@ -10,9 +10,9 @@ import (
 	"fmt"
 )
 
-// NewCSR returns a PKCS#10 certificate signing request, DER encoded, for key, the node's new
-// operational key, as a node returns it to CSRRequest (Core spec, Node Operational Credentials cluster). Its subject is
-// O=CSR, as connectedhomeip's: the commissioner takes only the key from it.
+// NewCSR returns a DER PKCS#10 certificate signing request for key, the node's new operational key,
+// as a node returns it to CSRRequest. Its subject is O=CSR, as connectedhomeip's: the commissioner
+// takes only the key from it.
 func NewCSR(key crypto.Signer) ([]byte, error) {
 	if pub, ok := key.Public().(*ecdsa.PublicKey); !ok || pub.Curve != elliptic.P256() {
 		return nil, invalid("operational key isn't ECDSA P-256")

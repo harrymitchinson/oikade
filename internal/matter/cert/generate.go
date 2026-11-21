@@ -118,7 +118,6 @@ func caCertificate(subject DN, key crypto.Signer, notBefore, notAfter time.Time)
 	}, nil
 }
 
-// withFabric returns dn, with the fabric ID appended if it isn't 0.
 func withFabric(dn DN, fabricID uint64) DN {
 	if fabricID != 0 {
 		dn = append(dn, Attribute{Type: AttrFabricID, Value: fabricID})

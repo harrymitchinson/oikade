@@ -106,7 +106,7 @@ type InvokeResult struct {
 	Fields        []byte // the encoded fields structure
 }
 
-// Invoke invokes a command, with fields writing its fields inside their structure (nil for
+// Invoke invokes a command, with fieldsFn writing its fields inside their structure (nil for
 // none). If timed, it first sends a Timed Request with timeoutMs.
 func (c *Client) Invoke(ctx context.Context, path CommandPath, fieldsFn func(w *tlv.Writer), timed bool, timeoutMs uint16) (*InvokeResult, error) {
 	ex, err := c.Session.NewExchange()

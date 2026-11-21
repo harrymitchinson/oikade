@@ -19,7 +19,8 @@ import (
 // formatVersion is the version of the encoded table. A table with another version doesn't load.
 const formatVersion = 1
 
-// The encoded table: JSON, with certificates in Matter TLV and keys in PKCS #8, each base64.
+// stored is the encoded table: JSON, with certificates in Matter TLV and keys in PKCS #8, each
+// base64.
 type stored struct {
 	Version         int            `json:"version"`
 	NextFabricIndex uint8          `json:"nextFabricIndex"`

@@ -135,7 +135,6 @@ func readAttr(t *testing.T, e *im.Endpoint, cluster, attr uint32) any {
 	return read(t, e.Cluster(cluster), attr)
 }
 
-// Only changes that can move endpoints wake the bridge, not each reading's status update.
 func onOff(t *testing.T, b *Bridge, id uint16) bool {
 	t.Helper()
 	var on bool
@@ -173,7 +172,8 @@ func TestApplyFollowsNamesThatSwap(t *testing.T) {
 	}
 }
 
-// TestAbsentIsUnreachableUntilTheDeviceReports keeps a device on the bridge while its driver is away.
+// TestAbsentIsUnreachableUntilTheDeviceReports keeps a device on the bridge while its driver is
+// away.
 func TestAbsentIsUnreachableUntilTheDeviceReports(t *testing.T) {
 	b := &Bridge{Matter: clusters.NewBridge(clusters.Info{})}
 	b.Store = hub.NewStore(logging.Discard(), b)
@@ -245,7 +245,7 @@ func TestABlindsMoveSettlesOnTheBridgesClock(t *testing.T) {
 }
 
 // Each Window Covering command a controller sends is logged with its target, so a real host's log
-// says what the Home app asked for (OIK-337).
+// says what the Home app asked for.
 func TestABlindsCommandsAreLogged(t *testing.T) {
 	log := testkit.Logs(t)
 	b := newBridgeRig()
@@ -272,8 +272,8 @@ func TestABlindsCommandsAreLogged(t *testing.T) {
 	}
 }
 
-// A blind's moves gather for the travel window, and a stop goes at once, with the position the blind
-// last reported (OIK-337).
+// A blind's moves gather for the travel window, and a stop goes at once, with the position the
+// blind last reported.
 func TestABlindsStopDoesntWaitForItsMove(t *testing.T) {
 	b := newBridgeRig()
 	fake := clock.NewFake(time.Date(2026, 11, 18, 15, 30, 0, 0, time.UTC))
@@ -332,8 +332,8 @@ func TestABlindStoppedBeforeItsMoveIsSentStaysPut(t *testing.T) {
 	}
 }
 
-// What a device is, its manufacturer and model, is its VendorName and ProductName, while it's away
-// too, and a new one is set in place.
+// What a device is, its manufacturer, model and firmware, is its VendorName, ProductName and
+// SoftwareVersionString, while it's away too, and a new one is set in place.
 func TestABridgedDeviceSaysWhatItIs(t *testing.T) {
 	b := newBridgeRig()
 	plug := device("desk-plug", 2, capability.On)

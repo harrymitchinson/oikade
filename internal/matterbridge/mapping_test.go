@@ -278,7 +278,8 @@ func TestAShutDoorIsBooleanStateTrue(t *testing.T) {
 	}
 }
 
-// A device you say is an on/off light is one, brightness or not: Level Control would make it dimmable.
+// A device you say is an on/off light is one, brightness or not: Level Control would make it
+// dimmable.
 func TestAnOnOffTypeLeavesOutLevelControl(t *testing.T) {
 	m, _ := mapDevice(t, devicetype.OnOffLight, capability.On, capability.Brightness)
 	if got := ids(m.Types); !slices.Equal(got, []uint32{0x0100}) {
@@ -454,8 +455,8 @@ func TestALockSaysLockedOnlyOnceTheBoltReports(t *testing.T) {
 	}
 }
 
-// coveringOn maps a blind whose moves settle when the test says, and returns its cluster and the
-// settles waiting.
+// coveringOn maps a blind whose moves settle when the test says, and returns it, its cluster, its
+// writes and the settles waiting.
 func coveringOn(t *testing.T) (*Mapped, *im.Cluster, *[]setCall, *[]func()) {
 	t.Helper()
 	var calls []setCall
@@ -738,8 +739,8 @@ func TestAnAirConditionerWithNoOnIsAThermostat(t *testing.T) {
 	}
 }
 
-// Both setpoints are the one setpoint. In Cool, the heating setpoint's slider isn't the target, so a
-// write to it is taken and not sent, and in Heat the cooling one's. In Auto either sets it.
+// Both setpoints are the one setpoint. In Cool, the heating setpoint's slider isn't the target, so
+// a write to it is taken and not sent, and in Heat the cooling one's. In Auto either sets it.
 func TestAnAirConditionerSendsOnlyTheSetpointInUse(t *testing.T) {
 	m, calls := mapDevice(t, "", capability.On, capability.Mode, capability.Setpoint)
 	th := cluster(t, m, clusters.IDThermostat)
@@ -786,7 +787,7 @@ func TestAnAirConditionerSendsOnlyTheSetpointInUse(t *testing.T) {
 }
 
 // One Home app change can be two writes. Through the Coalescer, SystemMode Cool sends the mode
-// before turning the unit on, so it never starts in its old mode, and Off goes before anything.
+// before turning the unit on, so it never starts in its old mode.
 func TestSystemModeCoolWritesTheModeAndThenOn(t *testing.T) {
 	c, rec, clk := coalescer(t, func(ident.ID, string) (any, bool) { return nil, false })
 	ac := ident.ID{Name: "bedroom-ac"}

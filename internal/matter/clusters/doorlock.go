@@ -5,7 +5,6 @@ import (
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
 )
 
-// The closure clusters.
 const (
 	IDDoorLock uint32 = 0x0101
 )
@@ -21,7 +20,6 @@ const (
 	LockStateUnlocked       = 2
 )
 
-// The Door Lock commands.
 const (
 	CommandLockDoor   = 0x00
 	CommandUnlockDoor = 0x01
@@ -36,12 +34,13 @@ type Lock struct {
 	cluster *im.Cluster
 	// locked is the bolt as the device last reported it, nil until it has.
 	locked *bool
-	// OnCommand is called, under the Node's lock, when a client locks or unlocks. It must not block.
+	// OnCommand is called, under the Node's lock, when a client locks or unlocks. It must not
+	// block.
 	OnCommand func(locked bool)
 }
 
-// NewLock returns a Door Lock cluster. LockState comes only from the device's reports, never from a
-// command, so a controller never shows a bolt that hasn't moved.
+// NewLock returns a Door Lock cluster. LockState comes only from the device's reports, never from
+// a command, so a controller never shows a bolt that hasn't moved.
 func NewLock() *Lock {
 	l := &Lock{}
 	command := func(locked bool) func(*im.Request, *tlv.Reader) (*im.Response, error) {

@@ -8,7 +8,8 @@ import (
 	"testing"
 )
 
-// Metrics label a controller's writes with Name, so a cluster missing from it is counted as "other".
+// Metrics label a controller's writes with Name, so a cluster missing from it is counted as
+// "other".
 func TestEveryClusterHasAName(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil {

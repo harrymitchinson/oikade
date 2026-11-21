@@ -154,9 +154,9 @@ func subscribeAndStop(t *testing.T, dir string, saved *memSubscriptions) (*im.Cl
 	return admin, saved.subs[id], reports, port
 }
 
-// TestResumeFindsTheSubscriberByDiscovery: a subscriber that has moved since it subscribed is found
-// by operational discovery, under the fabric's compressed ID and its node ID, and tried there before
-// its last address, where the resumed report would wait out a CASE timeout.
+// TestResumeFindsTheSubscriberByDiscovery: a subscriber that has moved since it subscribed is
+// found by operational discovery, under the fabric's compressed ID and its node ID, and tried there
+// before its last address, where the resumed report would wait out a CASE timeout.
 func TestResumeFindsTheSubscriberByDiscovery(t *testing.T) {
 	dir, saved := t.TempDir(), &memSubscriptions{}
 	_, rec, reports, port := subscribeAndStop(t, dir, saved)

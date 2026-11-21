@@ -73,7 +73,7 @@ func pairServer(t *testing.T, node *Node) (*Client, *countingConn, *Server, *tra
 	return pairAs(t, node, nil, transport.SecureSessionConfig{Auth: transport.AuthPASE})
 }
 
-// pairAs pairs over a session that the device sees as dev describes, served with access.
+// pairAs pairs over a session that the device sees as devCfg describes, served with access.
 func pairAs(t *testing.T, node *Node, access AccessControl, devCfg transport.SecureSessionConfig) (*Client, *countingConn, *Server, *transport.Transport) {
 	t.Helper()
 	return pairWith(t, &Server{Node: node, Access: access, Log: logging.Test(t)}, devCfg)
@@ -277,8 +277,9 @@ func TestSubscriptionEndsWithItsSession(t *testing.T) {
 	testkit.Eventually(t, "the subscription to end", func() bool { return srv.Subscriptions() == 0 })
 }
 
-// TestSubscriptionLogsItsIntervals: "Started subscription" says, at Info, the min and max the
-// subscriber asked for and whether it replaced one, and "Ended subscription" says why it ended.
+// TestSubscriptionLogsItsIntervals: "Started subscription" says, at Info, the min interval, the
+// max interval the server granted and whether it replaced one, and "Ended subscription" says why
+// it ended.
 func TestSubscriptionLogsItsIntervals(t *testing.T) {
 	var mu sync.Mutex
 	var lines []string
@@ -326,7 +327,7 @@ func TestSubscriptionLogsItsIntervals(t *testing.T) {
 }
 
 // TestGrantMaxInterval: the server grants at most 60 s, or the subscriber's ceiling if that's
-// shorter, never below its floor, and within the spec's bounds for a publisher (OIK-209).
+// shorter, never below its floor, and within the spec's bounds for a publisher.
 func TestGrantMaxInterval(t *testing.T) {
 	for _, c := range []struct{ floor, ceiling, want uint16 }{
 		{0, 600, 60}, // a home hub's 10 minutes

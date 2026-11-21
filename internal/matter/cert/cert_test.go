@@ -29,7 +29,6 @@ func vector(t *testing.T, name string) *Certificate {
 	return c
 }
 
-// vectorKey returns the named test certificate's private key.
 func vectorKey(t *testing.T, name string) *ecdsa.PrivateKey {
 	t.Helper()
 	k, err := ecdsa.ParseRawPrivateKey(elliptic.P256(), testkit.Unhex(t, testCerts[name].priv))

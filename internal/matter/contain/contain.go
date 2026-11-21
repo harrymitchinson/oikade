@@ -1,11 +1,11 @@
-// Package contain keeps a panic in Matter's handling of one message from stopping the host. Matter
-// parses what anyone on the network sends, and a bug there should cost that message and its session,
-// not the home.
+// Package contain keeps a panic in Matter's handling of one message from stopping the host.
+// Matter parses what anyone on the network sends, and a bug there should cost that message and its
+// session, not the home.
 //
-// Only work whose state goes with it is contained: a packet, an exchange's handler, a subscription,
-// an mDNS query. A panic in a timer, a commissioning hook or a commissioning command would leave the
-// node's state half moved, such as a window that never closes, so those still stop the host, which
-// starts again clean. Critical marks the commands.
+// Only work whose state goes with it is contained: a packet, an exchange's handler, a
+// subscription, an mDNS query. A panic in a timer, a commissioning hook or a commissioning command
+// would leave the node's state half moved, such as a window that never closes, so those still stop
+// the host, which starts again clean. Critical marks the commands.
 //
 // A recover covers only its own goroutine, so each such goroutine defers Recover itself. The locks
 // taken on those paths go with defer, so a contained panic can't leave one held, which would turn a
@@ -26,7 +26,7 @@ const (
 	MDNS         = "mdns"         // the mDNS responder answering a packet
 )
 
-// Parts is every place, in order.
+// Parts is every site, so a counter can have a series for each from the start.
 var Parts = []string{Receive, Handler, Subscription, MDNS}
 
 // Panicked hears each panic contained, with its site.
@@ -48,8 +48,8 @@ func Critical() {
 	}
 }
 
-// Recover contains a panic: it logs it with its stack, tells panicked, if set, and then calls after,
-// if set, to end what the panic left half done, such as its session. Defer it directly, as
+// Recover contains a panic: it logs it with its stack, tells panicked, if set, and then calls
+// after, if set, to end what the panic left half done, such as its session. Defer it directly, as
 // defer contain.Recover(log, contain.Handler, panicked, nil): recover works only there.
 func Recover(log *slog.Logger, site string, panicked Panicked, after func()) {
 	r := recover()

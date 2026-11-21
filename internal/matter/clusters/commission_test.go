@@ -58,7 +58,8 @@ func newNode(t *testing.T, dir string) *node {
 	return newNodeOn(t, dir, nil)
 }
 
-// newNodeOn is newNode, with its fail-safe and commissioning windows on clk (nil for the real clock).
+// newNodeOn is newNode, with its fail-safe and commissioning windows on clk (nil for the real
+// clock).
 func newNodeOn(t *testing.T, dir string, clk clock.Clock) *node {
 	t.Helper()
 	n := &node{dir: dir, devTr: serve(t), cliTr: serve(t), resumption: securechannel.NewResumptionStore(8)}

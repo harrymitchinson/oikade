@@ -7,7 +7,6 @@ import (
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
 )
 
-// IDWindowCovering is the Window Covering cluster.
 const (
 	IDWindowCovering uint32 = 0x0102
 )
@@ -17,7 +16,6 @@ const (
 // only for a device that starts things itself.
 var DeviceWindowCovering = im.DeviceType{ID: 0x0202, Revision: 3}
 
-// The Window Covering commands.
 const (
 	CommandUpOrOpen           = 0x00
 	CommandDownOrClose        = 0x01
@@ -25,7 +23,6 @@ const (
 	CommandGoToLiftPercentage = 0x05
 )
 
-// The Window Covering attributes.
 const (
 	attrCurrentLiftPercentage = 0x0008
 	attrOperationalStatus     = 0x000A
@@ -78,11 +75,11 @@ type Covering struct {
 	// OnStop, if set, is called, under the Node's lock, after OnMove for a StopMotion, so that the
 	// stop needn't wait for writes gathering. It must not block.
 	OnStop func()
-	// Unsent, if set, says the last move is still waiting to be written, under the Node's lock: the
-	// device hasn't heard of it, so it's still where it last reported.
+	// Unsent, if set, says the last move is still waiting to be written, under the Node's lock:
+	// the device hasn't heard of it, so it's still where it last reported.
 	Unsent func() bool
-	// AfterSettle runs f, under the Node's lock, once a move has had as long as it takes, unless the
-	// function it returns is called first. Nil leaves a move until a report reaches its target.
+	// AfterSettle runs f, under the Node's lock, once a move has had as long as it takes, unless
+	// the function it returns is called first. Nil leaves a move until a report reaches its target.
 	AfterSettle func(f func()) (stop func())
 }
 
@@ -116,8 +113,8 @@ func NewCovering() *Covering {
 			{
 				ID:   attrMode,
 				Read: func(_ *im.Request, w *tlv.Writer, tag tlv.Tag) error { w.PutUint(tag, 0); return nil },
-				// A bridge can't reverse the motor, calibrate it or put it in maintenance, so only the
-				// normal mode can be written.
+				// A bridge can't reverse the motor, calibrate it or put it in maintenance, so only
+				// the normal mode can be written.
 				Write: func(_ *im.Request, r *tlv.Reader, op im.WriteOp) im.Status {
 					v, err := r.Uint()
 					if err != nil || op != im.Replace {
@@ -276,8 +273,8 @@ func (c *Covering) stop(*im.Request, *tlv.Reader) (*im.Response, error) {
 	return nil, nil
 }
 
-// goToPercentage is GoToLiftPercentage. Its target is in hundredths: field 0 since Matter 1.4 and in
-// the SDK controllers are built with, and field 1 in 1.3's data model, whose field 0 was a whole
+// goToPercentage is GoToLiftPercentage. Its target is in hundredths: field 0 since Matter 1.4 and
+// in the SDK controllers are built with, and field 1 in 1.3's data model, whose field 0 was a whole
 // percent that controllers don't send. So field 1 wins, and field 0 is hundredths.
 func (c *Covering) goToPercentage(_ *im.Request, fields *tlv.Reader) (*im.Response, error) {
 	if fields == nil {
