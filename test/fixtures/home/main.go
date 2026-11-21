@@ -59,7 +59,6 @@ var variant string
 // wired are the relays a home with plugins configures in Go, which are all there are the first time.
 var wired = []contractv1.DeclaredDevice{relay("relay"), relay(valve), relay(panics), relay(hangs), relay(once)}
 
-// relay is a device called id.
 func relay(id string) contractv1.DeclaredDevice {
 	return contractv1.DeclaredDevice{ID: id, Name: id, DisplayName: id}
 }
@@ -119,7 +118,6 @@ func quietRelays(env plugin.Environment, _ []contractv1.DeclaredDevice) (plugin.
 	return refused{h}, nil
 }
 
-// withSetup is a plugin with a setup.
 type withSetup interface {
 	plugin.Handler
 	plugin.Setup
@@ -272,7 +270,7 @@ func start() {
 	}
 }
 
-// The values the tests deploy, which the variants "vars" and "vars-more" use (OIK-365).
+// The values the tests deploy, which the variants "vars" and "vars-more" use.
 const (
 	fixtureToken = "FIXTURE_TOKEN"
 	fixtureExtra = "FIXTURE_EXTRA"

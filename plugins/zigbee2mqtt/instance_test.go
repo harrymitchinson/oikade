@@ -186,8 +186,8 @@ func TestStateChanges(t *testing.T) {
 	}
 }
 
-// TestRenamedInFrontend checks that a Device follows its IEEE address, not its friendly name, which
-// Zigbee2MQTT owns: after a rename, even to a name with a slash, state and commands still work.
+// A Device follows its IEEE address, not its friendly name, which is Zigbee2MQTT's: after a rename
+// in the Zigbee2MQTT web UI, even to a name with a slash, its state and commands still work.
 func TestRenamedInFrontend(t *testing.T) {
 	ctx := t.Context()
 	i, bus, rec := setup(t)
@@ -223,8 +223,7 @@ func TestRenamedInFrontend(t *testing.T) {
 	}
 }
 
-// TestNameIsAnotherAddress checks that a friendly name equal to another device's IEEE address
-// doesn't take that device's topic.
+// A friendly name equal to another device's IEEE address doesn't take that device's topic.
 func TestNameIsAnotherAddress(t *testing.T) {
 	ctx := t.Context()
 	_, bus, rec := setup(t)

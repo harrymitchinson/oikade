@@ -21,15 +21,8 @@ import (
 )
 
 // A fixture is one device model as Zigbee2MQTT publishes it: its entry in <base>/bridge/devices,
-// and the state and command payloads heard for it. Recorded ones come from a real broker, by
-// TestRecord. Golden tests (golden_test.go) replay each one.
-//
-// Recording, read-only, from the machine your broker serves:
-//
-//	go test ./plugins/zigbee2mqtt -run TestRecord -timeout 0 -args -record mqtt://broker:1883 -record.for 10m
-//
-// It subscribes to <base>/# and never publishes. Then run the golden tests with -update, and read
-// the fixtures and goldens before committing them.
+// and the state and command payloads heard for it. TestRecord records them from a real broker,
+// subscribing to <base>/# and never publishing, and TestGolden replays each. The README says how.
 var (
 	recordBroker = flag.String("record", "", "record fixtures from this broker URL, read-only (TestRecord)")
 	recordFor    = flag.Duration("record.for", 10*time.Minute, "how long TestRecord listens")

@@ -204,7 +204,7 @@ func (h *oneSession) OnSessionEstablish(cl *mochi.Client, _ packets.Packet) {
 // retainScan keeps a retained message from being stored while a subscription scans for them.
 // mochi v2.7.9's TopicsIndex.RetainMessage writes a topic's retainPath under the topic's lock, but
 // scanMessages reads it for a wildcard filter without one: a data race, fixed on mochi's
-// unreleased release/2.8.0 (OIK-232). So a SUBSCRIBE, whose retained scan runs before
+// unreleased release/2.8.0. So a SUBSCRIBE, whose retained scan runs before
 // OnPacketProcessed, holds mu for reading, and a retained PUBLISH or an immediate retained Will,
 // which store it, hold it for writing.
 //

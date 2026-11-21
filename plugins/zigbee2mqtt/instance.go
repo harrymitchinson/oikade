@@ -17,16 +17,15 @@ import (
 	"github.com/harrymitchinson/oikade/internal/mqtt"
 )
 
-// earlyLimit bounds what's kept for the next device list.
+// earlyLimit bounds the topics held for the next device list.
 const earlyLimit = 4096
 
 // defaultGetInterval paces the /get requests after a device list, so that a large network doesn't
 // flood the broker, or Zigbee2MQTT's queue behind it.
 const defaultGetInterval = 200 * time.Millisecond
 
-// Instance follows one Zigbee2MQTT instance on the bus.
+// Instance follows one Zigbee2MQTT on the bus.
 type Instance struct {
-	// Key is the Zigbee2MQTT object.
 	Key       ident.ID
 	BaseTopic string
 	Bus       mqtt.Bus
@@ -195,8 +194,8 @@ func (i *Instance) handleDevice(rest string, payload []byte) {
 		i.handleAvailability(name, payload)
 		return
 	}
-	// A friendly name set in the frontend may contain slashes, so any other topic is a device's
-	// state if it resolves to one. Commands such as <name>/set don't.
+	// A friendly name set in the Zigbee2MQTT web UI may contain slashes, so any other topic is a
+	// device's state if it resolves to one. Commands such as <name>/set don't.
 	i.handleState(rest, payload)
 }
 
@@ -234,7 +233,7 @@ func (i *Instance) handleDevices(payload []byte) {
 		}
 		inventory = append(inventory, app)
 	}
-	// Added after every name, so an address wins over a frontend name that equals it.
+	// Added after every name, so an address wins over a friendly name that equals it.
 	for ieee := range pairedByIEEE {
 		byName[ieee] = ieee
 	}
@@ -271,14 +270,14 @@ func (i *Instance) handleDevices(payload []byte) {
 	}
 }
 
-// request is one /get: a property to read from a device, for a capability.
 type request struct {
 	ieee, property, capability string
 }
 
 // requestState asks for each value a device can be asked for and that nothing has reported, such
-// as a device that doesn't retain its state. A device Zigbee2MQTT says is offline isn't asked. It runs after the held messages are replayed, so a
-// retained value is neither re-requested nor overwritten. A device list replaces the last round.
+// as a device that doesn't retain its state. A device Zigbee2MQTT says is offline isn't asked. It
+// runs after the held messages are replayed, so a retained value is neither asked for again nor
+// overwritten. A device list replaces the last round.
 //
 // A reply is a state message like any other, and the first value of a capability counts as no
 // change, so it fires nothing a retained value wouldn't. A device that doesn't answer, such as one

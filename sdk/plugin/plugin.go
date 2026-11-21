@@ -27,6 +27,7 @@ var ErrClosed = errors.New("plugin is closed")
 
 // Options configures Start.
 type Options struct {
+	// Environment says where to connect: its MQTTURL and Root are required.
 	Environment Environment
 	// OnSet applies a command, then reports the result with SetState or UpdateState. Calls for one
 	// device never overlap, and their ctx ends when the plugin closes.
@@ -35,8 +36,8 @@ type Options struct {
 	OnSetup func(ctx context.Context, p *Plugin, s *Session) (string, error)
 	// Logger defaults to JSON on stderr.
 	Logger *slog.Logger
-	// StartTimeout is how long Start waits to come online, so a wrong broker URL crashes the plugin
-	// instead of leaving it Running and silent. It defaults to 60s.
+	// StartTimeout is how long Start waits to come online, so that a broker it can't reach fails the
+	// plugin rather than leaving it running and silent. It defaults to 60s.
 	StartTimeout time.Duration
 	// CloseTimeout is how long Close waits to publish the offline status. It defaults to 2s.
 	CloseTimeout time.Duration
@@ -213,10 +214,10 @@ func newClientID() string {
 	return "oikade-plugin-" + hex.EncodeToString(b)
 }
 
-// SetDevices publishes the devices this plugin serves. List every device from devices.json.
-// Values a device no longer announces are dropped from its state, and that state is republished.
-// It refuses an invalid or repeated ID, and a capability or a device type Oikade doesn't know, and
-// publishes nothing.
+// SetDevices publishes the devices this plugin serves: each one its Factory was given, once, and
+// any other it finds. Values a device no longer announces are dropped from its state, and that
+// state is republished. It refuses an invalid or repeated ID, and a capability or a device type
+// Oikade doesn't know, and publishes nothing.
 func (p *Plugin) SetDevices(ctx context.Context, devices []contractv1.DeviceReport, undeclared int) error {
 	seen := map[string]bool{}
 	for _, d := range devices {

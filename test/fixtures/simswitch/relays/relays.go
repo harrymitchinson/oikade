@@ -21,8 +21,7 @@ import (
 // relay is a simulated relay. It starts off and follows /set, as a real relay follows its wall
 // switch. One that simulates an air conditioner has a mode too, which starts at auto.
 type relay struct {
-	id string
-	// values are the relay's, by capability.
+	id     string
 	values contractv1.State
 }
 
@@ -55,7 +54,6 @@ const (
 	firmware     = "1.0.0"
 )
 
-// serial is a simulated relay's serial number.
 func serial(id string) string { return "SIM-" + strings.ToUpper(id) }
 
 // spare is a relay in the simulated app that no Device declares.
@@ -137,7 +135,7 @@ func newSwitches(declared []contractv1.DeclaredDevice) *switches {
 		r := &relay{id: d.ID, values: contractv1.State{contractv1.On: false}}
 		switch simulate {
 		case "old-name":
-			// A name from before OIK-181, which Oikade no longer knows.
+			// An old name, which Oikade doesn't know.
 			r.values = contractv1.State{"switch.on": false}
 		case "air-conditioner":
 			r.values[contractv1.Mode] = contractv1.ModeAuto

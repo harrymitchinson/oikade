@@ -1,8 +1,8 @@
 // Package v1 is the oikade/v1 plugin contract (docs/plugin-contract.md) as Go types.
 //
-// Oikade's decoder, its devices.json renderer and the Go plugin SDK all use these types, so the
-// bytes on the wire can't drift between them. It imports nothing from api/ or internal/, because
-// the api packages import it.
+// Oikade's decoder, the Go plugin SDK and the conformance suite all use these types, so the bytes
+// on the wire can't drift between them. It imports nothing from internal/, whose packages import
+// it, so a plugin in another module can use it.
 package v1
 
 import (
@@ -26,16 +26,20 @@ const (
 
 // The environment a plugin runs with.
 const (
-	EnvMQTTURL     = "OIKADE_MQTT_URL"
-	EnvTopic       = "OIKADE_TOPIC"
+	// EnvMQTTURL is the broker an outside plugin speaks the contract on. A plugin your home imports
+	// isn't given one.
+	EnvMQTTURL = "OIKADE_MQTT_URL"
+	// EnvTopic is the plugin's topic root, oikade/v1/<plugin>.
+	EnvTopic = "OIKADE_TOPIC"
+	// EnvDevicesFile is optional: a DevicesFile listing the plugin's devices.
 	EnvDevicesFile = "OIKADE_DEVICES_FILE"
 	// EnvSecretsDir is the directory of the secrets the plugin's setup kept, one file each. Under the
 	// host it's always set.
 	EnvSecretsDir = "OIKADE_SECRETS_DIR"
 )
 
-// The capabilities a plugin may announce and report, as docs/plugin-contract.md lists them.
-// Oikade's registry gives each one's type and range, and rejects any other name.
+// The capabilities a plugin may announce and report, as docs/capabilities.md lists them. Oikade's
+// registry gives each one's type and range, and rejects any other name.
 const (
 	// On is whether a light, switch or outlet is on: a bool.
 	On = "on"
@@ -109,7 +113,7 @@ const prefix = "oikade/v1/"
 // Root is a plugin's topic root, oikade/v1/<plugin>.
 type Root string
 
-// NewRoot returns the root of the Plugin with this name.
+// NewRoot returns the root of the plugin with this name, which should be a ValidID.
 func NewRoot(plugin string) Root {
 	return Root(prefix + plugin)
 }
@@ -160,10 +164,13 @@ func (r Root) Filter() string { return string(r) + "/#" }
 
 // Status is the retained status payload, and the Last Will when State is Offline.
 type Status struct {
-	State    string `json:"state"`
-	Contract int    `json:"contract"`
+	// State is Online or Offline.
+	State string `json:"state"`
+	// Contract is Contract. Oikade ignores a plugin that names another until it names this one.
+	Contract int `json:"contract"`
 	// Error is what's wrong with the plugin as a whole, such as a login its account refused, empty
 	// otherwise. It's for a problem no one device carries, as when there are no devices yet.
+	// oikade status shows it on one line, cut to 200 characters, so say what would fix it.
 	Error string `json:"error,omitempty"`
 	// Setup is true when the plugin has a setup that oikade setup can run, over SetupIn and
 	// SetupOut.
@@ -178,9 +185,10 @@ func ValidID(id string) bool { return idPattern.MatchString(id) }
 
 // Devices is the retained devices payload.
 type Devices struct {
+	// Devices reports each device the plugin serves, once.
 	Devices []DeviceReport `json:"devices"`
-	// Undeclared counts devices the plugin can see that Oikade doesn't have on record. Oikade ignores it
-	// when Discovered is set, and counts them from Discovered instead.
+	// Undeclared counts devices the plugin can see that Oikade doesn't have on record. Oikade
+	// ignores it when Discovered is set, and counts them from Discovered instead.
 	Undeclared int `json:"undeclared"`
 	// Discovered lists every device the plugin sees in its app, declared or not. Nil means the
 	// plugin doesn't discover devices; an empty list means its app has none. A device leaving the
@@ -193,13 +201,13 @@ type Devices struct {
 
 // DiscoveredDevice is one device the plugin sees in its app.
 type DiscoveredDevice struct {
-	// ID must stay the same across restarts of the plugin and of its hub or account, until the
-	// device is reset or re-paired. See ValidID.
-	ID           string `json:"id"`
-	Manufacturer string `json:"manufacturer,omitempty"`
-	Model        string `json:"model,omitempty"`
-	// SerialNumber, FirmwareVersion and HardwareVersion are as the device's app or hub gives them,
-	// empty if it doesn't.
+	// ID is a ValidID, and must stay the same across restarts of the plugin and of its hub or
+	// account, until the device is reset or re-paired.
+	ID string `json:"id"`
+	// Manufacturer, Model, SerialNumber, FirmwareVersion and HardwareVersion are as the device's app
+	// or hub gives them, empty if it doesn't.
+	Manufacturer    string   `json:"manufacturer,omitempty"`
+	Model           string   `json:"model,omitempty"`
 	SerialNumber    string   `json:"serialNumber,omitempty"`
 	FirmwareVersion string   `json:"firmwareVersion,omitempty"`
 	HardwareVersion string   `json:"hardwareVersion,omitempty"`
@@ -211,11 +219,13 @@ type DiscoveredDevice struct {
 	Room string `json:"room,omitempty"`
 }
 
-// DeviceReport is one declared device in the devices payload.
+// DeviceReport is one device the plugin serves, in the devices payload: each device on record, and
+// any other it has found. Reporting a device found puts it on record.
 type DeviceReport struct {
-	// ID is the device's ID from the devices file, a ValidID listed once.
-	ID    string `json:"id"`
-	Found bool   `json:"found"`
+	// ID is the device's ValidID, listed once.
+	ID string `json:"id"`
+	// Found is true once the plugin can reach the device.
+	Found bool `json:"found"`
 	// Manufacturer, Model, SerialNumber, FirmwareVersion, HardwareVersion, Capabilities and DeviceType
 	// matter only when Found is true. The first five are as the device's app or hub gives them,
 	// empty if it doesn't.
@@ -334,13 +344,16 @@ func kind(v any) string {
 	return fmt.Sprintf("%T", v)
 }
 
-// DevicesFile is devices.json, read by the plugin.
+// DevicesFile is the devices file an outside plugin may be given in EnvDevicesFile. Contract is
+// Contract, and Devices lists the devices it serves.
 type DevicesFile struct {
 	Contract int              `json:"contract"`
 	Devices  []DeclaredDevice `json:"devices"`
 }
 
-// DeclaredDevice is a Device declared for the plugin.
+// DeclaredDevice is a device on record for the plugin, from its devices file or, for a plugin your
+// home imports, from the host. Name is its name in your home, DisplayName one for people, and Room
+// its room, if it has one.
 type DeclaredDevice struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`

@@ -28,7 +28,6 @@ import (
 const DefaultBaseTopic = "zigbee2mqtt"
 
 const (
-	// disconnectTimeout bounds leaving the broker.
 	disconnectTimeout = 2 * time.Second
 	// connectTimeout bounds reaching the broker when the plugin starts. Going on waiting would leave
 	// a plugin that looks well to the host, which restarts one that gives up, with a backoff.
@@ -38,7 +37,7 @@ const (
 // errBridgeOffline is a write while Zigbee2MQTT says it's offline, which nothing would act on.
 var errBridgeOffline = errors.New("zigbee2mqtt is offline")
 
-// Config configures the plugin.
+// Config is the plugin's configuration, as a home writes it.
 type Config struct {
 	// Broker is the MQTT broker Zigbee2MQTT uses, as the host reaches it, such as
 	// mqtt://broker:1883. With a Password, it names the user: mqtt://oikade@broker:1883.
@@ -72,7 +71,6 @@ func New(c Config) plugin.Factory {
 	return factory(c, slog.New(slog.NewJSONHandler(os.Stderr, nil)))
 }
 
-// factory is New, logging to log.
 func factory(c Config, log *slog.Logger) plugin.Factory {
 	// Space around it, as the environment can leave, is no part of a password.
 	c.Password = strings.TrimSpace(c.Password)
@@ -100,7 +98,8 @@ type bridge struct {
 	config Config
 	// name is the plugin's, as the home imports it, for setup to name.
 	name string
-	// declared are the devices on record, which are reported even once they've left Zigbee2MQTT.
+	// declared are the devices on record, which are reported, not found, once they've left
+	// Zigbee2MQTT.
 	declared       []string
 	connectTimeout time.Duration
 	log            *slog.Logger
@@ -117,7 +116,7 @@ type bridge struct {
 	online map[string]bool
 	// reported is every device reported, and whether it's found.
 	reported map[string]bool
-	// heard is the values of the message being taken in.
+	// heard holds the values of the message being taken in, until Seen ends it.
 	heard map[string]contractv1.State
 	// info is Zigbee2MQTT's bridge/info, once infoHeard is closed, and infoWait how long to wait
 	// for it.
@@ -239,7 +238,7 @@ func (b *bridge) publishAllAvailability() {
 	}
 }
 
-// publishAvailability reports a device as online only if it's paired, and it and Zigbee2MQTT are up.
+// publishAvailability reports a device online only if it's paired, and it and Zigbee2MQTT are up.
 func (b *bridge) publishAvailability(id string) {
 	b.mu.Lock()
 	online, known := b.online[id]
@@ -269,7 +268,6 @@ func (b *bridge) Inventory(_ driver.InstanceKey, devices []driver.AppDevice) {
 			Name: d.Name, DeviceType: string(d.DeviceType),
 		}
 		discovered = append(discovered, listed)
-		// The report is the same device, as found.
 		reports = append(reports, contractv1.DeviceReport{
 			ID: listed.ID, Found: true, Manufacturer: listed.Manufacturer, Model: listed.Model,
 			SerialNumber: listed.SerialNumber, FirmwareVersion: listed.FirmwareVersion,
@@ -340,7 +338,7 @@ func (b *bridge) Discovered(ident.ID, driver.Info) {}
 // Undeclared implements driver.Sink. Every device is reported, so none are.
 func (b *bridge) Undeclared(driver.InstanceKey, int) {}
 
-// device is how the plugin names a device to an Instance: by its ID.
+// device names a device to the Instance by its IEEE address.
 func device(id string) ident.ID { return ident.ID{Name: id} }
 
 // onlinePayload reads Zigbee2MQTT's states: {"state":"online"} from 2.x, and a bare string before.

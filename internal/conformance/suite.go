@@ -64,7 +64,7 @@ type Config struct {
 	Devices string
 	// Secrets is a directory passed as OIKADE_SECRETS_DIR. Optional.
 	Secrets string
-	// Plugin, if set, checks a plugin a home imports, through the Go API rather than MQTT: Command
+	// Plugin, if set, checks a plugin a home imports, over the host's socket rather than MQTT: Command
 	// is the home's binary, and Plugin the plugin's name in it. Only what carries the messages
 	// differs, so the checks are the same.
 	Plugin string
