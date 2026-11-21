@@ -22,10 +22,8 @@ import (
 // Errors. Every error this package returns wraps one of them.
 var (
 	// ErrInvalid is returned for a certificate that is malformed, or outside Matter's profile.
-	ErrInvalid = errors.New("matter: invalid certificate")
-	// ErrExpired is returned for a certificate used outside its validity period.
-	ErrExpired = errors.New("matter: certificate expired or not yet valid")
-	// ErrSignature is returned when a certificate's signature doesn't verify.
+	ErrInvalid   = errors.New("matter: invalid certificate")
+	ErrExpired   = errors.New("matter: certificate expired or not yet valid")
 	ErrSignature = errors.New("matter: certificate signature invalid")
 	// ErrChain is returned for a chain whose certificates don't fit together as Matter requires.
 	ErrChain = errors.New("matter: invalid certificate chain")
@@ -68,17 +66,14 @@ type Certificate struct {
 	order []uint8
 }
 
-// BasicConstraints is the X.509 basic constraints extension.
 type BasicConstraints struct {
-	IsCA bool
-	// MaxPathLen is the path length constraint, or nil for none.
-	MaxPathLen *uint8
+	IsCA       bool
+	MaxPathLen *uint8 // nil for none
 }
 
 // KeyPurpose is an extended key usage, numbered as in Matter's TLV form.
 type KeyPurpose uint8
 
-// Key purposes.
 const (
 	PurposeServerAuth KeyPurpose = 1 + iota
 	PurposeClientAuth
@@ -91,7 +86,6 @@ const (
 // Kind is what a certificate is for, from the Matter attributes in its subject.
 type Kind uint8
 
-// Certificate kinds.
 const (
 	KindUnknown Kind = iota
 	KindRoot
@@ -212,7 +206,6 @@ func (c *Certificate) CATs() []uint32 {
 	return cats
 }
 
-// ECDSAPublicKey returns the subject's public key.
 func (c *Certificate) ECDSAPublicKey() (*ecdsa.PublicKey, error) { return parsePublicKey(c.PublicKey) }
 
 // criticalFuture reports whether the certificate has a future extension marked critical, which

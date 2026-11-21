@@ -21,11 +21,11 @@ import (
 // send bursts: a swipe in the Home app sends several On/Off commands within 10 ms.
 const coalesceWindow = 50 * time.Millisecond
 
-// travelWindow is how long writes to a capability that travels, as a blind's position, gather after
-// the last one. The Home app sends a slider's move as it goes: 1% and then 18% a second later for
-// one drag of a shutter (OIK-337). Each is a new run on the motor, which stops it to start the
-// next, so the shutter stutters. A move starts this much later, which a shutter's travel of tens of
-// seconds hides.
+// travelWindow is how long writes to a capability that travels, as a blind's position, gather
+// after the last one. The Home app sends a slider's move as it goes: 1% and then 18% a second
+// later for one drag of a shutter (OIK-337). Each is a new run on the motor, which stops it to
+// start the next, so the shutter stutters. A move starts this much later, which a shutter's travel
+// of tens of seconds hides.
 const travelWindow = 1500 * time.Millisecond
 
 // sentFor is how long a sent value, rather than the device's report, is what a later write is
@@ -49,13 +49,13 @@ type gathering struct {
 	// timer fires at due. A write that moves due replaces it, and wakes the burst.
 	timer clock.Timer
 	wake  chan struct{}
-	// over is set once the burst has ended, or Send has ended it, and is waiting to be sent or being
-	// sent. A write then still joins it, but doesn't move due.
+	// over is set once the burst has ended, or Send has ended it, and is waiting to be sent or
+	// being sent. A write then still joins it, but doesn't move due.
 	over bool
 }
 
-// travels says a capability goes from one value to the next over time, as a blind does, rather than
-// being at its new value at once.
+// travels says a capability goes from one value to the next over time, as a blind does, rather
+// than being at its new value at once.
 func travels(name string) bool { return capability.SettleOf(name) > capability.DefaultSettle }
 
 // Coalescer gathers writes from controllers per device and capability, latest wins, and sends
@@ -70,8 +70,8 @@ type Coalescer struct {
 	Current func(dev ident.ID, name string) (any, bool)
 	// Window is how long writes gather; 0 means 50 ms.
 	Window time.Duration
-	// TravelWindow is how long writes to a capability that travels gather after the last; 0 means
-	// 1.5 s.
+	// TravelWindow is how long writes to a capability that travels gather after the last; 0
+	// means 1.5 s.
 	TravelWindow time.Duration
 	// Timeout bounds each write.
 	Timeout time.Duration
@@ -149,9 +149,9 @@ func (c *Coalescer) Add(dev ident.ID, name string, value any) {
 	})
 }
 
-// Send ends a device's burst now, rather than when its writes' windows are over: a stop can't wait
-// for more of a move. A write after it still joins the burst, without holding it back. It doesn't
-// block.
+// Send ends a device's burst now, rather than when its writes' windows are over: a stop can't
+// wait for more of a move. A write after it still joins the burst, without holding it back. It
+// doesn't block.
 func (c *Coalescer) Send(dev ident.ID) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -228,8 +228,8 @@ func (c *Coalescer) window(name string) time.Duration {
 // flush sends a device's latest writes: a level before turning on, and turning off before
 // anything else, so a light doesn't flash at its old level.
 //
-// A device's bursts are sent one at a time, in the order they ended, so a slow device can't take an
-// older write after a newer one. A burst waiting for the last to finish still gathers writes.
+// A device's bursts are sent one at a time, in the order they ended, so a slow device can't take
+// an older write after a newer one. A burst waiting for the last to finish still gathers writes.
 func (c *Coalescer) flush(dev ident.ID) {
 	type write struct {
 		name  string
@@ -279,7 +279,8 @@ func (c *Coalescer) flush(dev ident.ID) {
 	log := logging.FromContext(c.ctx)
 	for _, w := range writes {
 		k := writeKey{dev, w.name}
-		// A device on its way, as a blind travels, isn't at what it reports, so writing that stops it.
+		// A device on its way, as a blind travels, isn't at what it reports, so writing that stops
+		// it.
 		if !travels(w.name) && reflect.DeepEqual(c.baseline(k), w.value) {
 			log.Debug("Skipped Matter write that changes nothing", "device", dev, "capability", w.name)
 			continue
@@ -303,8 +304,8 @@ func (c *Coalescer) flush(dev ident.ID) {
 	}
 }
 
-// Reported says the device has spoken, so what was last sent no longer says what it's doing: anything
-// could have moved it since. A repeated write then counts against the device's own state.
+// Reported says the device has spoken, so what was last sent no longer says what it's doing:
+// anything could have moved it since. A repeated write then counts against the device's own state.
 func (c *Coalescer) Reported(dev ident.ID, name string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

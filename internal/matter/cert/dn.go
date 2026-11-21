@@ -41,7 +41,6 @@ const (
 // X.509 rather than a UTF8String.
 const printableFlag = 0x80
 
-// attributeOIDs holds each attribute type's X.509 object identifier.
 var attributeOIDs = map[AttributeType]asn1.ObjectIdentifier{
 	AttrCommonName:              {2, 5, 4, 3},
 	AttrSurname:                 {2, 5, 4, 4},

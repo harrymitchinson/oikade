@@ -14,7 +14,6 @@ import (
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
 )
 
-// Cluster IDs.
 const (
 	IDOnOff                         uint32 = 0x0006
 	IDDescriptor                    uint32 = 0x001D
@@ -22,7 +21,6 @@ const (
 	IDBridgedDeviceBasicInformation uint32 = 0x0039
 )
 
-// names are the clusters a node serves, by ID.
 var names = map[uint32]string{
 	IDIdentify: "identify", IDOnOff: "on_off", IDLevelControl: "level_control", IDDescriptor: "descriptor",
 	IDAccessControl: "access_control", IDBasicInformation: "basic_information",
@@ -36,8 +34,8 @@ var names = map[uint32]string{
 	IDWindowCovering: "window_covering",
 }
 
-// Name is the name of a cluster a node serves, in snake case, such as on_off. Any other is "other", so
-// that a controller can't make up names.
+// Name is the snake-case name of a cluster a node serves, such as on_off, and "other" for any
+// other, so that a controller can't make up names.
 func Name(id uint32) string {
 	if name, ok := names[id]; ok {
 		return name
@@ -294,7 +292,6 @@ type OnOff struct {
 	OnChange func(on bool)
 }
 
-// NewOnOff returns an On/Off cluster.
 func NewOnOff() *OnOff {
 	o := &OnOff{}
 	set := func(on bool) func(*im.Request, *tlv.Reader) (*im.Response, error) {

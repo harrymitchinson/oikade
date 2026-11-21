@@ -14,7 +14,6 @@ import (
 // Flow is the commissioning flow.
 type Flow uint8
 
-// Commissioning flows.
 const (
 	FlowStandard   Flow = 0 // ready as soon as it's powered
 	FlowUserIntent Flow = 1
@@ -28,7 +27,6 @@ const (
 	DiscoveryOnNetwork uint8 = 1 << 2
 )
 
-// Field limits.
 const (
 	MaxDiscriminator = 1<<12 - 1
 	MaxPasscode      = 99999998

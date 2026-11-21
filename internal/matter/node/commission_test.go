@@ -101,8 +101,8 @@ func TestCommissionAndRestart(t *testing.T) {
 }
 
 // TestStoppingClosesSessionsBeforeTheGoodbye: a controller hears CloseSession on its session, and
-// has heard it by the time the mDNS responder says goodbye. Closing waits a moment for it, because the
-// packet is on its way to another socket: one sent after the goodbye never arrives in time.
+// has heard it by the time the mDNS responder says goodbye. Closing waits a moment for it, because
+// the packet is on its way to another socket: one sent after the goodbye never arrives in time.
 func TestStoppingClosesSessionsBeforeTheGoodbye(t *testing.T) {
 	n, fake, stop := start(t, Config{DataDir: t.TempDir()})
 	testkit.Eventually(t, "the initial window", func() bool { return fake.commissionable() != nil })

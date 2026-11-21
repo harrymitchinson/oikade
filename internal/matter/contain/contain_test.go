@@ -18,8 +18,8 @@ func TestRecoverContainsAPanicAndEndsWhatItLeft(t *testing.T) {
 	}
 }
 
-// A commissioning command that panics would leave a window or a fail-safe half moved: that has to stop
-// the host, with Recover further up.
+// A commissioning command that panics would leave a window or a fail-safe half moved: that has to
+// stop the host, with Recover further up.
 func TestACriticalPanicGetsPastRecover(t *testing.T) {
 	heard := false
 	defer func() {

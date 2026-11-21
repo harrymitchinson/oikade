@@ -38,17 +38,16 @@ var onOffTypes = map[devicetype.Type]im.DeviceType{
 
 // Device is everything needed to map a device to a bridged endpoint.
 type Device struct {
-	Key      ident.ID
-	Endpoint uint16
-	Name     string
-	// Capabilities are the device's capability names.
+	Key          ident.ID
+	Endpoint     uint16
+	Name         string
 	Capabilities []string
 	// Type is what a device that's on or off is, as devicetype.OnOffOf says. A dimmable type has
 	// Level Control, and an on/off one doesn't, even with a brightness. Empty is what its
 	// capabilities say.
 	Type devicetype.Type
-	// Unique is the bridged device's UniqueID. Empty derives it from Key, which suits a Key that never
-	// changes.
+	// Unique is the bridged device's UniqueID. Empty derives it from Key, which suits a Key that
+	// never changes.
 	Unique string
 	// Absent is a device with no driver reporting it yet: it's on the bridge, and unreachable.
 	Absent bool
@@ -70,7 +69,6 @@ type Device struct {
 	Gathering func(name string) bool
 }
 
-// uniqueID is the bridged device's UniqueID.
 func (d Device) uniqueID() string {
 	if d.Unique != "" {
 		return d.Unique
@@ -96,8 +94,9 @@ func (m *Mapped) Update(name string, v any) {
 	}
 }
 
-// Cancel undoes what a controller's write to a capability started, for a write that didn't happen,
-// such as a blind's move, and says whether there was anything to undo. Call it inside Node.Update.
+// Cancel undoes what a controller's write to a capability started, for a write that didn't
+// happen, such as a blind's move, and says whether there was anything to undo. Call it inside
+// Node.Update.
 func (m *Mapped) Cancel(name string) bool {
 	f := m.cancel[name]
 	if f != nil {
@@ -237,8 +236,8 @@ func Map(d Device, set SetFunc) *Mapped {
 	return m
 }
 
-// mapCovering makes the device a Window Covering, whose lift is its position. Both are 0 when open,
-// so Matter's hundredths are the position times 100. A move settles after position's Settle.
+// mapCovering makes the device a Window Covering, whose lift is its position. Both are 0 when
+// open, so Matter's hundredths are the position times 100. A move settles after position's Settle.
 func mapCovering(m *Mapped, d Device, set SetFunc) {
 	c := clusters.NewCovering()
 	c.OnMove = func(percent float64) { set(capability.Position, percent) }
@@ -265,8 +264,8 @@ func mapCovering(m *Mapped, d Device, set SetFunc) {
 	m.cancel[capability.Position] = c.Cancel
 }
 
-// mapHeater makes the device a Thermostat with only the Heating feature. SystemMode Off and Heat are
-// its on, if it has one. The Thermostat cluster's LocalTemperature is its temperature.
+// mapHeater makes the device a Thermostat with only the Heating feature. SystemMode Off and Heat
+// are its on, if it has one. The Thermostat cluster's LocalTemperature is its temperature.
 func mapHeater(m *Mapped, switchable bool, set SetFunc) {
 	h := clusters.NewHeater(switchable)
 	h.OnSetpoint = func(celsius float64) { set(capability.Setpoint, celsius) }

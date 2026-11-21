@@ -88,8 +88,8 @@ func (s *Server) subscribe(ctx context.Context, ex *transport.Exchange, b []byte
 		s.endSubscription(sub)
 		return err
 	}
-	// Info, with min, so the log shows how long a change may wait for its report (OIK-208).
-	// Durations as strings, which the host's JSON log would otherwise print in nanoseconds.
+	// Info, with min, so the log shows how long a change may wait for its report. Durations as
+	// strings, which the host's JSON log would otherwise print in nanoseconds.
 	s.Log.Info("Started subscription", "subscription", sub.id, "peer", session.Peer(), "node", fmt.Sprintf("%016X", session.PeerNodeID()),
 		"min", sub.min.String(), "max", sub.max.String(), "replaced", replaced)
 	go s.save(sub) // off the response path: it waits for the disk

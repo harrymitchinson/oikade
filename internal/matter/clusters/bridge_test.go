@@ -515,8 +515,8 @@ func TestSubscriberSeesRemovedDevice(t *testing.T) {
 	}
 }
 
-// A bridged device's VendorName and ProductName are served once known, cut to 32 bytes, and
-// subscribers hear of them and of the attribute list they join.
+// A bridged device's product strings are served once known, cut to 32 bytes, or 64 for a version,
+// and subscribers hear of them and of the attribute list they join or, emptied, leave.
 func TestABridgedDevicesProductIsServedOnceKnown(t *testing.T) {
 	f := newFixture(t)
 	path := func(attr uint32) im.Path {

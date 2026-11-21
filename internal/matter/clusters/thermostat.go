@@ -7,14 +7,13 @@ import (
 	"github.com/harrymitchinson/oikade/internal/matter/tlv"
 )
 
-// The HVAC clusters.
 const (
 	IDThermostat uint32 = 0x0201
 )
 
-// DeviceThermostat is the Thermostat device type, at Matter 1.3's revision. It needs Identify, which
-// every bridged endpoint has, and Thermostat. Groups is only for a device that starts things itself,
-// and Thermostat Mode only arrives, optional, in 1.7.
+// DeviceThermostat is the Thermostat device type, at Matter 1.3's revision. It needs Identify,
+// which every bridged endpoint has, and Thermostat. Groups is only for a device that starts things
+// itself, and Thermostat Mode only arrives, optional, in 1.7.
 var DeviceThermostat = im.DeviceType{ID: 0x0301, Revision: 3}
 
 // The SystemMode values a heater uses (SystemModeEnum).
@@ -23,7 +22,6 @@ const (
 	SystemModeHeat = 4
 )
 
-// The Thermostat attributes.
 const (
 	attrLocalTemperature           = 0x0000
 	attrOccupiedHeatingSetpoint    = 0x0012
@@ -60,8 +58,8 @@ type Heater struct {
 	OnMode func(heat bool)
 }
 
-// NewHeater returns a Thermostat cluster for a heater. switchable says it can be turned off, so that
-// SystemMode can be Off as well as Heat.
+// NewHeater returns a Thermostat cluster for a heater. switchable says it can be turned off, so
+// that SystemMode can be Off as well as Heat.
 func NewHeater(switchable bool) *Heater {
 	h := &Heater{setpoint: 2000, switchable: switchable, on: !switchable}
 	const featureHeating = 1 << 0

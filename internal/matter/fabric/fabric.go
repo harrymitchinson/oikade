@@ -179,7 +179,6 @@ type Table struct {
 	caseCache map[uint8]*securechannel.Fabric // what CASE() last returned
 }
 
-// Open loads a table from store.
 func Open(store Store) (*Table, error) {
 	t := &Table{store: store, nextIndex: 1}
 	b, err := store.Load()
@@ -415,7 +414,7 @@ func (t *Table) SetACL(index uint8, acl []ACE) error {
 	})
 }
 
-// change applies f to fabric index, saving it unless the fabric is pending. A committed fabric
+// change runs apply on fabric index, and saves it unless the fabric is pending. A committed fabric
 // with a pending update gets the change both now and in the update.
 func (t *Table) change(index uint8, apply func(*Fabric) error) error {
 	t.mu.Lock()

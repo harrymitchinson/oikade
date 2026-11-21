@@ -110,8 +110,7 @@ func TestCoalescerWritesATravellersLastReportedPosition(t *testing.T) {
 }
 
 // The Home app sends a slider's move as it goes, 1% and then 18% a second later for one drag of a
-// shutter (OIK-337): the shutter gets one write, the last, once the drag has stopped for the
-// travel window.
+// shutter: the shutter gets one write, the last, once the drag has stopped for the travel window.
 func TestCoalescerSendsOnlyADragsLastPosition(t *testing.T) {
 	c, rec, clk := coalescer(t, reports(0.0))
 	c.Add(officeBlind, capability.Position, 1.0)
@@ -173,7 +172,7 @@ func TestCoalescerSendsAtOnceWhenAsked(t *testing.T) {
 func TestCoalescerSendIsntHeldBackByALaterWrite(t *testing.T) {
 	c, rec, _ := coalescer(t, reports(30.0))
 	// The burst waits here, once Send has ended it and before it takes its writes, so the later
-	// write lands while it's being sent rather than after (OIK-353).
+	// write lands while it's being sent rather than after.
 	ended, sendIt := make(chan struct{}), make(chan struct{})
 	c.ended = func(ident.ID) {
 		close(ended)

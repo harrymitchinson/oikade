@@ -213,7 +213,6 @@ type Occupancy struct {
 	occupied bool
 }
 
-// NewOccupancy returns an Occupancy Sensing cluster.
 func NewOccupancy() *Occupancy {
 	o := &Occupancy{}
 	const featurePIR = 1 << 1
@@ -247,7 +246,6 @@ type BooleanState struct {
 	state   bool
 }
 
-// NewBooleanState returns a Boolean State cluster.
 func NewBooleanState() *BooleanState {
 	b := &BooleanState{}
 	b.cluster = &im.Cluster{

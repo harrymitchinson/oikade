@@ -16,7 +16,6 @@ import (
 	"github.com/harrymitchinson/oikade/internal/matter/transport"
 )
 
-// Commissioning cluster IDs.
 const (
 	IDGeneralCommissioning       uint32 = 0x0030
 	IDNetworkCommissioning       uint32 = 0x0031
@@ -68,7 +67,6 @@ type Hooks struct {
 	Commissioned func(index uint8)
 }
 
-// CommissioningConfig configures the commissioning clusters.
 type CommissioningConfig struct {
 	Fabrics     *fabric.Table
 	Attestation *attestation.Credentials
@@ -174,9 +172,9 @@ func (c *Commissioning) Clusters() []*im.Cluster {
 	return []*im.Cluster{c.general, c.opCreds, c.network, c.acl, c.groupKeys, c.admin}
 }
 
-// critical makes a panic in any of the cluster's commands or writes stop the host, even though it runs
-// on a handler, where a panic is contained: it would leave a window, a fail-safe or the fabrics half
-// moved.
+// critical makes a panic in any of the cluster's commands or writes stop the host, even though
+// they run on a handler, where a panic is contained: it would leave a window, a fail-safe or the
+// fabrics half moved.
 func critical(cl *im.Cluster) {
 	for i := range cl.Commands {
 		invoke := cl.Commands[i].Invoke

@@ -50,7 +50,6 @@ type Request struct {
 	FabricFiltered bool
 }
 
-// newRequest describes a request on session.
 func newRequest(session *transport.Session, fabricFiltered bool) *Request {
 	return &Request{
 		Session:        session,

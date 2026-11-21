@@ -76,8 +76,8 @@ func (f *fakeMDNS) Remove(svc mdns.Service) error {
 	return nil
 }
 
-// ResolveOperational answers with resolve, or else finds nothing, so the node reaches controllers at
-// their last address.
+// ResolveOperational answers with resolve, or else finds nothing, so the node reaches controllers
+// at their last address.
 func (f *fakeMDNS) ResolveOperational(_ context.Context, compressedFabricID, nodeID uint64) (mdns.Resolved, error) {
 	f.mu.Lock()
 	resolve := f.resolve
@@ -156,7 +156,7 @@ func (c heldConn) Close() error { return c.SetReadDeadline(time.Now()) }
 // testSetup is the setup code of the nodes the tests start.
 var testSetup = Setup{Passcode: 20202021, Discriminator: 3840}
 
-// start runs a node in dir until the test ends, or until it calls the returned stop.
+// start runs a node with cfg until the test ends, or until it calls the returned stop.
 func start(t *testing.T, cfg Config) (*Node, *fakeMDNS, func()) {
 	t.Helper()
 	fake := &fakeMDNS{services: map[string]mdns.Service{}}

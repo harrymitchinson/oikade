@@ -89,7 +89,8 @@ func TestOwnersWindow(t *testing.T) {
 	testkit.Eventually(t, "the window to time out", func() bool { return fake.commissionable() == nil && !n.WindowOpen() })
 
 	// WindowChanged heard each window open and close, in turn: the initial one, the owner's on no
-	// fabric, the one opened twice over, and the last. Opening one again while it's open isn't news.
+	// fabric, the one opened twice over, and the last. Opening one again while it's open isn't
+	// news.
 	testkit.Eventually(t, "the last window's closing to be told", func() bool {
 		telling.Lock()
 		defer telling.Unlock()
@@ -149,7 +150,7 @@ func (l *jsonLines) line(t *testing.T, msg string) map[string]any {
 }
 
 // The window's lines read as the host writes them: its timeout as a duration, not nanoseconds, and
-// the advertising lines under the part the mDNS responder logs as (OIK-338).
+// the advertising lines under the part the mDNS responder logs as.
 func TestTheWindowsLinesSayTheirPartAndTimeout(t *testing.T) {
 	clk := clock.NewFake(time.Date(2026, 11, 18, 14, 0, 0, 0, time.UTC))
 	log := &jsonLines{}

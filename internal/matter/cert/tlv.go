@@ -59,7 +59,6 @@ const (
 	keyUsageMask = 0x1FF
 )
 
-// matterEpoch is the start of Matter's epoch time: 2000-01-01T00:00:00Z.
 var matterEpoch = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // toEpoch converts a validity time to Matter epoch seconds. The zero time is epoch 0, which means

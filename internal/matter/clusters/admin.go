@@ -31,7 +31,7 @@ const (
 	maxWindowTimeout = 900 * time.Second
 )
 
-// Window is a commissioning window that an administrator opened.
+// Window is a commissioning window, opened by an administrator, the node's owner or the node.
 type Window struct {
 	// Basic windows take the node's own passcode. Enhanced ones take the verifier below.
 	Basic         bool
@@ -48,8 +48,8 @@ type window struct {
 	// initial is set for the window the node opens itself while it's on no fabric. The cluster
 	// reports it as not open, since no administrator opened it, but RevokeCommissioning closes it.
 	initial bool
-	// owners is set for a window the node or its owner opened, rather than a controller: the initial
-	// window, and OpenOwnersWindow's. OpenOwnersWindow replaces only these.
+	// owners is set for a window the node or its owner opened, rather than a controller: the
+	// initial window, and OpenOwnersWindow's. OpenOwnersWindow replaces only these.
 	owners      bool
 	adminFabric uint8
 	adminVendor uint16
@@ -172,11 +172,12 @@ var ErrWindowBusy = errors.New("matter: a controller is pairing with the node, o
 // passcode then pairs nothing, so that a code someone once saw can't add a controller.
 var ErrOnFabric = errors.New("matter: the node is on a fabric, so a window needs a passcode of its own")
 
-// OpenOwnersWindow opens a commissioning window for the node's owner, rather than for a controller,
-// and says when it closes. A basic window, with the node's own passcode, is the initial window, as
-// at start, and only opens while the node is on no fabric. An enhanced one takes w's verifier. It
-// replaces a window the owner or the node opened, and refuses while a controller's is open or the
-// fail-safe is armed. Commissioning a fabric and the timeout close it, as they do any window.
+// OpenOwnersWindow opens a commissioning window for the node's owner, rather than for a
+// controller, and says when it closes. A basic window, with the node's own passcode, is the
+// initial window, as at start, and only opens while the node is on no fabric. An enhanced one
+// takes w's verifier. It replaces a window the owner or the node opened, and refuses while a
+// controller's is open or the fail-safe is armed. Commissioning a fabric and the timeout close it,
+// as they do any window.
 func (c *Commissioning) OpenOwnersWindow(w Window) (closes time.Time, err error) {
 	n := c.general.Node()
 	if n == nil {
@@ -227,8 +228,8 @@ func (c *Commissioning) windowStatus() uint8 {
 	return c.window.status
 }
 
-// openWindow opens w for the administrator on fabric (0 for the node's or its owner's), and closes it
-// when it times out. Call it with the Node's lock.
+// openWindow opens w for the administrator on fabric (0 for the node's or its owner's), and
+// closes it when it times out. Call it with the Node's lock.
 func (c *Commissioning) openWindow(fabric uint8, initial, owners bool, w Window) {
 	status := uint8(windowEnhanced)
 	if w.Basic {

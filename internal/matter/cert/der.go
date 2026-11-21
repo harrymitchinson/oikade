@@ -5,7 +5,6 @@ import (
 	"encoding/asn1"
 )
 
-// DER tags this package reads and writes.
 const (
 	tagBoolean          = 0x01
 	tagInteger          = 0x02
@@ -143,8 +142,6 @@ func (r *derReader) read(tag byte) (contents, whole []byte, err error) {
 	return b[off : off+n], b[:off+n], nil
 }
 
-// readInto reads the next element, which must have the given tag, and returns a reader over its
-// contents.
 func (r *derReader) readInto(tag byte) (derReader, error) {
 	c, _, err := r.read(tag)
 	return derReader(c), err
