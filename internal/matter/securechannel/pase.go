@@ -31,8 +31,8 @@ const (
 	paseKeysInfo      = "SessionKeys"
 	// paseTimeout bounds a whole PASE handshake for the commissioner.
 	paseTimeout = time.Minute
-	// stepTimeout bounds how long the device waits for each of the commissioner's messages, so a
-	// commissioner that goes quiet holds the one handshake slot only briefly.
+	// stepTimeout bounds how long a handshake waits for each of the peer's messages or
+	// acknowledgements, so a peer that goes quiet holds a handshake slot only briefly.
 	stepTimeout = 15 * time.Second
 )
 

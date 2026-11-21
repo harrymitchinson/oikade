@@ -18,8 +18,7 @@ type Service struct {
 	// Subtypes are the labels that a browser can narrow its query by, such as "_L3840". Each one
 	// gets a PTR record "<subtype>._sub.<type>.local." (RFC 6763, 7.1).
 	Subtypes []string
-	// Port is the port the service listens on.
-	Port uint16
+	Port     uint16
 	// Text is the TXT record's strings, each "key=value" or "key" (RFC 6763, 6).
 	Text []string
 }

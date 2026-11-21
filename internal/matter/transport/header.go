@@ -12,7 +12,6 @@ var ErrMalformed = errors.New("malformed Matter message")
 // SessionType is the Session Type field of a message's security flags.
 type SessionType uint8
 
-// Session types.
 const (
 	UnicastSession SessionType = 0
 	GroupSession   SessionType = 1

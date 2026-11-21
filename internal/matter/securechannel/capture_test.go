@@ -33,7 +33,8 @@ type capture struct {
 	// Random is each random value PASE drew on Oikade's side, in order, and Scalars each scalar.
 	Random  []hexBytes `json:"random,omitempty"`
 	Scalars []hexBytes `json:"scalars,omitempty"`
-	// EphemeralKeys are the private keys of each CASE that Oikade's side answered, in order.
+	// EphemeralKeys are the private keys of each full CASE that Oikade's side answered, in order. A
+	// resumption draws none.
 	EphemeralKeys []hexBytes `json:"ephemeralKeys,omitempty"`
 	// Fabric is the fabric chip-tool commissioned Oikade's side onto, without its operational
 	// key, which CASE's replay doesn't need.
@@ -151,8 +152,8 @@ func (c *capturingConn) secureFrom() (chipTool, oikade bool) {
 
 // TestCaptureChipToolPASE records chip-tool commissioning Oikade's PASE responder, up to the first
 // secure message each way, into testdata/pase-chip-tool.json. It runs only where chip-tool is,
-// named by OIKADE_CHIP_TOOL, and OIKADE_CHIP_TOOL_SOURCE says where it came from. testdata/README.md
-// says how to run it in the journeys' chip-tool image.
+// named by OIKADE_CHIP_TOOL, and OIKADE_CHIP_TOOL_SOURCE says where it came from.
+// testdata/README.md says how to run it in the journeys' chip-tool image.
 func TestCaptureChipToolPASE(t *testing.T) {
 	chipTool := os.Getenv("OIKADE_CHIP_TOOL")
 	if chipTool == "" {

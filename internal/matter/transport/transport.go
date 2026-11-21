@@ -79,8 +79,8 @@ type Options struct {
 	MRP MRPConfig
 	// Panicked, if set, hears each panic contained in reading a packet or in a Handler.
 	Panicked contain.Panicked
-	// EndSession, if set, ends a session whose Handler panicked, which may have left it half updated.
-	// Nil removes it.
+	// EndSession ends a session that a contained panic may have left half updated. If it's nil, the
+	// Transport removes the session.
 	EndSession func(*Session)
 }
 
@@ -143,9 +143,9 @@ type handlerKey struct {
 
 // Handle registers h for exchanges that peers start in protocol p with one of the given opcodes,
 // such as a Read Request, replacing any Handler registered for them before; other opcodes keep
-// theirs, so several Handlers can share a protocol. Only these start an
-// exchange: any other message without one, such as a late Status Response to an exchange that
-// has ended, is acknowledged and dropped.
+// theirs, so several Handlers can share a protocol. Only these start an exchange: any other
+// message without one, such as a late Status Response to an exchange that has ended, is
+// acknowledged and dropped.
 func (t *Transport) Handle(p ProtocolID, opcodes []uint8, h Handler) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -189,8 +189,8 @@ func (t *Transport) Serve(ctx context.Context) error {
 	}
 }
 
-// receiveContained is receive, with a panic costing only the packet and the session it came on, which
-// may be half updated: receive lets its locks go with defer.
+// receiveContained is receive, where a panic costs only the packet and the session it came on,
+// which may be half updated: receive lets its locks go with defer.
 func (t *Transport) receiveContained(pkt []byte, from netip.AddrPort) {
 	var on *Session
 	defer contain.Recover(t.log, contain.Receive, t.panicked, func() {
@@ -303,8 +303,8 @@ func (t *Transport) newSession(peer netip.AddrPort) *Session {
 	}
 }
 
-// receive handles one datagram. pkt is the Transport's to keep.
-// receive handles a packet, and sets on to the session it's on once it has one.
+// receive handles one datagram, which is the Transport's to keep, and sets on to the session it's
+// on once it has one.
 func (t *Transport) receive(pkt []byte, from netip.AddrPort, on **Session) {
 	h, n, err := ParseHeader(pkt)
 	if err != nil {
@@ -436,7 +436,6 @@ func (t *Transport) roomForResponder() bool {
 	return true
 }
 
-// SecureSessions returns how many secure sessions the Transport holds.
 func (t *Transport) SecureSessions() int {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -449,7 +448,7 @@ func (t *Transport) SecureSessions() int {
 	return n
 }
 
-// ended ends a session whose Handler panicked.
+// ended ends a session after a panic contained on it.
 func (t *Transport) ended(s *Session) {
 	if t.endSession != nil {
 		t.endSession(s)

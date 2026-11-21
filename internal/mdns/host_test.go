@@ -409,7 +409,8 @@ func TestDialerDialsWhatItFoundBeforeWhenALookupMisses(t *testing.T) {
 	m.expect(t, 3)
 }
 
-// A host that's really gone, or moved, is looked up afresh once what was found before doesn't answer.
+// A host that's really gone, or moved, is looked up afresh once what was found before doesn't
+// answer.
 func TestDialerLooksAgainOnceWhatItFoundBeforeIsGone(t *testing.T) {
 	shortLookups(t, 20*time.Millisecond)
 	// Nothing accepts, but the kernel completes a connection to a listener anyway.
@@ -444,8 +445,8 @@ func TestDialerLooksAgainOnceWhatItFoundBeforeIsGone(t *testing.T) {
 	m.expect(t, 3)
 }
 
-// A dial given up on while it looks the host up says nothing about what was found before, so that's
-// kept for the next.
+// A dial given up on while it looks the host up says nothing about what was found before, so
+// that's kept for the next.
 func TestDialerKeepsWhatItFoundBeforeWhenADialIsGivenUp(t *testing.T) {
 	shortLookups(t, 20*time.Millisecond)
 	address := net.JoinHostPort("hub.local", listenLoopback(t, "127.0.0.1:0"))
@@ -467,8 +468,8 @@ func TestDialerKeepsWhatItFoundBeforeWhenADialIsGivenUp(t *testing.T) {
 	m.expect(t, 3)
 }
 
-// A lookup that misses uses up a dial's time, as lookupTimeout is longer than many a caller's, so it
-// gets only half of it when there are addresses from before to dial.
+// A lookup that misses uses up a dial's time, as lookupTimeout is longer than many a caller's, so
+// it gets only half of it when there are addresses from before to dial.
 func TestDialerLeavesTimeToDialWhatItFoundBefore(t *testing.T) {
 	address := net.JoinHostPort("hub.local", listenLoopback(t, "127.0.0.1:0"))
 	m := &misses{}

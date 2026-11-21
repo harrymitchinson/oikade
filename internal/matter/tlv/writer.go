@@ -24,7 +24,6 @@ func (w *Writer) Bytes() []byte {
 	return w.buf
 }
 
-// PutInt writes a signed integer in the fewest bytes that hold it.
 func (w *Writer) PutInt(tag Tag, v int64) {
 	switch {
 	case v >= math.MinInt8 && v <= math.MaxInt8:
@@ -48,7 +47,6 @@ func (w *Writer) PutIntSized(tag Tag, v int64, size int) {
 	w.buf = appendLE(w.buf, uint64(v), size)
 }
 
-// PutUint writes an unsigned integer in the fewest bytes that hold it.
 func (w *Writer) PutUint(tag Tag, v uint64) {
 	w.PutUintSized(tag, v, uintSize(v))
 }
@@ -64,7 +62,6 @@ func (w *Writer) PutUintSized(tag Tag, v uint64, size int) {
 	w.buf = appendLE(w.buf, v, size)
 }
 
-// PutBool writes a boolean.
 func (w *Writer) PutBool(tag Tag, v bool) {
 	if v {
 		w.head(tag, typeTrue)
@@ -73,13 +70,11 @@ func (w *Writer) PutBool(tag Tag, v bool) {
 	}
 }
 
-// PutFloat32 writes a single precision float.
 func (w *Writer) PutFloat32(tag Tag, v float32) {
 	w.head(tag, typeFloat32)
 	w.buf = binary.LittleEndian.AppendUint32(w.buf, math.Float32bits(v))
 }
 
-// PutFloat64 writes a double precision float.
 func (w *Writer) PutFloat64(tag Tag, v float64) {
 	w.head(tag, typeFloat64)
 	w.buf = binary.LittleEndian.AppendUint64(w.buf, math.Float64bits(v))
@@ -91,13 +86,11 @@ func (w *Writer) PutUTF8(tag Tag, s string) {
 	w.buf = append(w.buf, s...)
 }
 
-// PutBytes writes an octet string.
 func (w *Writer) PutBytes(tag Tag, b []byte) {
 	w.putLength(tag, typeBytesLen1, len(b))
 	w.buf = append(w.buf, b...)
 }
 
-// PutNull writes a null.
 func (w *Writer) PutNull(tag Tag) { w.head(tag, typeNull) }
 
 // StartStructure opens a structure, whose elements must be tagged. End closes it.
@@ -124,7 +117,6 @@ func (w *Writer) PutRaw(element []byte) {
 	w.buf = append(w.buf, element...)
 }
 
-// Len returns how many bytes the Writer holds.
 func (w *Writer) Len() int { return len(w.buf) }
 
 // End closes the container opened last.

@@ -17,7 +17,6 @@ import (
 // are both Int.
 type Type uint8
 
-// Element types.
 const (
 	Int Type = iota + 1
 	Uint

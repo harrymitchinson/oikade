@@ -132,9 +132,9 @@ func (r *Responder) Close() error {
 	return errors.Join(errs...)
 }
 
-// announce sends e's records, with the host's addresses and their NSEC records, twice, a second apart (RFC 6762, 8.3).
-// Each time, it sends the records e has then, and nothing once e has been removed, so that a late
-// announcement can't undo a goodbye.
+// announce sends e's records, with the host's addresses and their NSEC records, twice, a second
+// apart (RFC 6762, 8.3). Each time, it sends the records e has then, and nothing once e has been
+// removed, so that a late announcement can't undo a goodbye.
 func (r *Responder) announce(e *entry) {
 	send := func() {
 		r.sendMu.Lock()
@@ -231,7 +231,6 @@ func response(recs []record, ttl int64) ([]byte, error) {
 	return m.Pack()
 }
 
-// interfaceAddrs returns the addresses of an interface.
 func interfaceAddrs(ifIndex int) []netip.Addr {
 	ifi, err := net.InterfaceByIndex(ifIndex)
 	if err != nil {

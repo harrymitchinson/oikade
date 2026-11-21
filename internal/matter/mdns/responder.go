@@ -109,9 +109,10 @@ type Responder struct {
 	hostReady bool                 // the host name has been probed
 	// hostDefending is set while the host name is probed again after a conflict.
 	hostDefending bool
-	conflicts     []time.Time    // when the last conflicts came, for slowConflicts
-	former        []formerRecord // records just replaced or withdrawn, which our own late packets may still carry
-	closed        bool
+	conflicts     []time.Time // when the last conflicts came, for slowConflicts
+	// former holds records just replaced or withdrawn, which our own late packets may still carry.
+	former []formerRecord
+	closed bool
 
 	done chan struct{} // closed by Close, to stop timers
 	wg   sync.WaitGroup
@@ -131,8 +132,10 @@ type entry struct {
 // probe is a set of names being probed. The handler reports a conflict on one of them, or that
 // another host probing one of them at the same time won the tie-break.
 type probe struct {
-	names    []dnsmessage.Name
-	entry    *entry               // the service whose records it proposes, nil for the host name alone; the host's addresses go per interface
+	names []dnsmessage.Name
+	// entry is the service whose records it proposes, nil for the host name alone. The host's
+	// addresses go per interface.
+	entry    *entry
 	conflict chan dnsmessage.Name // buffered, 1
 	lost     chan dnsmessage.Name // the name a tie was lost on; buffered, 1
 }

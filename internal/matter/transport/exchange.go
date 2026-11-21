@@ -109,7 +109,6 @@ func (s *Session) Done() <-chan struct{} { return s.done }
 // Secure reports whether the session encrypts its messages.
 func (s *Session) Secure() bool { return s.security != nil }
 
-// Transport is the Transport the session is on.
 func (s *Session) Transport() *Transport { return s.t }
 
 // LocalSessionID returns a secure session's local ID, and 0 for an unsecured one.
@@ -199,8 +198,8 @@ func (s *Session) dispatch(ph *ProtocolHeader, counter uint32, msg Message) bool
 			ex.needAck(counter)
 		}
 		s.t.handling.Go(func() {
-			// A handler that panics may have left its session's state half updated, so the session goes
-			// with it, and the peer starts again.
+			// A handler that panics may have left its session's state half updated, so the
+			// session goes with it, and the peer starts again.
 			defer contain.Recover(s.t.log, contain.Handler, s.t.panicked, func() {
 				ex.Close()
 				s.t.ended(s)
@@ -327,10 +326,8 @@ type retransmission struct {
 	timer   *time.Timer
 }
 
-// Session returns the exchange's session.
 func (ex *Exchange) Session() *Session { return ex.s }
 
-// ID returns the exchange ID.
 func (ex *Exchange) ID() uint16 { return ex.key.id }
 
 // Send sends m reliably. It first waits until the peer has acknowledged the previous message, as
@@ -484,7 +481,6 @@ func (ex *Exchange) retransmit(r *retransmission) {
 	ex.transmit(r)
 }
 
-// acked handles an acknowledgement of counter.
 func (ex *Exchange) acked(counter uint32) {
 	if ex.out == nil || ex.out.counter != counter {
 		return
@@ -533,7 +529,6 @@ func (ex *Exchange) clearAck() {
 	}
 }
 
-// fail ends the exchange with err.
 func (ex *Exchange) fail(err error) {
 	if ex.err != nil {
 		return

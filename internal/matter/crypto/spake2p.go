@@ -138,7 +138,6 @@ type Verifier struct {
 	L  []byte // PointSize
 }
 
-// NewVerifier computes the verifier for a passcode.
 func NewVerifier(passcode uint32, salt []byte, iterations int) (Verifier, error) {
 	w0, w1, err := PBKDFScalars(passcode, salt, iterations)
 	if err != nil {
@@ -150,7 +149,7 @@ func NewVerifier(passcode uint32, salt []byte, iterations int) (Verifier, error)
 // Bytes serializes the verifier as w0 then L, as connectedhomeip's tools do.
 func (v Verifier) Bytes() []byte { return append(append([]byte(nil), v.W0...), v.L...) }
 
-// ParseVerifier reads a serialized verifier.
+// ParseVerifier reads what Bytes writes, and checks that w0 is in [1, n-1] and L is on the curve.
 func ParseVerifier(b []byte) (Verifier, error) {
 	if len(b) != VerifierSize {
 		return Verifier{}, fmt.Errorf("matter: verifier of %d bytes, want %d", len(b), VerifierSize)
