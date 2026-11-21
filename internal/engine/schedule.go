@@ -32,10 +32,8 @@ type timeTrigger struct {
 	days []time.Weekday
 }
 
-// hhmm is a time of day, as HH:MM.
 var hhmm = regexp.MustCompile(`^([01][0-9]|2[0-3]):([0-5][0-9])$`)
 
-// atTime parses an HH:MM time of day.
 func atTime(s string) (timeTrigger, error) {
 	parts := hhmm.FindStringSubmatch(s)
 	if parts == nil {
@@ -54,7 +52,8 @@ func checkSunOffset(d time.Duration) error {
 }
 
 // sunCacheSize bounds a sunCache: 32 days of both events, against the 20 or so that the schedule
-// and windows look at around now. A full cache is cleared, and the days in use are worked out again.
+// and windows look at around now. A full cache is cleared, and the days in use are worked out
+// again.
 const sunCacheSize = 64
 
 // sunDay is one sun event on one local calendar day.

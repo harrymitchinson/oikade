@@ -11,8 +11,8 @@ import (
 )
 
 // ControlSettings compiles a Device's control entry into arbiter settings. Errors name the
-// capability, so they can be reported as they are. loc is where a day
-// starts for maximumStartsPerDay.
+// capability, so they can be reported as they are. loc is where a day starts for
+// maximumStartsPerDay.
 func ControlSettings(c control.Entry, loc *time.Location) (control.Settings, error) {
 	s, err := controlSettings(c, loc)
 	if err != nil {

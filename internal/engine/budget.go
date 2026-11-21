@@ -264,8 +264,9 @@ func (e *Engine) compileBudget(s *state, snap hub.Snapshot) (*schedule.Budget, B
 	return b, BudgetReport{}
 }
 
-// restorePlan returns the plan saved in the hold's state, if it's for this planning day. The block in progress counts as started already. It returns nil otherwise. Run minutes not
-// yet checkpointed, at most checkpointEvery of them, are lost.
+// restorePlan returns the plan saved in the hold's state if it's for this planning day, or else
+// nil. The block in progress counts as started already. Run minutes not yet checkpointed, at most
+// checkpointEvery of them, are lost.
 func (e *Engine) restorePlan(key ident.ID, saved, date string, end, now time.Time) *budgetPlan {
 	if saved == "" {
 		return nil

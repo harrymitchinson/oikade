@@ -13,9 +13,9 @@ import (
 )
 
 // TestArbiterAgreesWithAModel makes random claims, releases, outside changes and clock moves, and
-// checks each decision against a model of the claims written apart from the arbiter, and against
-// the limits and the restart the package doc promises. A failure prints the settings and the
-// sequence that led to it.
+// checks each decision against a model of the claims written apart from the arbiter, against the
+// limits, and against a restart from its State. A failure prints the settings and the sequence that
+// led to it.
 func TestArbiterAgreesWithAModel(t *testing.T) {
 	r := rand.New(rand.NewPCG(7, 11))
 	for seq := range 3000 {

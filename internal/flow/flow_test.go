@@ -37,7 +37,7 @@ type fakeHome struct {
 	// releasing, if set, holds up a release until it closes, and entered closes when one begins.
 	releasing, entered chan struct{}
 	failing            error
-	// met is what WaitFor's condition says, and woken ends a wait for it.
+	// woken ends a WaitFor whose condition doesn't hold.
 	woken chan struct{}
 }
 
@@ -104,7 +104,6 @@ func (h *fakeHome) ReleaseFlow(_ context.Context, key ident.ID) error {
 	return nil
 }
 
-// holds reports whether a claim on the device is still made.
 func (h *fakeHome) holds(device string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -167,7 +166,6 @@ func resume(ctx context.Context, t *testing.T, f *Flow, h *fakeHome, l *testkit.
 	return result
 }
 
-// parked waits until something is waiting on the clock.
 func parked(t *testing.T, c *clock.Fake) {
 	t.Helper()
 	testkit.Eventually(t, "something to wait on the clock", c.HasWaiters)
@@ -405,7 +403,6 @@ func TestWaitForFarPastItsDeadlineGivesUp(t *testing.T) {
 	}
 }
 
-// waitJournal waits for a run to have n entries.
 func waitJournal(t *testing.T, h *fakeHome, n int) {
 	t.Helper()
 	testkit.Eventually(t, fmt.Sprintf("a run with %d journal entries", n), func() bool {
@@ -453,7 +450,8 @@ func TestChangedFlowIsDropped(t *testing.T) {
 	}
 }
 
-// A Restart flow's new trigger cancels the run with the process still going, which is the end of it.
+// A Restart flow's new trigger cancels the run with the process still going, which is the end of
+// it.
 func TestCancelledRunIsOver(t *testing.T) {
 	h, c, l := newFakeHome(), clock.NewFake(epoch), testkit.Logs(t)
 	f := newFlow(h, c, l, bedtime)
@@ -574,7 +572,6 @@ func TestLongJournalEndsTheRun(t *testing.T) {
 	}
 }
 
-// set claims a device for a test's flow until it's released, at normal priority.
 func set(device string) engine.Set {
 	return engine.Set{Device: device, Capability: "on", Value: false, Until: engine.UntilReleased}
 }

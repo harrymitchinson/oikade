@@ -99,10 +99,9 @@ func (w *claimWatch) claims() []HoldState {
 	return slices.Clone(w.saved)
 }
 
-// OIK-299: a start's claim outlives your process, so the hold is saved as active, latch and all,
-// before the claim reaches the host. A process killed in between loads it active and claims again,
-// even with the overheat past: it stays latched off rather than inactive with nothing to end the
-// claim.
+// A start's claim outlives your process, so the hold is saved as active, latch and all, before the
+// claim reaches the host. A process killed in between loads it active and claims again, even with
+// the overheat past: it stays latched off rather than inactive with nothing to end the claim.
 func TestAHoldIsSavedActiveBeforeItsStartClaims(t *testing.T) {
 	key := ident.ID{Name: "workshop-overheat"}
 	holds := newMemoryStates[HoldState]()

@@ -17,12 +17,10 @@ import (
 	"github.com/harrymitchinson/oikade/internal/testkit"
 )
 
-// entry is a bool control entry.
 func entry(name, def, external, hold string) control.Entry {
 	return control.Entry{Capability: name, Default: []byte(def), External: external, OverrideHold: hold}
 }
 
-// status returns the device's control status for one capability.
 func (r *rig) status(dev, name string) control.Status {
 	for _, s := range r.e.ControlOf(ident.ID{Name: dev}) {
 		if s.Capability == name {
@@ -76,8 +74,8 @@ func TestScenario6WallSwitchOverridesUntilNext(t *testing.T) {
 	r.expect(call{"hall-light", capability.On, true}, call{"hall-light", capability.On, true})
 }
 
-// Each write says whose it is, for the event log: the rule whose hold or step set it, the rule whose
-// claim won, and nobody's when arbitration puts the default back.
+// Each write says whose it is, for the event log: the rule whose hold or step set it, the rule
+// whose claim won, and nobody's when arbitration puts the default back.
 func TestAWriteSaysWhichRuleItIsFor(t *testing.T) {
 	light := holdRule(t, "hall-motion-light", Hold{Device: "hall-light", Capability: capability.On, Value: true, When: isTrue("hall-motion", capability.Occupied)})
 	heater := holdRule(t, "water-heater-night", heaterNight)
@@ -463,7 +461,7 @@ func TestAForgottenDeviceLeavesNoClaims(t *testing.T) {
 	}
 }
 
-// matter announces a Matter write, as the matter role does before writing the device.
+// matter announces a Matter write, as the host's Matter bridge does before writing the device.
 func (r *rig) matter(dev, c string, v any) {
 	r.e.MatterWrote(ident.ID{Name: dev}, c, v)
 }
@@ -479,7 +477,8 @@ func TestAMatterWriteThatFailedLeavesTheDevicesReportItsOwn(t *testing.T) {
 	}
 }
 
-// A failed oikade set forgets its own write, not a Matter one made since, which is still on its way.
+// A failed oikade set forgets its own write, not a Matter one made since, which is still on its
+// way.
 func TestAFailedCommandLeavesAMatterWriteMadeSince(t *testing.T) {
 	r := railRig(t)
 	dev := ident.ID{Name: "towel-rail"}
@@ -605,7 +604,7 @@ func TestAMatterWriteThatChangesNothingIsForgotten(t *testing.T) {
 	}
 }
 
-// A moment firing all day says once which Room members it leaves out, and again when that changes.
+// A flow firing all day says once which Room members it leaves out, and again when that changes.
 func TestSkippedRoomMembersAreLoggedOnChange(t *testing.T) {
 	logs := testkit.Logs(t)
 	e := &Engine{Log: logs.Logger}
@@ -622,8 +621,8 @@ func TestSkippedRoomMembersAreLoggedOnChange(t *testing.T) {
 	}
 }
 
-// A flow's room set limited to lights leaves the fridge plug in the same room alone, and says so. A hold
-// limited the same way writes only the lights too.
+// A flow's room set limited to lights leaves the fridge plug in the same room alone, and says so.
+// A set on one device can't take types, and a hold can't be limited to a sensor's type.
 func TestARoomRuleLimitedToTypesLeavesOtherTypesAlone(t *testing.T) {
 	r := startRigWith(t, rigOptions{now: local("2026-10-21 22:00 BST")})
 	lights := []devicetype.Type{devicetype.OnOffLight, devicetype.DimmableLight}
@@ -809,8 +808,9 @@ func TestABlindTravellingAfterAMatterWriteIsntAnOverride(t *testing.T) {
 	}
 }
 
-// A driver that rounds reports a rule's write back a little off, as Zigbee2MQTT turns 33 into 84 of
-// 254 and back into 33.1. That report is the write, whether it comes while the write settles or after.
+// A driver that rounds reports a rule's write back a little off, as Zigbee2MQTT turns 33 into 84
+// of 254 and back into 33.1. That report is the write, whether it comes while the write settles or
+// after.
 func TestARoundedReportOfAWriteIsntAnOverride(t *testing.T) {
 	for name, wait := range map[string]time.Duration{
 		"while it settles": 0,
@@ -837,7 +837,8 @@ func TestARoundedReportOfAWriteIsntAnOverride(t *testing.T) {
 	}
 }
 
-// A setpoint's step is 0.5 °C, so a radiator turned up by one is somebody, not the write's rounding.
+// A setpoint's step is 0.5 °C, so a radiator turned up by one is somebody, not the write's
+// rounding.
 func TestASetpointTurnedUpAStepIsAnOverride(t *testing.T) {
 	r := startRigWith(t, rigOptions{
 		now:    local("2026-10-21 20:00 BST"),

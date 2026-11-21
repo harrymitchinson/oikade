@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-// Event is a sun event.
 type Event int
 
 const (
@@ -46,7 +45,6 @@ func (s Site) Time(e Event, year int, month time.Month, day int, loc *time.Locat
 	return t.In(loc).Truncate(time.Second), true
 }
 
-// solarNoon returns the solar noon nearest to near.
 func (s Site) solarNoon(near time.Time) time.Time {
 	utc := near.UTC()
 	midnight := time.Date(utc.Year(), utc.Month(), utc.Day(), 0, 0, 0, 0, time.UTC)

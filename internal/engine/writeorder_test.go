@@ -90,8 +90,8 @@ func TestClaimsGoHighestLevelFirst(t *testing.T) {
 	}
 }
 
-// A claim that ends goes after those that start, whatever their levels, so a hold that takes over at
-// the same moment has claimed before the arbiter is left with nothing but the default (OIK-343).
+// A claim that ends goes after those that start, whatever their levels, so a hold that takes over
+// at the same moment has claimed before the arbiter is left with nothing but the default.
 func TestClaimsStartBeforeOthersEnd(t *testing.T) {
 	e := writeOrderEngine(t, map[string]hub.Meta{"pump": {Control: arbitratedOn}})
 	pump := HoldTarget{Device: "pump", Capability: capability.On}
@@ -120,8 +120,8 @@ func TestPlainWritesEndBeforeOthersStart(t *testing.T) {
 	}
 }
 
-// Plain writes have nothing to arbitrate them, so they go lowest level first and the highest level's
-// value is the one that stays.
+// Plain writes have nothing to arbitrate them, so they go lowest level first and the highest
+// level's value is the one that stays.
 func TestPlainWritesGoLowestLevelFirst(t *testing.T) {
 	e := writeOrderEngine(t, map[string]hub.Meta{"lamp": {}})
 	lamp := HoldTarget{Device: "lamp", Capability: capability.On}

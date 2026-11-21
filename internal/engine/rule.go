@@ -57,8 +57,8 @@ type Vars = map[string]any
 type Condition func(Vars) (bool, error)
 
 // EmptyRoom is a condition's error when it read a room that has no members, of the read's types if
-// it has them. Unlike a room whose members haven't reported yet, it won't pass by waiting, so a hold
-// warns about it.
+// it has them. Unlike a room whose members haven't reported yet, it won't pass by waiting, so a
+// hold warns about it.
 type EmptyRoom struct{ Room string }
 
 func (e EmptyRoom) Error() string { return fmt.Sprintf("room %s has no members", e.Room) }
@@ -69,7 +69,6 @@ type RoomRead struct {
 	Types []devicetype.Type `json:"types,omitempty"`
 }
 
-// Equal reports whether two reads are of the same room and types.
 func (r RoomRead) Equal(o RoomRead) bool { return r.Room == o.Room && slices.Equal(r.Types, o.Types) }
 
 // VarRoomReads is the Vars key of a *[]RoomRead that a condition adds each room it reads to.
@@ -183,7 +182,7 @@ type Set struct {
 	// every device in the room with the capability.
 	DeviceTypes []devicetype.Type
 	Capability  string
-	// Value is a bool or a number.
+	// Value is a bool, a number or one of the capability's names.
 	Value    any
 	For      time.Duration
 	Until    Until
@@ -337,8 +336,8 @@ func NewFlow(key ident.ID, f Flow) (*Compiled, error) {
 	return c, errors.Join(errs...)
 }
 
-// KeepSince sets when a missed timer was last accounted for, for a rule whose fires are kept outside
-// the engine. Call it before Load.
+// KeepSince sets when a missed timer was last accounted for, for a rule whose fires are kept
+// outside the engine. Call it before Load.
 func (c *Compiled) KeepSince(t time.Time) {
 	c.Since, c.sinceLoad = t, false
 }
@@ -503,7 +502,7 @@ type Hold struct {
 	DeviceTypes []devicetype.Type
 	Except      []string
 	Capability  string
-	// Value is a bool or a number.
+	// Value is a bool, a number or one of the capability's names.
 	Value    any
 	Priority Priority
 	// Window, if set, must be open.

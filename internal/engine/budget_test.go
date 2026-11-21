@@ -170,7 +170,7 @@ func TestBudgetWithoutAControlEntryStaysOff(t *testing.T) {
 	if b := r.budget("pump-daily"); !b.Unplanned || b.Reason != ReasonNoControl {
 		t.Errorf("report %+v, want Planned=False NoControl", b)
 	}
-	// oikade status says why (OIK-215).
+	// oikade status says why.
 	r.e.mu.Lock()
 	stopped := r.e.rules[ident.ID{Name: "pump-daily"}].hold.stopped
 	r.e.mu.Unlock()
