@@ -100,7 +100,6 @@ func (h *heard) waitFor(t *testing.T, topic, want string) {
 	h.wait(t, topic+" = "+want, func(topics map[string]string) bool { return topics[topic] == want })
 }
 
-// waitState waits for a device's published state to be want.
 func (h *heard) waitState(t *testing.T, id string, want contractv1.State) {
 	t.Helper()
 	h.wait(t, id+" state", func(topics map[string]string) bool {
@@ -122,7 +121,6 @@ func runOn(t *testing.T, oikade, zigbee string, declared ...contractv1.DeclaredD
 	return runWith(t, oikade, Config{Broker: zigbee, BaseTopic: base}, declared...)
 }
 
-// runWith runs the plugin with Oikade on one broker and its Config c.
 func runWith(t *testing.T, oikade string, c Config, declared ...contractv1.DeclaredDevice) (stop func()) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())

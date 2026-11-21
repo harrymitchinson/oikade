@@ -1,4 +1,6 @@
-// Package plugin is the driver for plugins speaking the oikade/v1 contract (docs/plugin-contract.md).
+// Package plugin is Oikade's decoder for plugins speaking the oikade/v1 contract
+// (docs/plugin-contract.md). It checks every message against the contract and the capability
+// registry, drops what doesn't fit and counts it by reason. The conformance suite uses it too.
 package plugin
 
 import (
@@ -35,7 +37,6 @@ const (
 
 // Instance follows one plugin on the bus.
 type Instance struct {
-	// Key is the Plugin object.
 	Key  ident.ID
 	Root contractv1.Root
 	Bus  mqtt.Bus
@@ -68,7 +69,8 @@ type Instance struct {
 	// undeclared is the plugin's own count, used while it sends no discovered list.
 	undeclared int
 	// last holds each id's latest state and availability, so they can be replayed once the id is
-	// declared and announced: the hub subscribes before it declares devices, and relays rarely re-report.
+	// declared and announced: the hub subscribes before it declares devices, and relays rarely
+	// report again.
 	last     map[string]*lastSeen
 	values   map[string]map[string]any // id -> capability -> value
 	rejected map[string]uint64
@@ -317,7 +319,7 @@ func (i *Instance) handle(m mqtt.Message) {
 	case sub == "availability":
 		i.handleAvailability(id, m.Topic, m.Payload)
 	}
-	// Other topics are reserved for later minor revisions of the contract and ignored.
+	// Other topics are reserved, and ignored.
 }
 
 func (i *Instance) handleStatus(topic string, payload []byte) {
@@ -550,8 +552,8 @@ func (i *Instance) replayLocked() func() {
 	}
 }
 
-// discoveryLocked computes discovery events, followed by replays; call the returned func after unlocking.
-// Until the devices topic is seen there is nothing to report, so devices stay waiting.
+// discoveryLocked computes discovery events, followed by replays; call the returned func after
+// unlocking. Until the devices topic is seen there is nothing to report, so devices stay waiting.
 func (i *Instance) discoveryLocked() func() {
 	type found struct {
 		dev  ident.ID
@@ -614,8 +616,8 @@ func (i *Instance) deviceTypeLocked(id, t, topic string) devicetype.Type {
 	return devicetype.Type(t)
 }
 
-// undeclaredLocked counts the discovered devices neither declared nor removed, or returns the plugin's own
-// count if it sends no discovered list.
+// undeclaredLocked counts the discovered devices neither declared nor removed, or returns the
+// plugin's own count if it sends no discovered list.
 func (i *Instance) undeclaredLocked() int {
 	if i.discovered == nil {
 		return i.undeclared
@@ -662,8 +664,8 @@ func (i *Instance) lastLocked(id string) *lastSeen {
 	return i.last[id]
 }
 
-// rejectUndeclaredLocked rejects a message for an id no Device has, unless it's a removed device's, or
-// no devices have been declared yet.
+// rejectUndeclaredLocked rejects a message for an id no Device has, unless it's a removed device's,
+// or no devices have been declared yet.
 func (i *Instance) rejectUndeclaredLocked(id, topic string) {
 	if i.declared != nil && !i.removed[id] {
 		i.rejectLocked(ReasonUndeclaredDevice, id, topic)

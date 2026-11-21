@@ -1,4 +1,5 @@
-// Package mqtt is a small MQTT client for the Oikade data plane.
+// Package mqtt is the MQTT client Oikade's drivers and plugins use, behind Bus, and Memory, a Bus
+// for tests.
 package mqtt
 
 import (
@@ -101,9 +102,10 @@ func WithPassword(f func() (string, error)) Option {
 	return func(o *options) { o.password = f }
 }
 
-// Connect dials server (mqtt://host:port) and blocks until the first connection succeeds or ctx ends.
-// The connection is retried forever in the background after that, until ctx is cancelled or
-// Disconnect is called. It doesn't wait for OnConnect. The logger comes from ctx.
+// Connect dials server (mqtt://host:port) and blocks until the first connection succeeds or ctx
+// ends. The connection is retried forever in the background after that, until ctx is cancelled or
+// Disconnect is called. It doesn't wait for OnConnect. A broker named in .local is found over mDNS,
+// but over WebSockets only by the system's resolver. The logger comes from ctx.
 func Connect(ctx context.Context, server, clientID string, opts ...Option) (*Client, error) {
 	log := logging.FromContext(ctx)
 	u, err := url.Parse(server)

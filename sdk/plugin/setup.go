@@ -38,7 +38,7 @@ type Session struct {
 	waiting map[int]chan contractv1.SetupRequest
 }
 
-// Say shows the person a line.
+// Say shows the person a line. An empty one is skipped.
 func (s *Session) Say(ctx context.Context, line string) error {
 	if line == "" {
 		return nil
@@ -47,7 +47,7 @@ func (s *Session) Say(ctx context.Context, line string) error {
 	return err
 }
 
-// Ask asks the person a question and returns what they typed.
+// Ask asks the person a question, which mustn't be empty, and returns what they typed.
 func (s *Session) Ask(ctx context.Context, prompt string) (string, error) {
 	return s.step(ctx, contractv1.SetupStep{Ask: &contractv1.SetupAsk{Prompt: prompt}})
 }
@@ -58,10 +58,10 @@ func (s *Session) AskSecret(ctx context.Context, prompt string) (string, error) 
 	return s.step(ctx, contractv1.SetupStep{Ask: &contractv1.SetupAsk{Prompt: prompt, Secret: true}})
 }
 
-// Open opens page in the person's browser, such as a sign-in, and returns the query it redirects
-// to redirect with, such as an OAuth2 code. redirect is http://127.0.0.1:PORT/PATH, where oikade
-// setup listens on the person's machine, so it's also the redirect URL to register with the
-// platform.
+// Open opens page, an https URL, in the person's browser, such as a sign-in, and returns the query
+// it redirects to redirect with, such as an OAuth2 code. redirect is http://127.0.0.1:PORT/PATH or
+// http://localhost:PORT/PATH, where oikade setup listens on the person's machine, so it's also the
+// redirect URL to register with the platform.
 func (s *Session) Open(ctx context.Context, page, redirect string) (url.Values, error) {
 	raw, err := s.step(ctx, contractv1.SetupStep{Open: &contractv1.SetupOpen{URL: page, Redirect: redirect}})
 	if err != nil {
@@ -77,7 +77,8 @@ func (s *Session) Open(ctx context.Context, page, redirect string) (url.Values, 
 // KeepSecret keeps value as the host's secret name, such as a device's key, and returns once it's on
 // disk, so ReadSecret has it straight after, in this process and the plugin's next. A backup has it
 // too. Nothing shows it to the person setting up, and a deploy keeps it. Every plugin on the host
-// shares one secrets directory, so give it a name only this plugin would, such as a device's ID.
+// shares one secrets directory, so give it a name only this plugin would, such as a device's ID. An
+// invalid name is refused (contractv1.ValidSecretName).
 func (s *Session) KeepSecret(ctx context.Context, name, value string) error {
 	if !contractv1.ValidSecretName(name) {
 		return fmt.Errorf("%q isn't a secret's name", name)

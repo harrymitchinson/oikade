@@ -37,6 +37,7 @@ type SetupRequest struct {
 // SetupStep is one thing a plugin's setup does, sent on SetupOut. It has exactly one of Say, Ask,
 // Open, Keep and Done.
 type SetupStep struct {
+	// Session is the SetupRequest's session this step is for.
 	Session string `json:"session"`
 	// Seq numbers the session's steps from 1. A reply names the step it answers by it.
 	Seq int `json:"seq"`
@@ -68,7 +69,7 @@ type SetupOpen struct {
 }
 
 // SetupKeep is a secret for the host to keep, such as a device's key, which the plugin reads from
-// EnvSecretsDir from then on. Never log Value.
+// EnvSecretsDir from then on. Name is a ValidSecretName. Never log Value.
 type SetupKeep struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`

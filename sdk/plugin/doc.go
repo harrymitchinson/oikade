@@ -1,9 +1,9 @@
 // Package plugin is the Go SDK for Oikade plugins. It implements the oikade/v1 contract
-// (docs/plugin-contract.md), including its hard parts: the Last Will, re-announcing everything
+// (docs/plugin-contract.md), including its hard parts: the Last Will, announcing everything again
 // after a reconnect, dispatching /set and going offline cleanly on SIGTERM.
 //
-// A plugin implements Handler and calls Run from main. Run reads the environment and devices.json,
-// builds the handler from the declared devices, and serves until it's stopped:
+// An outside plugin implements Handler and calls Run from main. Run reads the environment and any
+// devices file, builds the Handler from the declared devices, and serves until it's stopped:
 //
 //	func main() {
 //		plugin.Run(func(_ plugin.Environment, devices []contractv1.DeclaredDevice) (plugin.Handler, error) {
@@ -11,16 +11,16 @@
 //		})
 //	}
 //
-// A plugin that a home imports as an oikade.Plugin needs no main of its own: it gives the home a
-// Factory, and the host runs it in a process of its own through RunHosted. A Handler is the same code
-// either way. Importing a plugin means trusting its code: it runs as you.
+// A plugin that a home imports needs no main of its own: it gives the home a Factory, and the host
+// runs it in a process of its own through RunHosted. A Handler is the same code either way.
+// Importing a plugin means trusting its code: it runs as the host's user.
 //
 // Handler.Serve reports the devices with SetDevices, then each device's SetAvailability and
 // SetState, or ReportState for a device that can't be asked for its values, and follows the devices
-// until its context ends. A plugin that can list the devices in
-// its app also reports them with SetDiscovered, under IDs that survive restarts. Handler.Set
-// applies one command and reports the result with SetState or UpdateState. Set calls for one device never overlap, but
-// they run on their own goroutines alongside Serve, so state both use needs a lock.
+// until its context ends. A plugin that can list the devices in its app also reports them with
+// SetDiscovered, under IDs that survive restarts. Handler.Set applies one command and reports the
+// result with SetState or UpdateState. Set calls for one device never overlap, but they run on
+// their own goroutines alongside Serve, so state both use needs a lock.
 //
 // A Handler that also implements Setup has a first-run setup, which oikade setup runs on the host:
 // a dialogue through a Session that asks the person for what the plugin can't find out, opens a
@@ -35,7 +35,8 @@
 // Logs are JSON on stderr. The SDK logs "Plugin came online", "Could not announce plugin",
 // "Ignored set command", "Could not apply set command", "Ignored setup request", "Started setup",
 // "Ended setup", "Set up plugin", "Could not set up plugin", "Could not start plugin", "Could not
-// serve plugin" and "Could not close plugin". It never logs secrets: ReadSecret's values are the plugin's to protect.
+// serve plugin" and "Could not close plugin". It never logs secrets: ReadSecret's values are the
+// plugin's to protect.
 //
 // test/fixtures/simswitch in the Oikade repository is a complete plugin.
 package plugin

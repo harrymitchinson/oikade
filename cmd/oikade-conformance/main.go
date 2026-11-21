@@ -6,14 +6,15 @@
 //	                   [--timeout D] [-v] -- COMMAND [ARG...]
 //
 // With --plugin, COMMAND is a home's binary and NAME a plugin it imports, which the suite drives
-// through the Go API instead of MQTT, as the host would. A plugin with a setup has it run twice,
-// answered from --setup-replies, a JSON list of strings, in order, and then with empty answers.
+// over the host's socket instead of MQTT, as the host would. A plugin with a setup has it run
+// twice, answered from --setup-replies, a JSON list of strings, in order, and then with empty
+// answers.
 //
 // COMMAND starts the plugin, without a shell, in the current directory. A bare name is looked up
 // in PATH, so use ./my-plugin for one in the current directory. It must be the plugin itself, not
 // go run or a wrapper script, because the suite signals and kills it. Paths are absolute or
-// relative to the current directory. It exits 0 when every check passes, 1 when one fails and
-// 2 on a usage error.
+// relative to the current directory. It exits 0 when every check passes, 1 when one fails or the
+// plugin can't start, and 2 on a usage error.
 //
 // Go plugins run it as a tool, so its version follows the oikade module in their go.mod:
 //
@@ -54,7 +55,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	secrets := fs.String("secrets", "", "a directory to pass to the plugin as OIKADE_SECRETS_DIR")
 	setupReplies := fs.String("setup-replies", "",
 		"a JSON list of strings answering a setup's questions and pages, in order")
-	imported := fs.String("plugin", "", "check this plugin of a home's binary, through the Go API rather than MQTT")
+	imported := fs.String("plugin", "", "check this plugin of a home's binary, over the host's socket rather than MQTT")
 	timeout := fs.Duration("timeout", conformance.DefaultTimeout, "how long the plugin has to react at each step")
 	verbose := fs.Bool("v", false, "log what the decoder sees")
 	if err := fs.Parse(args); err != nil {

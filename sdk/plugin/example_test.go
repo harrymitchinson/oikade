@@ -52,7 +52,7 @@ func Example() {
 	})
 }
 
-// ReadDevices reads devices.json, which the host writes for the plugin.
+// ReadDevices reads the devices file an outside plugin is given in OIKADE_DEVICES_FILE.
 func ExampleReadDevices() {
 	dir, err := os.MkdirTemp("", "plugin")
 	if err != nil {

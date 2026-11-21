@@ -25,8 +25,8 @@ type InstanceKey struct {
 	ident.ID
 }
 
-// Label is the instance label value on metrics: the bare name for Zigbee2MQTT, which predates
-// other drivers, and <driver>/<name> otherwise.
+// Label is the instance label value on metrics: the bare name for Zigbee2MQTT, and <driver>/<name>
+// otherwise.
 func (k InstanceKey) Label() string {
 	if k.Driver == Zigbee2MQTT {
 		return k.Name
@@ -80,7 +80,8 @@ type Info struct {
 	// doesn't, as it can't tell what it switches.
 	DeviceType devicetype.Type
 	Product
-	// Error is a driver-reported problem with the device, such as bad plugin parameters.
+	// Error is a problem the driver reports with the device, such as a missing key or settings the
+	// plugin can't use.
 	Error string
 }
 
@@ -102,7 +103,8 @@ type AppDevice struct {
 type Update struct {
 	Device     ident.ID
 	Capability string
-	// Value is bool or float64, validated against the capability registry.
+	// Value is a bool, a float64 or, for a KindName capability such as mode, a string, validated
+	// against the capability registry.
 	Value any
 	// Previous is nil the first time a value is seen.
 	Previous any

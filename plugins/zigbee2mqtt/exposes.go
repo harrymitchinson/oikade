@@ -8,14 +8,14 @@ import (
 	"github.com/harrymitchinson/oikade/internal/devicetype"
 )
 
-// Exposes, as published in <base>/bridge/devices. Only the fields Oikade uses.
+// bridgeDevice is an entry of <base>/bridge/devices, with only the fields the plugin reads.
 type bridgeDevice struct {
 	IEEEAddress  string      `json:"ieee_address"`
 	FriendlyName string      `json:"friendly_name"`
 	Type         string      `json:"type"`
 	Definition   *definition `json:"definition"`
 	// SoftwareBuildID is the device's firmware, as its Basic cluster says, nil if it didn't say. It's
-	// whatever the device sent, so that one that isn't a string costs only itself.
+	// whatever the device sent, so that one that isn't a string costs only itself, not the list.
 	SoftwareBuildID any `json:"software_build_id"`
 }
 
@@ -58,7 +58,7 @@ const (
 type binding struct {
 	capability string
 	property   string
-	// For binary properties: the raw values meaning on and off.
+	// valueOn and valueOff are a binary property's raw values for true and false.
 	valueOn, valueOff any
 	// invert flips a boolean (Zigbee2MQTT's contact is true when closed).
 	invert bool
@@ -88,8 +88,8 @@ func (b binding) setter() binding {
 	return b
 }
 
-// bindings derives capability bindings from a device's exposes. Endpoint-specific features
-// (e.g. state_l2 on a multi-gang switch) aren't supported yet and are skipped.
+// bindings derives capability bindings from a device's exposes. Features of an endpoint, such as a
+// multi-gang switch's state_l2, are skipped.
 func bindings(exposes []expose) []binding {
 	var out []binding
 	for _, e := range exposes {
@@ -209,7 +209,7 @@ var numeric = map[string]string{
 	"linkquality": capability.LinkQuality,
 }
 
-// decode converts a raw property value to a canonical value.
+// decode converts a raw property value to a canonical one, validated against the registry.
 func (b binding) decode(raw any) (any, error) {
 	var v any
 	switch {

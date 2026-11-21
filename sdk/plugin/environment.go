@@ -18,14 +18,16 @@ type Environment struct {
 	// the host's --broker. It's empty for a plugin your home imports, which takes a broker it uses,
 	// such as Zigbee2MQTT's, in its own config.
 	MQTTURL string
-	Root    contractv1.Root
-	// DevicesFile is the path of devices.json, or empty for a plugin that reports what it finds.
+	// Root is the plugin's topic root, oikade/v1/<plugin>.
+	Root contractv1.Root
+	// DevicesFile is the path of a devices file, or empty for a plugin that reports what it finds.
 	DevicesFile string
 	// SecretsDir is the directory of secrets: what the plugin's setup kept, under the host.
 	SecretsDir string
 }
 
-// ReadEnvironment reads a plugin's environment.
+// ReadEnvironment reads an outside plugin's environment, the OIKADE_ variables contract/v1 names.
+// OIKADE_MQTT_URL and OIKADE_TOPIC are required, and the topic must be a valid root.
 func ReadEnvironment() (Environment, error) {
 	return readEnvironment(os.Getenv)
 }
@@ -56,7 +58,8 @@ func readEnvironment(getenv func(string) string) (Environment, error) {
 	return env, nil
 }
 
-// ReadDevices reads and checks devices.json.
+// ReadDevices reads and checks a devices file: contract 1, and devices that each have an id, a name
+// and a displayName, with no id repeated.
 func ReadDevices(file string) ([]contractv1.DeclaredDevice, error) {
 	raw, err := os.ReadFile(file)
 	if err != nil {
@@ -88,9 +91,10 @@ func ReadDevices(file string) ([]contractv1.DeclaredDevice, error) {
 	return f.Devices, nil
 }
 
-// ReadSecret reads one secret, by convention named for the device it's for. ok is false when there
-// are no secrets or the key is missing. Keys containing '/' or equal to "." or ".."
-// are refused, because they could name the directory or its parent. Never log the result.
+// ReadSecret reads one secret from env's secrets directory, by convention named for the device it's
+// for. ok is false when there's no secrets directory or no such secret. An empty key, one with a
+// '/', and "." and ".." are refused, since they could name the directory or its parent. Never log
+// the result.
 func ReadSecret(env Environment, key string) (value string, ok bool, err error) {
 	if key == "" || key == "." || key == ".." || strings.Contains(key, "/") {
 		return "", false, fmt.Errorf("secret key %q is not a file name", key)

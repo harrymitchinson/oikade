@@ -523,7 +523,7 @@ func TestADeviceTypeIsTakenAndAnUnknownOneRejected(t *testing.T) {
 	}
 }
 
-// Its lines name the plugin by name in the host's JSON log, as a filter on it expects (OIK-330).
+// Its lines name the plugin by name in the host's JSON log, as a filter on it expects.
 func TestThePluginsLinesNameIt(t *testing.T) {
 	var out lockedBuffer
 	_, bus, _ := setupLogged(t, online(), slog.New(slog.NewJSONHandler(&out, nil)))
