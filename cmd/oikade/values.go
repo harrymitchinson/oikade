@@ -15,10 +15,9 @@ import (
 	"github.com/harrymitchinson/oikade/internal/host/wire"
 )
 
-// dotEnv is the file of your values, beside your home's go.mod.
 const dotEnv = ".env"
 
-// values are what a deploy sends the host as your values (OIK-365), and where they came from.
+// values are what a deploy sends the host as your values, and where they came from.
 type values struct {
 	set map[string]string
 	// file is the file read, or to add a value to, as you'd name it.
@@ -107,10 +106,10 @@ func (v values) warnMissing(p *cli.Printer, missing []string, then string) {
 	}
 }
 
-// valuesFile writes the file's values where a home run here reads them, as the host's file is, and
-// returns the environment that names it to the process, with the environment winning for any name, as
-// it does for a deploy's values, and how to remove it. So the home has what a deploy would send it
-// with one run, though only its run says which names its code uses.
+// valuesFile writes set to a file for a home run here, as the host writes its own, and returns the
+// environment that names the file and lets the environment win for any name, as it does for a deploy,
+// and how to remove the file. One run then has every value a deploy could send, though only that run
+// says which names the code uses.
 func valuesFile(set map[string]string) (env []string, remove func(), err error) {
 	if set == nil {
 		set = map[string]string{}

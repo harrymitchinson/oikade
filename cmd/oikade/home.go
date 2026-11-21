@@ -74,7 +74,7 @@ func goModDir(module string) (string, bool) {
 	}
 }
 
-// ranAndFailed is err if it's a program that ran and failed, which has said why on stderr.
+// ranAndFailed is whether err is a program that ran and failed, which has said why on stderr.
 func ranAndFailed(err error) bool {
 	_, ok := errors.AsType[*exec.ExitError](err)
 	return ok
@@ -188,7 +188,8 @@ func manifestOf(ctx context.Context, path string) (wire.Manifest, error) {
 	return m, sameProtocol(m)
 }
 
-// here is err as said here, where a notHere is only what went wrong.
+// here unwraps a notHere, for a command that checks your home only here, with no host to try it
+// instead.
 func here(err error) error {
 	if e, ok := errors.AsType[notHere](err); ok {
 		return e.error
@@ -509,7 +510,8 @@ import (
 func home() *oikade.Home {
 	home := oikade.NewHome(oikade.Options{})
 	// A device keeps the name its app gives it until you declare it here, with its hardware, its
-	// room and what it is to the Home app. oikade list devices prints the line for each one:
+	// room and what it is to the Home app. oikade list devices prints the line to declare each
+	// one that isn't yet:
 	//
 	//	home.Device("hall-lamp").Hardware("zigbee2mqtt", "0x00158d0001a2b3c4").Room("hall").Is(oikade.OnOffLight)
 	home.Decide(PorchLight.On).
@@ -547,14 +549,12 @@ func TestPorchLightFollowsThePorchSensor(t *testing.T) {
 }
 `
 
-// homeWorkflow tests every change on GitHub's runners, and deploys what reaches main only once you
-// turn deploys on, so a new home's first push passes (OIK-286). Setting the variable OIKADE_ADDRESS,
-// where the host serves its API, turns them on. The deploy then needs OIKADE_PIN, the pin add printed,
-// because a key taken from whatever answers proves nothing, and the secret OIKADE_TOKEN, from
-// oikade-host add client/ci --token. Until then, a push to main leaves a notice saying how. GitHub's
-// runners reach the host only if it's on the internet, so deploys run on a self-hosted runner. That
-// runner's user may be a person's too, so the deploy keeps its oikade and its context in RUNNER_TEMP,
-// which GitHub empties for each job, rather than replacing theirs.
+// homeWorkflow tests every change on GitHub's runners, and deploys what reaches main only once the
+// variable OIKADE_ADDRESS is set, so a new home's first push passes. A deploy also needs OIKADE_PIN,
+// the pin add printed, as a key taken from whatever answers proves nothing, and the secret
+// OIKADE_TOKEN, from oikade-host add client/ci --token. It runs on a self-hosted runner, as GitHub's
+// reach the host only if it's on the internet, and keeps its oikade and context in RUNNER_TEMP,
+// emptied for each job, as that runner's user may be a person's too.
 const homeWorkflow = `name: Home
 
 on:

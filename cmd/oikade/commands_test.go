@@ -234,7 +234,7 @@ func TestPauseByThreeWordsGivesTheCasesRef(t *testing.T) {
 }
 
 // A set fails, with exit 1, when something holds the capability at another value, and says what lets
-// go of it: pausing the rule, with --allow-safety for a Safety one, or its limits running out. One whose
+// go of it: pausing the rule, its release for a Safety one, or its limits running out. One whose
 // device hasn't answered yet was sent, so it doesn't fail.
 func TestSetFailsWhenItsHeldElsewhere(t *testing.T) {
 	until := time.Date(2026, 11, 20, 17, 30, 0, 0, time.Local)

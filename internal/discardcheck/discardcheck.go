@@ -64,12 +64,11 @@ func check(pass *analysis.Pass, call *ast.CallExpr) {
 	pass.Reportf(pos, "the result of %s isn't used, so it does nothing: %s", fn.Name(), why(sig, result))
 }
 
-// exempt are the types added to their home as they're built.
+// exempt are the types added to their home as they're built, so a chain of one is a statement.
 var exempt = map[string]bool{"Decision": true, "Flow": true, "Plugin": true, "Declaration": true}
 
 // oikadeType returns t if it's a type package oikade declares, an instance of one, or a pointer to
-// one. A Decision, a Flow, a Plugin and a Declaration are the exceptions: each is added to its home
-// as it's built, so a chain of one is a statement.
+// one, and isn't exempt.
 func oikadeType(t types.Type) *types.Named {
 	t = types.Unalias(t)
 	if p, ok := t.(*types.Pointer); ok {

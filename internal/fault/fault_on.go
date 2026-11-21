@@ -72,7 +72,8 @@ func due(point string, drop bool) bool {
 	return calls[point] == p.at
 }
 
-// Hit kills this process, as SIGKILL does, on the point's planned hit.
+// Hit kills this process with SIGKILL on the point's planned hit, or, for a wait, holds it there
+// until the test's file appears and then returns.
 func Hit(point string) {
 	if due(point, false) {
 		mu.Lock()

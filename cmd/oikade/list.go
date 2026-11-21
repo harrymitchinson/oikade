@@ -14,10 +14,8 @@ import (
 	"github.com/harrymitchinson/oikade/internal/registry"
 )
 
-// verbList is the word of the command that lists, which secret and client took before it.
 const verbList = "list"
 
-// Kinds oikade list takes, each by its word, singular or plural.
 const (
 	kindDevices  = "devices"
 	kindRules    = "rules"

@@ -4,13 +4,11 @@ import (
 	"strings"
 )
 
-// gap is the space between a table's columns.
 const gap = 2
 
 // minShrunk is the fewest columns a cell is shortened to, or its header's width if that's more.
 const minShrunk = 12
 
-// Column is one of a Table's.
 type Column struct {
 	Header string
 	// Drop is when the column goes, if the table is too wide for the stream: 1 goes first, then 2,

@@ -157,7 +157,6 @@ func (s setupper) ask(ctx context.Context, a contractv1.SetupAsk) (string, error
 	}
 }
 
-// readLine reads one answer.
 func (s setupper) readLine(prompt string) (string, error) {
 	line, err := s.in.ReadString('\n')
 	if err != nil && (!errors.Is(err, io.EOF) || line == "") {

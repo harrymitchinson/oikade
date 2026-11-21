@@ -138,8 +138,8 @@ func TestHistoryTakesRefsAndBareDeviceNames(t *testing.T) {
 	}
 }
 
-// aHost answers oikade history as a host would: this log, narrowed as the host narrows it for these
-// refs, and a status with these devices and rules.
+// aHost is a host whose event log is log and events, sent whatever a request narrows it to, whose
+// status is st, and whose tail ends at once. asked is the queries of the requests for its log.
 func aHost(t *testing.T, log api.EventLog, events []api.Event, st api.Status) (dir string, asked func() []string) {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "oik") //nolint:usetesting // a Unix socket's path has to fit in about 100 bytes

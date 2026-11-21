@@ -41,10 +41,10 @@ var clockCalls = map[string]string{
 // is the way to sort the keys, and isn't a range over it.
 var mapIterators = map[string]bool{"All": true, "Keys": true, "Values": true}
 
-// Analyzer reports the clock and goroutines inside flows.
+// Analyzer reports the clock, goroutines and ranging over a map inside flows.
 var Analyzer = &analysis.Analyzer{
 	Name: "flowcheck",
-	Doc:  "reject the clock and goroutines inside flows, which break their replay after a crash",
+	Doc:  "reject the clock, goroutines and ranging over a map inside flows, which break their replay after a crash",
 	Run:  run,
 }
 

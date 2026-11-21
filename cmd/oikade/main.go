@@ -70,7 +70,6 @@ func runDeploy(ctx context.Context, args []string) error {
 
 // deployOptions are a deploy's flags.
 type deployOptions struct {
-	// module is your home's, or binary one already built for the host.
 	module, binary string
 	// envFile is the file of your values, rather than the .env beside module's go.mod.
 	envFile string
@@ -80,8 +79,7 @@ type deployOptions struct {
 	allow bool
 }
 
-// deployer is a deploy, with what it writes to, the source checks, build and check of your home it
-// runs, and the environment it reads your values from.
+// deployer is a deploy, with its output, checks, build and environment as fields that tests replace.
 type deployer struct {
 	stdout   io.Writer
 	progress *progress

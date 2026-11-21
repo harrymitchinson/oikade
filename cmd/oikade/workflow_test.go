@@ -28,7 +28,7 @@ func TestInitWritesTheWorkflow(t *testing.T) {
 }
 
 // A new home's first push passes: the deploy job runs only once OIKADE_ADDRESS is set, on a runner
-// that can reach the host, and until then the test job says how to turn it on (OIK-286).
+// that can reach the host, and until then the test job says how to turn it on.
 func TestTheWorkflowDeploysOnlyOnceItsTurnedOn(t *testing.T) {
 	workflow := initWorkflow(t)
 	if strings.Contains(workflow, "\t") {
@@ -121,7 +121,7 @@ func workflowJobs(workflow string) map[string]map[string]string {
 }
 
 // Both jobs write your values from the one secret OIKADE_ENV, outside the checkout, and check and
-// deploy with them (OIK-365).
+// deploy with them.
 func TestTheWorkflowGivesCheckAndDeployYourValues(t *testing.T) {
 	workflow := initWorkflow(t)
 	write := `run: (umask 077 && printf '%s\n' "$OIKADE_ENV" > "$RUNNER_TEMP/.env")`

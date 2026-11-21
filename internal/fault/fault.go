@@ -19,7 +19,7 @@ const (
 	// HostJournalAppend is the write itself, which a test can drop to prove it's what keeps a step
 	// from running twice.
 	HostJournalAppend = "host.journal.append"
-	// HostClaimReplied is the host having answered a claim.
+	// HostClaimReplied is the host having answered a claim, which it saved first.
 	HostClaimReplied = "host.claim.replied"
 	// HostDeploySettled is a new version settled and not yet confirmed.
 	HostDeploySettled = "host.deploy.settled"

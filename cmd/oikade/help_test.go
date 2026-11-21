@@ -115,7 +115,7 @@ func TestEveryCommandHasHelp(t *testing.T) {
 }
 
 // The help of a deploy, a deploy given both --keep-vars and --env-file, and what a deploy refused for
-// a value says, with and without --keep-vars, at 80 and 120 columns (OIK-365).
+// a value says, with and without --keep-vars, at 80 and 120 columns.
 func TestTheKeepVarsHelpUsageAndHints(t *testing.T) {
 	host := startRecordingHost(t, api.Response{
 		Error:       "the version uses TOSHIBA_PASSWORD, which isn't among the host's values",
@@ -153,7 +153,7 @@ func TestTheKeepVarsHelpUsageAndHints(t *testing.T) {
 }
 
 // The help of the commands that give your code your values, and the warning for one that nothing
-// gives, at 80 and 120 columns (OIK-365).
+// gives, at 80 and 120 columns.
 func TestTheValuesHelpAndWarning(t *testing.T) {
 	for name, printer := range printers {
 		for _, width := range []int{80, 120} {

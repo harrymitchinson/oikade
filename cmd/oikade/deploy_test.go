@@ -300,7 +300,7 @@ func (h *recordingHost) deploys() []map[string]string {
 	return slices.Clone(h.sent)
 }
 
-// home is a module with a go.mod and, unless it's empty, a .env.
+// homeWithValues is a module with a go.mod and, unless env is empty, a .env holding env.
 func homeWithValues(t *testing.T, env string) string {
 	t.Helper()
 	dir := t.TempDir()
