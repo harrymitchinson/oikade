@@ -73,8 +73,8 @@ func (o *homeOptions) hiddenFromMatter() []wire.HiddenPlugin {
 	return o.hidden
 }
 
-// takeHidden takes up the plugins a connecting process's home hides from Matter. They're saved before
-// they're applied, so a host that restarts keeps off Matter what the running code keeps off.
+// takeHidden takes up the plugins a connecting process's home hides from Matter. They're saved
+// before they're applied, so a host that restarts keeps off Matter what the running code keeps off.
 func (o *homeOptions) takeHidden(hidden []wire.HiddenPlugin) error {
 	hidden = normalHidden(hidden)
 	o.mu.Lock()
@@ -118,16 +118,15 @@ func normalHidden(hidden []wire.HiddenPlugin) []wire.HiddenPlugin {
 	return out
 }
 
-// bridgeName is the Matter bridge's name.
 func (o *homeOptions) bridgeName() string {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return o.matterName
 }
 
-// takeMatterName takes up a connecting process's bridge name, where empty is DefaultMatterName. It's
-// saved before it's applied, so a host that restarts serves the name the running code gave, and
-// applied even if it's the saved one, since a controller may have written the NodeLabel since.
+// takeMatterName takes up a connecting process's bridge name, where empty is DefaultMatterName.
+// It's saved before it's applied, so a host that restarts serves the name the running code gave,
+// and applied even if it's the saved one, since a controller may have written the NodeLabel since.
 func (o *homeOptions) takeMatterName(name string) error {
 	if name == "" {
 		name = DefaultMatterName

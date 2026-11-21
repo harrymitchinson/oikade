@@ -15,8 +15,8 @@ import (
 	"github.com/harrymitchinson/oikade/internal/host/api"
 )
 
-// setupIdle is how long a setup waits for its plugin's next step, or for the person's answer, before
-// the host ends it. A sign-in in a browser takes a few minutes at most.
+// setupIdle is how long a setup waits for its plugin's next step, or for the person's answer,
+// before the host ends it. A sign-in in a browser takes a few minutes at most.
 const setupIdle = 10 * time.Minute
 
 // setupRuns are the setups running, one a plugin at most, so that a reply finds its session and
@@ -87,9 +87,10 @@ func (p *plugins) setupOf(name string) (*pluginDriver.Instance, bool) {
 	return h.driver, true
 }
 
-// setup runs a plugin's setup for the caller, streaming its steps, and keeps the secrets it asks the
-// host to keep. It ends when the plugin is done, the caller goes, nothing happens for setupIdle, or the
-// host stops. Secrets and answers are never logged, and a secret's value never goes to the caller.
+// setup runs a plugin's setup for the caller, streaming its steps, and keeps the secrets it asks
+// the host to keep. It ends when the plugin is done, the caller goes, nothing happens for setupIdle,
+// or the host stops. Secrets and answers are never logged, and a secret's value never goes to the
+// caller.
 func (s *apiServer) setup(w http.ResponseWriter, r *http.Request) {
 	var req api.Request
 	if err := s.read(w, r, &req); err != nil {

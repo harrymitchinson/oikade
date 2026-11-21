@@ -183,7 +183,6 @@ func (p *plugins) onRecord(h *hosted) (map[string]ident.ID, map[string]bool) {
 	return devices, removed
 }
 
-// removed finds the devices of a plugin's that you removed.
 func (p *plugins) removed(h *hosted) map[string]bool {
 	_, removed := p.onRecord(h)
 	return removed
@@ -544,7 +543,6 @@ func (p *plugins) declared(h *hosted) []contractv1.DeclaredDevice {
 	return out
 }
 
-// Set writes to a plugin's device.
 func (p *plugins) Set(ctx context.Context, instance driver.InstanceKey, dev ident.ID, name string, value any) error {
 	p.mu.Lock()
 	h := p.running[instance.Name]

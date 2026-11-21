@@ -46,8 +46,8 @@ func aLog(at time.Time) (events []api.Event, names []string) {
 	return events, names
 }
 
-// aHome is a home whose hall has the lamp, and whose office has the AC, with these renames in its log.
-// The valve and the relay's old name are on record no longer.
+// aHome is a home whose hall has the lamp, and whose office has the AC, with these renames in its
+// log. The valve and the relay's old name are on record no longer.
 func aHome(renames []api.Event, err error) home {
 	return home{
 		rooms: func(room string) []ident.ID {

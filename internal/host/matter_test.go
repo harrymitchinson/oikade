@@ -180,8 +180,9 @@ func TestAFailedWriteTakesTheControllerBack(t *testing.T) {
 	}
 }
 
-// TestAClaimOnWhatsNoLongerArbitratedRefusesNothing is a stale record: a device that says it doesn't
-// arbitrate a capability has nothing to enforce a claim with, and would refuse writes for good.
+// TestAClaimOnWhatsNoLongerArbitratedRefusesNothing is a stale record: a device that says it
+// doesn't arbitrate a capability has nothing to enforce a claim with, and would refuse writes for
+// good.
 func TestAClaimOnWhatsNoLongerArbitratedRefusesNothing(t *testing.T) {
 	data := openStore(t, t.TempDir())
 	t.Cleanup(func() { _ = data.Close() })
@@ -216,8 +217,8 @@ func TestAStoppingHostWritesNothing(t *testing.T) {
 	}
 }
 
-// TestOnlyHardwareThatMapsIsOnTheBridge says what's left off, and that a device whose driver is away
-// stays on, unreachable.
+// TestOnlyHardwareThatMapsIsOnTheBridge says what's left off, and that a device whose driver is
+// away stays on, unreachable.
 func TestOnlyHardwareThatMapsIsOnTheBridge(t *testing.T) {
 	data := openStore(t, t.TempDir())
 	t.Cleanup(func() { _ = data.Close() })
@@ -330,8 +331,8 @@ func TestAHiddenPluginsDevicesAreOffTheBridge(t *testing.T) {
 	}
 }
 
-// api.Bridgeable is what oikade devices and a deploy say is on the bridge, so it must be what the
-// bridge maps.
+// api.Bridgeable is what oikade list devices and a deploy say is on the bridge, so it must be what
+// the bridge maps.
 func TestBridgeableIsWhatTheBridgeMaps(t *testing.T) {
 	for _, c := range capability.Names() {
 		d := registry.Device{ID: "x", Capabilities: []string{c}}

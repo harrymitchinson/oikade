@@ -224,8 +224,8 @@ func TestUpgrade(t *testing.T) {
 	}
 }
 
-// A unit written before the host kept your values in memory gains the directory for them, and keeps
-// everything else (OIK-365).
+// A unit written before the host kept your values in memory gains the directory for them, and
+// keeps everything else.
 func TestUpgradeAddsTheRuntimeDirectory(t *testing.T) {
 	m := newMachine(t)
 	if _, _, err := m.install(t, "v0.3.0", firstOptions); err != nil {

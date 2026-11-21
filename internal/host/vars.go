@@ -18,7 +18,6 @@ import (
 	"github.com/harrymitchinson/oikade/internal/ident"
 )
 
-// varsFileName is the file of your values, in the runtime directory or the data directory.
 const varsFileName = "vars.json"
 
 // varSet is a set of your values, with a digest that changes when any of them does, so that the
@@ -42,8 +41,7 @@ func newVarSet(values map[string]string) *varSet {
 // it names to the process in wire.VarsEnv. Only the host's user can read it.
 type varsFile struct {
 	path string
-	// set is the values to write.
-	set func() *varSet
+	set  func() *varSet
 
 	mu sync.Mutex
 }
@@ -116,7 +114,8 @@ func (f *varsFile) forCheck(values map[string]string) ([]string, func(), error) 
 	return []string{wire.VarsEnv + "=" + tmp}, func() { _ = os.Remove(tmp) }, nil
 }
 
-// temp writes values to a new file beside the processes' one, named for pattern, and returns its path.
+// temp writes values to a new file beside the processes' one, named for pattern, and returns its
+// path.
 func (f *varsFile) temp(pattern string, values map[string]string) (string, error) {
 	if values == nil {
 		values = map[string]string{}

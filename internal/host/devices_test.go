@@ -319,10 +319,10 @@ func TestRemovingARoomsLastDeviceWarnsOfTheHoldsThatReadIt(t *testing.T) {
 		t.Errorf("got warning %q, want one naming hall-lamp and the hall", resp.Warning)
 	}
 	if _, ok := reg.Get("sensor"); ok {
-		t.Error("sensor is still on record: the remove should still happen")
+		t.Error("sensor is still on record: the forget should still happen")
 	}
 
-	// A refused remove empties nothing.
+	// A refused forget empties nothing.
 	state := engine.ControlState{capability.On: control.State{Claims: []control.Claim{{Source: "Rule/study-fan", Level: control.Safety}}}}
 	if err := controls.Put(t.Context(), key("bulb"), state); err != nil {
 		t.Fatal(err)

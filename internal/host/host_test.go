@@ -96,7 +96,7 @@ func TestHostRefusesAnotherVersionAndARole(t *testing.T) {
 	socket, _ := startHost(t, tempDir(t))
 	for name, hello := range map[string]wire.Message{
 		"version": {Type: wire.TypeHello, Version: wire.Version + 1, Role: wire.RoleAutomations},
-		// A process from before device types would write a room's every device.
+		// A process from before a change carried a whole report would read one value of each report.
 		"the last version": {Type: wire.TypeHello, Version: wire.Version - 1, Role: wire.RoleAutomations},
 		// A process from before releaseAll's below would release Safety claims if it were let in.
 		"old version": {Type: wire.TypeHello, Version: 1, Role: wire.RoleAutomations},

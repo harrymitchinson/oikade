@@ -20,8 +20,7 @@ import (
 
 const (
 	// versionsDir holds your binaries in the data directory.
-	versionsDir = "versions"
-	// versionsNamespace is where the store keeps track of them.
+	versionsDir       = "versions"
 	versionsNamespace = "versions"
 	versionsKey       = "history"
 	// keptVersions bounds the versions kept, the running one included.
@@ -51,8 +50,8 @@ type history struct {
 	// Released is claims of flows that gave them up under a version since confirmed, yet to end.
 	Released []heldRelease `json:"released,omitempty"`
 	// Vars are your values, by name, as the last deploy sent them, which every process started from
-	// your binary is given (OIK-365). They're kept here so that they reach disk in the same write as
-	// the version they go with. They're never in a log or an answer.
+	// your binary is given. They're kept here so that they reach disk in the same write as the
+	// version they go with. They're never in a log or an answer.
 	Vars map[string]string `json:"vars,omitempty"`
 	// VarsBefore is what Vars was until the deploy in progress, which an abort brings back.
 	VarsBefore map[string]string `json:"varsBefore,omitempty"`
@@ -129,7 +128,6 @@ func (v *versions) current() (version, bool) {
 	return v.state.Versions[0], true
 }
 
-// previous returns the version before the running one.
 func (v *versions) previous() (version, bool) {
 	if len(v.state.Versions) < 2 {
 		return version{}, false
@@ -247,9 +245,9 @@ func (v *versions) begin(next version, spared []string, vars map[string]string) 
 	return v.pending(append([]version{next}, rest...), slices.Clone(v.state.Versions), spared, vars)
 }
 
-// beginFromHome is begin for a first deploy, over a binary from the host's flags that isn't on record.
-// One write records both, so the home binary is on record only if the deploy went ahead, and a crash
-// after it still has the home binary to go back to.
+// beginFromHome is begin for a first deploy, over a binary from the host's flags that isn't on
+// record. One write records both, so the home binary is on record only if the deploy went ahead, and
+// a crash after it still has the home binary to go back to.
 func (v *versions) beginFromHome(home, next version, spared []string, vars map[string]string) error {
 	return v.pending([]version{next, home}, []version{home}, spared, vars)
 }
@@ -284,9 +282,10 @@ func (v *versions) removalsDone() error {
 	return v.save(next)
 }
 
-// abort goes back to how things were before begin, and removes the failed binary. The failed version
-// may have left rules of its own, so removals are due, sparing what was there before it. It goes back even if that can't be saved,
-// because it's no longer what runs, and the next start will find the deploy unfinished.
+// abort goes back to how things were before begin, and removes the failed binary. The failed
+// version may have left rules of its own, so removals are due, sparing what was there before it. It
+// goes back even if that can't be saved, because it's no longer what runs, and the next start will
+// find the deploy unfinished.
 func (v *versions) abort() error {
 	failed := v.state.Versions[0].ID
 	next := history{

@@ -1,7 +1,7 @@
 // Package install puts the host on a systemd machine, or upgrades the one there: oikade-host
 // install. It copies the running binary to /usr/local/bin, makes the user oikade, writes the unit,
 // starts it and waits until the host serves. An upgrade backs up the store first, keeps the old
-// binary beside the new one, and puts it back if the new one doesn't serve (OIK-277).
+// binary beside the new one, and puts it back if the new one doesn't serve.
 package install
 
 import (
@@ -52,7 +52,6 @@ type Runner func(ctx context.Context, name string, args ...string) ([]byte, erro
 // Caller sends a request to the host on this machine, through its socket.
 type Caller func(ctx context.Context, req api.Request) (api.Response, error)
 
-// Installer installs or upgrades the host.
 type Installer struct {
 	// Root is what the paths are under: / on a real machine.
 	Root string
@@ -83,7 +82,6 @@ type Options struct {
 
 // Result is what install did.
 type Result struct {
-	// Version is the version now installed.
 	Version string
 	// Upgraded is set when an install was there already, and From is its version.
 	Upgraded bool
@@ -181,7 +179,8 @@ func (in *Installer) first(ctx context.Context, opts Options, oldUnit []byte) (R
 }
 
 // upgrade replaces the binary that's there with this one, and the unit only if it was given flags.
-// The store is backed up first. If the new version doesn't serve, the old binary and unit come back.
+// The store is backed up first. If the new version doesn't serve, the old binary and unit come
+// back.
 func (in *Installer) upgrade(ctx context.Context, opts Options, oldUnit []byte) (Result, error) {
 	bin := in.path(BinPath)
 	res := Result{Version: in.Version, Upgraded: true, From: in.installedVersion(ctx, bin)}
@@ -264,7 +263,8 @@ func (in *Installer) upgrade(ctx context.Context, opts Options, oldUnit []byte) 
 }
 
 // backup snapshots the store through the host. A host that isn't serving, such as one that crashes
-// on start, is stopped so that the store can be copied whole. One with no store has nothing to lose.
+// on start, is stopped so that the store can be copied whole. One with no store has nothing to
+// lose.
 func (in *Installer) backup(ctx context.Context, res *Result) error {
 	backup, err := in.call(ctx, api.Request{Type: api.TypeBackup})
 	if err == nil {
@@ -445,7 +445,7 @@ WantedBy=multi-user.target
 `
 }
 
-// RuntimeDir is the directory systemd gives the host for your values, in memory (OIK-365).
+// RuntimeDir is the directory systemd gives the host for your values, in memory.
 const RuntimeDir = "/run/oikade"
 
 // runtimeDirLines are the unit's lines that make RuntimeDir.

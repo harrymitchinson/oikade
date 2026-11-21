@@ -72,7 +72,8 @@ func WithBrokerPassword(broker, dir, name string) (string, error) {
 	return u.String(), nil
 }
 
-// redacted is a broker's URL for a log. One that doesn't parse says nothing, as it may hold a password.
+// redacted is a broker's URL for a log. One that doesn't parse says nothing, as it may hold a
+// password.
 func redacted(broker string) string {
 	u, err := url.Parse(broker)
 	if err != nil {

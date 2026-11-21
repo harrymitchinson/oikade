@@ -1,6 +1,6 @@
 // Package pluginwire is the part of the host's protocol that a plugin process speaks. It's apart
-// from package wire, which needs the engine's types, because the public SDK imports it, and a plugin
-// shouldn't link the engine to say hello.
+// from package wire, which needs the engine's types, because the public SDK imports it, and a
+// plugin shouldn't link the engine to say hello.
 package pluginwire
 
 import (
@@ -20,10 +20,7 @@ import (
 const (
 	// Version is the protocol's version. A process sends it first, and the host refuses any other.
 	// Raise it with any change to what a message means: a host outlives a deploy, so it can meet a
-	// binary built against something else. Version 2 added releaseAll's below, and 3 pausing rules,
-	// the rule facts in a hello, and reporting rule runs and metrics, 4 plugin sessions and a
-	// Manifest's plugins, 5 the home's control in a hello, lastSeen and seen, and 6 device types on a
-	// device and a rule's rooms limited to them, and 7 a change carrying every value of one report.
+	// binary built against something else.
 	Version = 7
 	// RolePlugin is a plugin your home imports. The host starts one process for each.
 	RolePlugin = "plugin"
@@ -34,7 +31,6 @@ const (
 	writeTimeout = 5 * time.Second
 )
 
-// Type is a message's type.
 type Type string
 
 // A plugin's session has only these message types: Hello, Welcome or Rejected, then Ping, Pong and
@@ -77,7 +73,6 @@ type Conn[M any] struct {
 	mu   sync.Mutex
 }
 
-// NewConn wraps a socket.
 func NewConn[M any](c net.Conn) *Conn[M] {
 	r := bufio.NewScanner(c)
 	r.Buffer(make([]byte, 0, 64<<10), maxMessage)
@@ -99,7 +94,6 @@ func (c *Conn[M]) Read() (M, error) {
 	return m, nil
 }
 
-// Write sends a message.
 func (c *Conn[M]) Write(m M) error {
 	raw, err := json.Marshal(m)
 	if err != nil {

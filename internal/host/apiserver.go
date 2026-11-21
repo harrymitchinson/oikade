@@ -151,8 +151,8 @@ func (s *apiServer) serveWith(l net.Listener, handler http.Handler) {
 	if err := server.Serve(l); !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
 		s.log.Error("Failed to accept connection", "err", err)
 	}
-	// A call that has yet to finish by then, such as a backup to a slow client, doesn't cost the plugins
-	// their turn to stop.
+	// A call that has yet to finish by then, such as a backup to a slow client, doesn't cost the
+	// plugins their turn to stop.
 	last, cancel := context.WithTimeout(context.WithoutCancel(s.ctx), apiStopTimeout)
 	defer cancel()
 	if err := server.Shutdown(last); err != nil {
@@ -260,7 +260,8 @@ func (s *apiServer) read(w http.ResponseWriter, r *http.Request, req *api.Reques
 	return err
 }
 
-// respond answers a call. The call's own work is done by now: a caller that went away changes nothing.
+// respond answers a call. The call's own work is done by now: a caller that went away changes
+// nothing.
 func respond(log *slog.Logger, w http.ResponseWriter, status int, resp api.Response) {
 	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(writeTimeout))
 	w.Header().Set("Content-Type", api.ContentType)
@@ -466,8 +467,9 @@ func (s *apiServer) client(c caller, req api.Request) api.Response {
 	return api.Response{Error: "unknown client request"}
 }
 
-// httpErrors takes net/http's own log lines, which aren't in this repo's style. A failed TLS handshake
-// is anyone on the network, such as a port scan or a client that pins something else, so it's Debug.
+// httpErrors takes net/http's own log lines, which aren't in this repo's style. A failed TLS
+// handshake is anyone on the network, such as a port scan or a client that pins something else, so
+// it's Debug.
 type httpErrors struct{ log *slog.Logger }
 
 func (h httpErrors) Write(p []byte) (int, error) {

@@ -57,7 +57,8 @@ func TestDeclaredDevicesAreSavedFirstAndSurviveARestart(t *testing.T) {
 	if _, err := known.registry.Declare([]registry.Declaration{{Name: "desk-lamp", Driver: "plugin/x", ID: "l1"}}); err != nil {
 		t.Fatal(err)
 	}
-	// The registry was changed behind the declaration's back, as a crash before applying would leave it.
+	// The registry was changed behind the declaration's back, as a crash before applying would leave
+	// it.
 	if err := known.loadDeclared(); err != nil {
 		t.Fatal(err)
 	}
