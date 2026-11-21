@@ -256,7 +256,6 @@ func parsePublish(header byte, body []byte) (topic string, payload []byte, id ui
 // writeTimeout bounds one write, so a hub that stops reading can't hold the connection open.
 const writeTimeout = 10 * time.Second
 
-// write sends one packet.
 func (c *mqttConn) write(header byte, body []byte) error {
 	pkt := append([]byte{header}, appendLength(nil, len(body))...)
 	c.wmu.Lock()

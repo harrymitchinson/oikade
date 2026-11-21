@@ -21,7 +21,8 @@ import (
 	"github.com/harrymitchinson/oikade/sdk/plugin"
 )
 
-// Account is where the plugin reaches Overkiz. Local is a TaHoma hub's local API.
+// Account is where the plugin reaches Overkiz: Local, a TaHoma hub's local API, or Cozytouch, an
+// account on Atlantic's clouds.
 type Account interface {
 	// credentialField is the field that holds its credential, as a problem names it.
 	credentialField() string
@@ -102,7 +103,7 @@ func (l Local) warn(log *slog.Logger) {
 func (l Local) connect(context.Context) (*client, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = hubTLS(cmp.Or(l.roots, overkizRoots), l.pin())
-	// The hub's own name is gateway-<pin>.local, which only mDNS answers (OIK-328).
+	// The hub's own name is gateway-<pin>.local, which only mDNS answers.
 	transport.DialContext = dialHub
 	if l.SkipCertificateCheck {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // The user chose to.
@@ -236,14 +237,12 @@ func (b *bridge) serve(ctx context.Context, out reporter) error {
 	return nil
 }
 
-// pause drops the session and leaves the devices online, while it logs in again.
 func (b *bridge) pause() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.client = nil
 }
 
-// absent reports that the account has nothing on Overkiz.
 func (b *bridge) absent(ctx context.Context) {
 	b.mu.Lock()
 	b.devices, b.byURL = map[string]*device{}, map[string]*device{}
@@ -457,8 +456,8 @@ func (b *bridge) take(ctx context.Context, events []apiEvent) (bool, error) {
 			}
 			switch e.Name {
 			case eventDisabled:
-				// Enabling it again has no event that pyoverkiz knows of, so the setup is read again on
-				// the next added, removed or updated device, or reconnect.
+				// Enabling it again has no event pyoverkiz knows of: it's back once the setup is read
+				// again, on the next added, removed or updated device, or reconnect.
 				dev.enabled = false
 			default:
 				dev.available = e.Name == eventAvailable
@@ -492,7 +491,6 @@ func (b *bridge) take(ctx context.Context, events []apiEvent) (bool, error) {
 	return reread, nil
 }
 
-// lost ends the session: every device is offline, and the app can't be seen.
 func (b *bridge) lost(ctx context.Context) {
 	b.mu.Lock()
 	b.client = nil

@@ -20,11 +20,10 @@ import (
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 )
 
-// Magellan is Atlantic's own cloud, beside Overkiz, behind the same Cozytouch login: an account's
-// newer WiFi devices are on it. It has no events, so the plugin reads the whole setup, every device
-// with every capability, once a read interval, and soon after a write. Its API isn't published:
-// this follows what Atlantic's app does, as the Homey app NicolasYDDER/homey-cozytouch has it, and
-// a real account's answers.
+// Magellan is Atlantic's own cloud beside Overkiz, behind the same Cozytouch login, where an
+// account's newer WiFi devices are. It has no events, so the plugin reads the whole setup every
+// read interval, and soon after a write. Its API isn't published: this follows what Atlantic's app
+// does, as the Homey app NicolasYDDER/homey-cozytouch has it, and a real account's answers.
 //
 // A device's capabilities are numbered, with string values, and what a number means depends on
 // the product: magellanModels says, by model.
@@ -214,7 +213,6 @@ func (c capabilities) number(id int) (float64, bool) {
 	return f, err == nil
 }
 
-// mWrite is one capability to write.
 type mWrite struct {
 	capability int
 	value      string
@@ -525,7 +523,7 @@ func (m *magellan) finish(id string) mExecution {
 }
 
 // send sends a device's queued writes in order, while none of its executions runs, and returns once
-// one is under way or none is left. Magellan fails a write to a device while its last runs (OIK-339).
+// one is under way or none is left.
 func (m *magellan) send(ctx context.Context, c *magellanClient, id string) error {
 	for {
 		m.mu.Lock()

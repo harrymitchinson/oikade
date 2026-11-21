@@ -16,9 +16,9 @@ import (
 )
 
 // The Home AC Control app's API, as KaSroka/Toshiba-AC-control has it, with the headers
-// vmvelev/Toshiba-AC-control found the cloud wants since 2026-07: a Device-ID on every request, as
-// the app sends its Android ID, and no User-Agent. Without the Device-ID a login is answered 429, and
-// a browser's User-Agent is refused with 403.
+// vmvelev/Toshiba-AC-control found the cloud wants: a Device-ID on every request, as the app sends
+// its Android ID, and no User-Agent. Without the Device-ID a login is answered 429, and a browser's
+// User-Agent 403.
 const (
 	apiBase = "https://mobileapi.toshibahomeaccontrols.com"
 
@@ -31,7 +31,6 @@ const (
 	badPassword = "InvalidUserNameorPassword"
 )
 
-// maxResponse bounds an answer the plugin reads.
 const maxResponse = 4 << 20
 
 // What went wrong, as the plugin acts on it. Anything else is the cloud not answering, which it
@@ -111,7 +110,6 @@ func (a *api) register(ctx context.Context, deviceID, username string) (string, 
 	return res.SasToken, nil
 }
 
-// units lists the account's indoor units.
 func (a *api) units(ctx context.Context) ([]unit, error) {
 	var groups []struct {
 		ACList []unit `json:"ACList"`
@@ -210,8 +208,8 @@ func (a *api) call(ctx context.Context, method, path string, query url.Values, b
 	return nil
 }
 
-// tryAgain is the wait a 429's body says, as the login's did in OIK-327:
-// {"message":"Too many requests. Try again in 60 seconds."}.
+// tryAgain reads the wait a 429's body asks for, as the login's
+// {"message":"Too many requests. Try again in 60 seconds."} does.
 var tryAgain = regexp.MustCompile(`(?i)try again in (\d+) seconds?`)
 
 // askedWait is how long an answer asks the plugin to wait before trying again: its Retry-After, in

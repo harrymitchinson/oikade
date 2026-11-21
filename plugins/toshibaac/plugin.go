@@ -255,9 +255,9 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 }
 
 // limitWait is how long to wait after the cloud limited the plugin's requests with err, when last
-// was the wait for the limit before, 0 if there wasn't one since a session connected. It's as long as
-// the cloud asked (OIK-361), or twice last if that's longer, since a limit still there after the wait
-// it asked for hasn't passed, and between retry and limited. One that doesn't say how long waits
+// was the wait for the limit before, 0 if none since a session connected. It's as long as the cloud
+// asked, or twice last if that's longer, since a limit still there after the wait it asked for
+// hasn't passed, and between retry and limited (OIK-361). One that doesn't say how long waits
 // limited. last is only this process's: a deploy starts again from the cloud's ask.
 func (b *bridge) limitWait(err error, last time.Duration) time.Duration {
 	var status *statusError
@@ -631,7 +631,6 @@ func (b *bridge) setProblem(ctx context.Context, problem string) {
 // connection, not the cloud's.
 var errReport = errors.New("could not report to Oikade")
 
-// reporting marks err as errReport.
 func reporting(err error) error {
 	if err == nil {
 		return nil
@@ -639,7 +638,6 @@ func reporting(err error) error {
 	return fmt.Errorf("%w: %w", errReport, err)
 }
 
-// backoff waits d after a failure.
 func (b *bridge) backoff(ctx context.Context, d time.Duration) {
 	if b.timing.backoff != nil {
 		b.timing.backoff(ctx, d)
@@ -648,7 +646,6 @@ func (b *bridge) backoff(ctx context.Context, d time.Duration) {
 	sleep(ctx, d)
 }
 
-// sleep waits for d, or until ctx ends.
 func sleep(ctx context.Context, d time.Duration) {
 	t := time.NewTimer(d)
 	defer t.Stop()

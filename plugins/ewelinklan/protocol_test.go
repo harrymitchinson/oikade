@@ -10,11 +10,10 @@ import (
 	contractv1 "github.com/harrymitchinson/oikade/contract/v1"
 )
 
-// The emulator's key in sonoff-lan, the TypeScript library this was ported from.
+// fixtureKey, fixtureIV and vectors were made outside Go, with Node's crypto, so decrypt isn't
+// checked only against this package's own encrypt.
 const fixtureKey = "fixture-lan-key-not-real"
 
-// Vectors made with Node's crypto as sonoff-lan calls it, so these check the port against the
-// original rather than against itself.
 const fixtureIV = "AAECAwQFBgcICQoLDA0ODw=="
 
 var vectors = []struct {
@@ -127,8 +126,8 @@ func TestReadingsAreNumbersWithinRange(t *testing.T) {
 	}
 }
 
-// A THR320D's report with a WTS01 probe, which measures only temperature, decrypted on 2026-11-12.
-// Its network fields are left out.
+// A real THR320D's report, with a WTS01 probe, which measures only temperature. Its network fields
+// are left out.
 const realTHReport = `{"autoControlEnabled":0,"currentHumidity":"unavailable","currentTemperature":"11.9",` +
 	`"fwVersion":"1.3.0","humCorrection":0,"pulseConfig":{"pulse":"off","pulseWidth":500,"switch":"off"},` +
 	`"rssi":-62,"sensorType":"WTS01","sledOnline":"on","startup":"off","switch":"off","tempCorrection":0,` +

@@ -19,7 +19,6 @@ import (
 //go:embed overkiz-root-ca.crt
 var overkizRootCA []byte
 
-// overkizRoots holds overkizRootCA.
 var overkizRoots = func() *x509.CertPool {
 	pool := x509.NewCertPool()
 	if !pool.AppendCertsFromPEM(overkizRootCA) {
@@ -49,7 +48,8 @@ func gatewayPIN(address string) string {
 	return pin
 }
 
-// certError is a hub whose certificate the plugin doesn't trust.
+// certError is a hub certificate the plugin doesn't trust. Its reason follows "a certificate that"
+// in the plugin's status.
 type certError struct{ reason string }
 
 func (e *certError) Error() string { return e.reason }
@@ -59,7 +59,6 @@ func (e *certError) Error() string { return e.reason }
 // where a hub's certificate may name it. With no PIN, any hub's certificate Overkiz signed passes.
 func hubTLS(roots *x509.CertPool, pin string) *tls.Config {
 	config := &tls.Config{
-		// VerifyConnection checks the certificate in place of Go's own check.
 		InsecureSkipVerify: true, //nolint:gosec // VerifyConnection checks it.
 	}
 	config.VerifyConnection = func(cs tls.ConnectionState) error {

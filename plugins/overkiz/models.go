@@ -81,8 +81,8 @@ const (
 	modeAuto     = "auto"
 )
 
-// towelSensor is the sub-device with the room temperature: Home Assistant reads core:TemperatureState
-// on #7 of AtlanticElectricalTowelDryer.
+// towelSensor is the sub-device with the room temperature, core:TemperatureState: #7, as Home
+// Assistant's mapping of AtlanticElectricalTowelDryer reads it.
 const towelSensor = "7"
 
 // towelDryer is an Atlantic towel radiator, from Home Assistant's mapping of the widget. Standby is
@@ -181,8 +181,8 @@ func parseURL(s string) (deviceURL, bool) {
 func (u deviceURL) base() string { return u.protocol + "://" + u.gateway + "/" + u.address }
 
 // id is the device's Oikade ID, <protocol>.<address>, with every character the contract doesn't allow
-// as '-'. It leaves out the gateway, so a replaced hub keeps its devices. ok is false if it's too
-// long to be an ID.
+// as '-'. It leaves out the gateway, so a replaced hub keeps its devices. ok is false if it still
+// isn't a valid ID, as when it's too long.
 func (u deviceURL) id() (string, bool) {
 	id := strings.Map(func(r rune) rune {
 		switch {

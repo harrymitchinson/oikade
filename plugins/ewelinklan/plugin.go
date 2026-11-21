@@ -52,7 +52,7 @@ var defaults = timing{
 	relayAge: 30 * time.Second, http: 5 * time.Second, confirm: 10 * time.Second,
 }
 
-// Config configures the plugin.
+// Config is the developer app setup signs in with, and which devices have a humidity sensor.
 type Config struct {
 	// Humidity lists the devices that also announce humidity, by ID. A device's sensors decide what
 	// the Home app shows, so they're stated rather than worked out from its reports.
@@ -72,7 +72,7 @@ type lan interface {
 	Close() error
 }
 
-// New returns the plugin's Factory, for oikade.Plugin.
+// New returns the plugin's Factory, for home.Plugin.
 func New(c Config) plugin.Factory {
 	return func(env plugin.Environment, declared []contractv1.DeclaredDevice) (plugin.Handler, error) {
 		return newBridge(c, env, declared, func() (lan, error) { return mdns.ListenMulticast() }, defaults, time.Now,
@@ -259,7 +259,6 @@ type observed struct {
 	values contractv1.State
 }
 
-// take reads a packet.
 func (b *bridge) take(packet []byte) {
 	now := b.now()
 	b.mu.Lock()
@@ -505,7 +504,7 @@ func (b *bridge) publish(heard []observed) {
 	b.mu.Unlock()
 
 	if reports != nil {
-		// Before the first list, it goes out with it. A change after goes out at once, with the last.
+		// The SDK sends needsSetup with the devices: with the first list, and after it at once.
 		b.check(b.plugin.SetNeedsSetup(b.ctx, needs), "Could not report whether setup is needed", "")
 		b.check(b.plugin.SetDevices(b.ctx, reports, 0), "Could not report devices", "")
 		b.offlineUnheard(reports)

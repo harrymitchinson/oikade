@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// maxResponse is the most of an answer the plugin reads. A setup with many devices is well inside it.
+// maxResponse caps an answer the plugin reads: a setup with many devices is well inside it.
 const maxResponse = 8 << 20
 
 // client speaks Overkiz's enduser API, which TaHoma's local API and the cloud share: one base URL,
@@ -19,10 +19,9 @@ const maxResponse = 8 << 20
 type client struct {
 	http *http.Client
 	// base is the API's root, ending in /enduserAPI.
-	base string
-	// authorize adds the credentials to a request.
+	base      string
 	authorize func(*http.Request)
-	// failed reads an answer that failed, if the API says so other than as Overkiz does.
+	// failed, if set, reads a failed answer from an API that doesn't answer as Overkiz does.
 	failed func(status int, raw []byte) error
 }
 
@@ -82,7 +81,6 @@ type apiEvent struct {
 	FailureType  string     `json:"failureType"`
 }
 
-// The events the plugin acts on.
 const (
 	eventStateChanged     = "DeviceStateChangedEvent"
 	eventAvailable        = "DeviceAvailableEvent"
@@ -100,13 +98,11 @@ const (
 	execFailed    = "FAILED"
 )
 
-// apiCommand is one command to a device.
 type apiCommand struct {
 	Name       string `json:"name"`
 	Parameters []any  `json:"parameters"`
 }
 
-// apiError is an error the API answered with: its HTTP status, and Overkiz's errorCode and message.
 type apiError struct {
 	Status  int
 	Code    string `json:"errorCode"`
@@ -146,14 +142,13 @@ const (
 	absent
 )
 
-// errNoAccount is a cloud that has no account for the login.
 var errNoAccount = errors.New("no account for this login")
 
-// codeLimited is Overkiz's errorCode for a quota, which classify reads as limited.
+// codeLimited is Overkiz's errorCode for a quota.
 const codeLimited = "QUOTA_EXCEEDED"
 
-// classify says what kind of failure err is. Overkiz says most in errorCode, and pyoverkiz's
-// exceptions follow the same codes and messages.
+// classify says what kind of failure err is, mostly from Overkiz's errorCode. The codes and
+// messages it matches are the ones pyoverkiz's exceptions match.
 func classify(err error) failure {
 	if errors.Is(err, errNoAccount) {
 		return absent
@@ -233,7 +228,6 @@ func (c *client) devices(ctx context.Context) ([]apiDevice, error) {
 	return out, c.call(ctx, http.MethodGet, "/setup/devices", nil, &out)
 }
 
-// register starts an event listener and returns its ID.
 func (c *client) register(ctx context.Context) (string, error) {
 	var out struct {
 		ID string `json:"id"`
@@ -253,7 +247,6 @@ func (c *client) fetch(ctx context.Context, listener string) ([]apiEvent, error)
 	return out, c.call(ctx, http.MethodPost, "/events/"+listener+"/fetch", nil, &out)
 }
 
-// unregister ends a listener.
 func (c *client) unregister(ctx context.Context, listener string) error {
 	return c.call(ctx, http.MethodPost, "/events/"+listener+"/unregister", nil, nil)
 }

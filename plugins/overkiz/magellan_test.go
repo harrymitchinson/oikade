@@ -310,7 +310,7 @@ func TestAProxysNotFoundIsntNoAccount(t *testing.T) {
 
 // A setpoint moved and moved straight back ends where it was moved last: Magellan refuses a write to
 // a device while its last runs, so each waits for the one before to end, and a newer write replaces
-// one still waiting (OIK-339).
+// one still waiting.
 func TestAQuickSecondWriteWaitsForTheFirst(t *testing.T) {
 	cloud := newMagellanCloud(t)
 	cloud.set(func(h *fakeHub) { h.magellanRuns = 3 })

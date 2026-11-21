@@ -22,8 +22,7 @@ type fcuState struct {
 	// meritA and meritB are half bytes: the unit's feature modes, such as 8 °C heating or a
 	// fireplace mode.
 	meritA, meritB byte
-	// selfCleaning is whether it's cleaning itself.
-	selfCleaning byte
+	selfCleaning   byte
 }
 
 // The raw values, from KaSroka/Toshiba-AC-control's fcu_state.py.
@@ -45,7 +44,6 @@ const (
 	heating8COffset = 16
 )
 
-// modeAuto, modeHeat and modeFan are auto's, heating's and fan's raw values.
 const (
 	modeAuto = 0x41
 	modeHeat = 0x43
@@ -302,7 +300,6 @@ func unitModes(merit string) []byte {
 	return allModes
 }
 
-// modeNames lists modes by name.
 func modeNames(bs []byte) string {
 	names := make([]string, 0, len(bs))
 	for _, b := range bs {

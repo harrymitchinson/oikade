@@ -396,8 +396,8 @@ func TestTooManyRequestsWaitsLonger(t *testing.T) {
 	}
 }
 
-// TestALimitWaitsAsLongAsTheCloudAsks is the login's 429 saying how long, as it did in OIK-327, so a
-// few deploys in a row cost a minute rather than ten (OIK-361).
+// TestALimitWaitsAsLongAsTheCloudAsks is the login's 429 saying how long, so a few deploys in a row
+// cost a minute rather than ten.
 func TestALimitWaitsAsLongAsTheCloudAsks(t *testing.T) {
 	cloud := newFakeCloud(t)
 	cloud.set(home)
