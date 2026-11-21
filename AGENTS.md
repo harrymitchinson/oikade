@@ -41,6 +41,7 @@ test/repo/                     What the repo says about itself
 test/internal/                 Helpers for test/: childrace
 test/fixtures/                 simswitch, the simulated-relay plugin the conformance suite drives, and a home
 config/grafana/                The "Oikade home" dashboard
+site/                          oikade.dev, whose go-import tag tells Go where the module's code is
 docs/                          The user guides, and architecture, the plugin contract, host protocol, host API, planning
 hack/                          plan, agent-token, owner-approval and fuzz, with their tests in hack/test
 .claude/skills/                design, plan, work, handoff
