@@ -169,7 +169,6 @@ func Names() []string {
 	return slices.Sorted(maps.Keys(registry))
 }
 
-// Lookup returns the spec for a capability name.
 func Lookup(name string) (Spec, bool) {
 	s, ok := registry[name]
 	return s, ok

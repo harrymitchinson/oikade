@@ -86,12 +86,11 @@ type Event struct {
 	Text string
 }
 
-// Options configure a Sim.
 type Options struct {
 	Home    Home
 	Devices []Device
 	Start   time.Time
-	// Location is where the home is. Nil means Start's.
+	// Location is the home's time zone. Nil means Start's.
 	Location *time.Location
 	Log      *slog.Logger
 	// Dry makes no outside call from a flow. Each takes its answer from Calls, by CallKey and in
@@ -139,7 +138,7 @@ type Sim struct {
 	skipped map[string]int
 }
 
-// New starts a home.
+// New starts a home, and waits for it to settle.
 func New(o Options) (*Sim, error) {
 	s := &Sim{
 		home: o.Home, devices: o.Devices, clock: clock.NewFake(o.Start), location: o.Location, log: logging.OrDiscard(o.Log),
@@ -440,13 +439,11 @@ func (s *Sim) Restart() error {
 	return s.settle()
 }
 
-// Close stops the home.
 func (s *Sim) Close() {
 	s.stop()
 	<-s.stopped
 }
 
-// Value reads a device's value.
 func (s *Sim) Value(device, name string) (any, bool) {
 	snap, ok := s.store.Get(key(device))
 	if !ok {
@@ -463,7 +460,7 @@ func (s *Sim) Writes() []Write {
 	return slices.Clone(s.writes)
 }
 
-// Claims are the claims on an arbitrated capability.
+// Claims are the claims on a device's capability, which only a decided one has.
 func (s *Sim) Claims(device, name string) []Claim {
 	var out []Claim
 	for _, c := range s.engine.ControlOf(key(device)) {

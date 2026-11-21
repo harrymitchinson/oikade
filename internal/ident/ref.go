@@ -77,7 +77,6 @@ func CapabilityRef(device, capability string) Ref { return NewRef(Device, device
 // CaseRef is a decision's case's ref, such as case/desk-plug/on/night.
 func CaseRef(device, capability, name string) Ref { return NewRef(Case, device, capability, name) }
 
-// String returns the ref.
 func (r Ref) String() string { return string(r) }
 
 // ParseRef reads a ref, refusing one whose kind isn't known, that has the wrong parts for its kind,

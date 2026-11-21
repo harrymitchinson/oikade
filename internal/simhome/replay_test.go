@@ -489,7 +489,7 @@ func TestRefusedWritesAreNoDifference(t *testing.T) {
 }
 
 // A log that begins with the host starting has the deployed version's first writes in it: your code
-// starts when the deployed version did, and its first writes are compared with those (OIK-320).
+// starts when the deployed version did, and its first writes are compared with those.
 func TestWritesOnStartingAreComparedWhenTheLogHasTheStart(t *testing.T) {
 	connected := monday.Add(3 * time.Second)
 	log := []api.Event{

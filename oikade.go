@@ -70,10 +70,10 @@ func (s Snapshot) value(device, capability string) any {
 	return v
 }
 
-// Get reads a device's capability. A condition reading a value nobody has reported yet stops there:
-// a case keeps its state, and a flow's If doesn't let it run. So does one with a mistake in it, such as a
-// device that doesn't exist, or a group's capability, which Any, All, Count and Readings read, which
-// is logged. Lookup carries on instead.
+// Get reads a device's capability. If nobody has reported it yet, the condition stops there: a case
+// keeps its state, and a flow's If doesn't let it run. Lookup carries on instead. A mistake stops
+// the condition too, and is logged: a device that doesn't exist, or a group's capability, which
+// Any, All, Count and Readings read.
 func (s Snapshot) Get[T Value](r Ref[T]) T {
 	h := r.handle()
 	notGroup(h)
@@ -81,7 +81,8 @@ func (s Snapshot) Get[T Value](r Ref[T]) T {
 }
 
 // Lookup reads a device's capability, and reports false if nobody has reported it yet, so that a
-// condition can carry on without it:
+// condition can carry on without it. A mistake is one as at Get: a device that doesn't exist, or a
+// group's capability.
 //
 //	if v, ok := s.Lookup(CellarSensor.Humidity); ok && v > 65 {
 func (s Snapshot) Lookup[T Value](r Ref[T]) (T, bool) {
@@ -130,10 +131,10 @@ func as[T Value](device, capability string, v any) T {
 //
 //	s.Any(home.Room("hallway").Occupied)
 //
-// A group's read, like Any, All, Count and Readings, ignores the members that haven't reported the
-// capability. If none has, the condition stops there, as at a Get. A room's covers the devices in it
-// now, of its kinds, and a room with none stops it too, and a case keeps its state, so it's logged
-// at Warn.
+// Any, All, Count and Readings ignore the members that haven't reported the capability, and if none
+// has, the condition stops there, as at a Get. A room's capability covers the devices in it now, of
+// its kinds. A room with none stops the condition too, and since a case then keeps its state,
+// that's logged at Warn.
 func (s Snapshot) Any(b Bool) bool { return s.Count(b) > 0 }
 
 // All reports whether a group's capability is true on all of its members that have reported it.
@@ -159,14 +160,14 @@ func (s Snapshot) Readings(n Number) []float64 { return groupValues[float64](s, 
 // roomValues are the reported values of a room's capability, on its devices of types, in device
 // name order.
 func roomValues[T Value](s Snapshot, room string, types []devicetype.Type, c string) []T {
+	// A device with no room is in none, as for a room's writes and triggers, so "" is a mistake, not
+	// an empty room.
 	var names []string
 	for name, m := range s.members {
-		// A device with no room is in none, as for a room's writes and triggers.
 		if room != "" && m.Room == room && m.OfTypes(types) {
 			names = append(names, name)
 		}
 	}
-	// A device with no room is in none, so "" is a mistake, not an empty room.
 	if room != "" {
 		if s.reads != nil {
 			*s.reads = append(*s.reads, engine.RoomRead{Room: room, Types: types})
@@ -252,7 +253,6 @@ func Sunrise(offset time.Duration) Time { return Time{sun: sun.Sunrise, offset: 
 // Sunset is the day's sunset at the home's location, moved by offset, as Sunrise is.
 func Sunset(offset time.Duration) Time { return Time{sun: sun.Sunset, offset: offset} }
 
-// isSun reports whether it's a sunrise or sunset.
 func (t Time) isSun() bool { return t.sun != 0 }
 
 // timer is the engine's time. A zero Time is none, which the engine rejects.
@@ -309,7 +309,6 @@ type Budget struct {
 	once         once
 }
 
-// prefer weights the slots in some hours.
 type prefer struct {
 	hours Hours
 	score int
@@ -337,7 +336,8 @@ func (b Budget) SlotMinutes(minutes int) Budget {
 	return b
 }
 
-// Prefer weights the slots in some hours, from Daily, adding to any others.
+// Prefer weights the slots in some hours, from Daily, by score, adding to any others. The plan
+// favours the slots whose scores add up highest.
 func (b Budget) Prefer(h Hours, score int) Budget {
 	b.prefer = append(slices.Clip(b.prefer), prefer{hours: h, score: score})
 	return b
@@ -388,7 +388,7 @@ type Flow struct {
 	once    once
 }
 
-// Flow adds a flow to the home, which runs run on each trigger. Name it once.
+// Flow adds a flow to the home, which runs run on each trigger. Give each flow a name of its own.
 func (h *Home) Flow(name string, run func(*FlowRun)) *Flow {
 	f := &Flow{name: name, run: run}
 	h.flows = append(h.flows, f)
@@ -634,7 +634,8 @@ func (s Set) toEngine(decided []compiledDecision, flowName string) engine.Action
 	}
 }
 
-// Options is what a home has exactly one of. A zero Options is valid.
+// Options are the settings of the whole home, which NewHome takes. The zero Options is a home with
+// no location and a bridge called "Oikade".
 type Options struct {
 	// Location is where the home is, for Sunrise and Sunset. A home without them needs none.
 	Location Location
@@ -699,7 +700,7 @@ type Home struct {
 	declared []*Declaration
 }
 
-// NewHome makes a home.
+// NewHome makes an empty home with options o: add to it, then call Run.
 func NewHome(o Options) *Home { return &Home{options: o} }
 
 // Plugin is a plugin the home imports, which Home.Plugin makes.

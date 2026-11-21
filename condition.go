@@ -124,8 +124,8 @@ type Hours struct {
 
 // Daily is open each day from start until the next end: times such as "22:00", from "00:00" to
 // "23:59" in the host's time zone, or a Sunrise or Sunset. Both are strings or both are Times, so
-// one with a sun edge writes its clock edge as Clock("23:30"). An end at or before its start is the next
-// day, so Daily("22:00", "06:00") is the night.
+// one with a sun edge writes its clock edge as Clock("23:30"). An end at or before its start is the
+// next day, so Daily("22:00", "06:00") is the night.
 //
 //	oikade.Daily(oikade.Sunset(0), oikade.Sunrise(0)) // while it's dark
 func Daily[T string | Time](start, end T) Hours {
@@ -224,7 +224,6 @@ type Dates struct {
 // year, so Yearly("1 Nov", "28 Feb") is the winter. A date that isn't one fails oikade check.
 func Yearly(start, end string) Dates { return Dates{start: start, end: end} }
 
-// date is a day of the year, as a month and a day.
 type date struct {
 	month time.Month
 	day   int

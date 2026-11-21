@@ -118,9 +118,9 @@ func (d *Decision[T]) add(l line) *Decision[T] {
 	return d
 }
 
-// Case is a line that sets the capability to v while every condition is true. Its name is the
-// capability's own, such as frost on pool-pump on, which oikade status, pause and resume use: keep
-// it, because its delay and latch are kept by it.
+// Case is a line that sets the capability to v while every condition is true. Its name is unique
+// within the decision, and oikade status, pause and resume name the case by it, as
+// case/hall-heater/on/occupied. Keep it: a case's delay and latch are kept under its name.
 func (d *Decision[T]) Case(name string, v T, when ...Condition) *Decision[T] {
 	return d.add(line{kind: caseLine, name: name, value: raw(v), when: slices.Clone(when)})
 }
@@ -691,7 +691,7 @@ func (d *compiledDecision) merge(g compiledDecision) error {
 	return err
 }
 
-// settings are the home's decisions as the host takes them: one for each device, and each room's.
+// settingsOf is the home's decisions as the host takes them: one for each device, and each room's.
 func settingsOf(decided []compiledDecision) []wire.DeviceControl {
 	out := make([]wire.DeviceControl, 0, len(decided))
 	for _, d := range decided {
@@ -783,7 +783,6 @@ func flowSafety(decided []compiledDecision, flowName string) bool {
 	})
 }
 
-// caseRule is a case's engine rule.
 func (c decidedCase) rule() (*engine.Compiled, error) {
 	return engine.NewHold(ident.ID{Name: c.key}, c.hold)
 }

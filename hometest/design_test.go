@@ -9,7 +9,7 @@ import (
 	"github.com/harrymitchinson/oikade/hometest"
 )
 
-// The decisions OIK-298's design is written around, as a home writes them.
+// A porch light, a pool pump and a garage heater, decided as a home writes them.
 
 var (
 	porchLight  = oikade.Bool{Device: "porch-light", Capability: oikade.On}
@@ -36,7 +36,7 @@ func designDevices(water float64) []hometest.Device {
 	}
 }
 
-// designHome is the design's porch light, pool pump and garage heater.
+// designHome decides the porch light, the pool pump and the garage heater.
 func designHome() *oikade.Home {
 	home := oikade.NewHome(oikade.Options{})
 
@@ -53,7 +53,7 @@ func designHome() *oikade.Home {
 		Ranges:    []oikade.Band{{Below: 22, Minutes: 0}, {Below: 26, Minutes: 60}, {Below: 29, Minutes: 120}},
 		Otherwise: 240,
 	}).Prefer(cheapHours, 3).Forbid(swimHours).
-		// The design's budget plans in half hours, which its MinimumOff isn't a multiple of.
+		// Each limit must be a multiple of the slot, which is half an hour by default.
 		SlotMinutes(15)
 	home.Decide(poolPump).
 		Limits(oikade.Limits{MinimumOn: 30 * time.Minute, MinimumOff: 15 * time.Minute}).
@@ -242,8 +242,8 @@ func TestTheGarageHeaterLatchesOffUntilTheDoorOpens(t *testing.T) {
 	h.ExpectValue(garageHeater, true)
 }
 
-// The flows OIK-298's design is written around. A radiator stands in for the design's room of them,
-// and the mains valve's On is whether it's open.
+// Flows for an arrival, a leak and the night. A radiator stands in for a room of them, and the
+// mains valve's On is whether it's open.
 var (
 	hallLight    = oikade.Bool{Device: "hall-light", Capability: oikade.On}
 	frontDoor    = oikade.Bool{Device: "front-door", Capability: oikade.Open}
@@ -347,7 +347,7 @@ func TestTheLeakFlowBeatsASwitchAndTheOthersDont(t *testing.T) {
 	h.ExpectClaim(mainsValve, "flow/leak", "Safety")
 }
 
-// The design's radiators, declared as oikade types writes them.
+// Radiators, windows and sensors, as oikade types writes them.
 var (
 	BedroomRadiator = radiator("bedroom-radiator")
 	StudyRadiator   = radiator("study-radiator")
@@ -386,8 +386,8 @@ func window(name string) windowDevice {
 // compensate is the setpoint for a temperature outside: warmer inside the colder it is.
 func compensate(outside float64) float64 { return 21 - outside/4 }
 
-// radiatorsHome is the design's: every radiator follows the weather, and goes down while a window
-// is open, and the study's is warmer while someone works there.
+// radiatorsHome has every radiator follow the weather, and go down while a window is open, and the
+// study's warmer while someone works there.
 func radiatorsHome() *oikade.Home {
 	home := oikade.NewHome(oikade.Options{})
 	radiators := home.Group("radiators", BedroomRadiator, StudyRadiator, KitchenRadiator)

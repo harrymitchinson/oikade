@@ -93,7 +93,7 @@ func TestDeviceMovingDriverStartsAfresh(t *testing.T) {
 	s.Changed(driver.Update{Device: light, Capability: capability.On, Value: true})
 	s.Availability(light, true)
 
-	// The Plugin reconciler can run before the Zigbee2MQTT one drops the device.
+	// One instance can take a device before the other has dropped it.
 	s.SetDevices(plug, map[ident.ID]Meta{light: {Instance: plug}})
 	s.SetDevices(z2m, nil)
 	snap, ok := s.Get(light)
@@ -194,8 +194,8 @@ func TestRenameMovesLiveStateAsOneChange(t *testing.T) {
 	}
 }
 
-// A device going offline, and coming back, is logged once each, and a first report online isn't
-// (OIK-340). Went hears the same, for the event log.
+// A device going offline, and coming back, is logged once each, and a first report online isn't.
+// Went hears the same, for the event log.
 func TestStoreLogsADeviceGoingOffline(t *testing.T) {
 	log := testkit.Logs(t)
 	s := NewStore(log.Logger)
@@ -233,7 +233,7 @@ func TestStoreLogsADeviceGoingOffline(t *testing.T) {
 }
 
 // A device offline says since when, which another report of the same doesn't move, and one back
-// online has no such time (OIK-355).
+// online has no such time.
 func TestStoreSaysSinceWhenADeviceIsOffline(t *testing.T) {
 	s := NewStore(testkit.Logs(t).Logger)
 	key := driver.InstanceKey{Driver: driver.Plugin, Name: "ewelink"}

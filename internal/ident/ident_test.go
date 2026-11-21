@@ -68,7 +68,7 @@ func TestCheckNameSuggestsAName(t *testing.T) {
 	}
 }
 
-// A log names an ID by its name, as a filter on it expects (OIK-330).
+// A log names an ID by its name, as a filter on it expects.
 func TestAnIDLogsAsItsName(t *testing.T) {
 	var out strings.Builder
 	slog.New(slog.NewJSONHandler(&out, nil)).Info("Plugin came online", "plugin", ID{Name: "ewelink-lan"})

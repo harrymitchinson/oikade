@@ -31,7 +31,8 @@ func fountainHome(t *testing.T, home *oikade.Home, start time.Time) *hometest.Ho
 }
 
 // One case ending at the minute the next starts hands over with no write, so MinimumOff never
-// rests it in between (OIK-343). The ending line's name sorts first, as the bug needed.
+// rests it in between. The ending case's name sorts first on purpose: that order is the one that
+// could write in between.
 func TestACaseHandsOverToTheNextWithNoWrite(t *testing.T) {
 	home := oikade.NewHome(oikade.Options{})
 	home.Decide(fountain).

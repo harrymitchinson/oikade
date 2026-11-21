@@ -9,7 +9,7 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// eventsBucket is created by the first Add, so a store from before the log needs nothing done to it.
+// eventsBucket is created by the first Add, so it needs no change to the format.
 var (
 	eventsBucket = []byte("events")
 	logBucket    = []byte("log")

@@ -29,20 +29,21 @@ import (
 	"github.com/harrymitchinson/oikade/internal/simhome"
 )
 
-// Device is a device in the simulated home.
+// Device is a device in the simulated home, for Options.Devices.
 type Device struct {
-	Name, Room   string
+	Name, Room string
+	// Capabilities are its capabilities' names, such as string(oikade.On).
 	Capabilities []string
 	// DeviceType is what a device that's on or off is, as Declaration.Is would say. Empty is
 	// what its capabilities say: a dimmable light with oikade.Brightness, and a plug without.
 	DeviceType oikade.DeviceType
-	// Values are its first values, by capability.
+	// Values are its first values, by capability. A capability without one hasn't reported yet.
 	Values map[string]any
 }
 
 // Options say what home to simulate. All of them can be left out.
 type Options struct {
-	// Start is when the test starts. Zero means midnight UTC on Monday 7 January 2030. Its location
+	// Start is when the test starts. Zero means midnight UTC on Monday 7 January 2030. Its time zone
 	// is the home's.
 	Start time.Time
 	// Devices are the devices. Empty means the ones in Types, in the rooms and of the types your home
@@ -81,7 +82,8 @@ type Home struct {
 	sim *simhome.Sim
 }
 
-// New starts a simulated home, which stops with the test.
+// New starts a simulated home, which stops with the test. It fails the test if your home or Options
+// has a mistake in it, or if the home can't start.
 func New(t testing.TB, home *oikade.Home, o Options) *Home {
 	t.Helper()
 	if o.Start.IsZero() {
@@ -238,7 +240,7 @@ func (h *Home) Writes() []Write {
 	return out
 }
 
-// Claims are the claims on an arbitrated capability.
+// Claims are the claims on c now. Only a capability a decision decides has any.
 func (h *Home) Claims[T oikade.Value](c oikade.Ref[T]) []Claim {
 	h.t.Helper()
 	claims := h.sim.Claims(h.names(c))
@@ -250,7 +252,7 @@ func (h *Home) Claims[T oikade.Value](c oikade.Ref[T]) []Claim {
 	return out
 }
 
-// Finished says a flow has run to the end, successfully, with no run left.
+// Finished reports whether the flow named rule has run to the end, successfully, with no run left.
 func (h *Home) Finished(rule string) bool { return h.sim.Finished(rule) }
 
 // ExpectValue fails the test unless a device has this value.

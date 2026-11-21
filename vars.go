@@ -14,20 +14,18 @@ import (
 )
 
 // Var is the value called name in your home's .env, the file beside its go.mod that Git ignores,
-// which oikade deploy sends the host with your binary (OIK-365). It's for what's yours rather than
-// your home's, such as a login's username and password or a hub's address, so the code can be
-// pushed or shared as it stands:
+// which oikade deploy sends the host with your binary. It's for what's yours rather than your
+// home's, such as a login or a hub's address, so the code can be pushed or shared as it stands:
 //
 //	home.Plugin("toshiba", toshibaac.New(toshibaac.Config{Username: oikade.Var("TOSHIBA_USER")}))
 //
 // A name is the same in your code, the file and the environment, and follows an environment
-// variable's rule: upper-case letters, digits and underscores, starting with a letter. Call Var where
-// the home is built, such as in a plugin's config or a package-level var: that declares it, so
-// oikade deploy refuses to go ahead without a value for it, and one called in a rule as it runs is
-// too late for that. The host gives the values to each process it starts from your binary, and
-// keeps them as it keeps secrets: never in a binary, a log or an answer. oikade check and oikade dev
-// give your code the values a deploy would send: .env's, with the environment winning. Under go test
-// or hometest, a Var is empty.
+// variable's rule: upper-case letters, digits and underscores, starting with a letter. Call Var
+// where the home is built, such as in a plugin's config or a package-level var: that declares the
+// name, so oikade deploy refuses to go ahead without a value for it, which a rule calling it as it
+// runs is too late to do. The host gives the values to each process it starts from your binary, and
+// never puts one in a binary, a log or an answer. oikade check and oikade dev give your code .env's
+// values, with the environment winning. Under go test or hometest, Var returns "".
 func Var(name string) string {
 	return hostVars.get(name)
 }

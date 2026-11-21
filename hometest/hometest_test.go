@@ -199,7 +199,7 @@ func TestABudgetRunsItsMinutes(t *testing.T) {
 }
 
 // A budget planned 10 minutes into a slot, as on the day of a deploy, doesn't start a block that
-// its minimum on would hold past the block's end, into the hours it forbids (OIK-345).
+// its minimum on would hold past the block's end, into the hours it forbids.
 func TestABudgetPlannedMidSlotKeepsOutOfTheHoursItForbids(t *testing.T) {
 	home := oikade.NewHome(oikade.Options{})
 	filtration := oikade.NewBudget(func(oikade.Snapshot) int { return 30 }).
@@ -622,8 +622,8 @@ func TestExpectWriteSeesAWriteTheDeviceMovedOnFrom(t *testing.T) {
 }
 
 // A report that sets off a safety line and a lower one on the same device at once writes only the
-// safety line's value: the lower one never gets a moment to win (OIK-212). Either value may come
-// first in the report, and the lower one may be a case or a flow.
+// safety line's value: the lower one never wins, even briefly. Either value may come first in the
+// report, and the lower one may be a case or a flow.
 func TestOneReportWritesOnlyTheSafetyValue(t *testing.T) {
 	occupied := oikade.Bool{Device: "hall", Capability: oikade.Occupied}
 	damp := oikade.Number{Device: "hall", Capability: oikade.Humidity}
@@ -654,7 +654,7 @@ func TestOneReportWritesOnlyTheSafetyValue(t *testing.T) {
 				d = d.Case("warm", true, occupied)
 			}
 			d.Default(false)
-			// The bug was a race, so give it room to show.
+			// A race shows only now and then, so this runs it 20 times.
 			for range 20 {
 				h := hometest.New(t, home, hometest.Options{Devices: []hometest.Device{
 					{
