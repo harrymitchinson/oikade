@@ -48,9 +48,9 @@ type Declared struct {
 
 // Declare makes the registry what the home's code declares, in one change. A declared device takes
 // its name, room and type, matched by its hardware, and keeps its endpoint. A name that moves onto
-// other hardware keeps its endpoint, and a name with no hardware is reserved. A
-// device that was declared and no longer is goes back to what its app calls it, and a reserved name
-// that no longer is declared is removed.
+// other hardware keeps its endpoint, and a name with no hardware is reserved. A device that was
+// declared and no longer is goes back to what its app calls it, and a reserved name that no longer
+// is declared is removed.
 func (r *Registry) Declare(decls []Declaration) (Declared, error) {
 	var out Declared
 	err := r.change(func(s *Snapshot) error {

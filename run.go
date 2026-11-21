@@ -200,7 +200,7 @@ func runAutomations(ctx context.Context, h *Home, rules []*engine.Compiled, flow
 }
 
 // runDev is oikade dev: the home on a simulated one, driven from standard input. The devices are the
-// ones in the file oikade types wrote, named after the role.
+// ones in the file oikade types wrote, whose path is the argument after the role.
 func runDev(h *Home) error {
 	if len(os.Args) != 3 {
 		return errors.New("run this with oikade dev")

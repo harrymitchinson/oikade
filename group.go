@@ -32,6 +32,7 @@ type member interface{ device() Device }
 // Every capability has a field, so radiators.Humidity compiles, and oikade check refuses one no
 // member has.
 type Group struct {
+	// Name is the group's name, or the room's.
 	Name string
 
 	On       Bool

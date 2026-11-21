@@ -1,8 +1,7 @@
-// Package devicetype says what a device is, in Matter's names: an on/off light, a plug, a wall
-// switch, or a sensor. A device's capabilities say what it can do, and only a device that's on or off
-// can be more than one thing, so that's the type you or its driver can choose. The rest follow from
-// its capabilities. One function, Of, gives the answer that the Matter bridge and oikade list devices
-// read.
+// Package devicetype says what a device is, in Matter's names, such as a light, a plug, a wall
+// switch, a thermostat or a sensor. Only a device that's on or off can be more than one thing, so
+// that's the type you or its driver can choose, and the rest follow from its capabilities. Of gives
+// the answer the Matter bridge and oikade list devices read.
 package devicetype
 
 import (
@@ -99,7 +98,6 @@ func Dimmable(t Type) bool {
 	return ok
 }
 
-// Light says t is a light.
 func Light(t Type) bool { return t == OnOffLight || t == DimmableLight }
 
 // OnOffOf is the type of a device that's on or off: yours, else its driver's, else a dimmable light
@@ -141,8 +139,8 @@ func ClimateOf(capabilities []string) Type {
 }
 
 // Of is a device's device types: its on/off type, Thermostat or RoomAirConditioner, then any that
-// follow from its other capabilities. A battery is a power source, which Matter shows on the device rather than as what it
-// is, so it isn't one.
+// follow from its other capabilities. A battery adds none: Matter shows a power source on the
+// device, not as what it is.
 func Of(yours, drivers Type, capabilities []string) []Type {
 	var out []Type
 	climate := ClimateOf(capabilities)

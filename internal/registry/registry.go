@@ -40,7 +40,7 @@ var (
 	ErrNoDevice = errors.New("no such device")
 )
 
-// Device is one device. Its JSON is in oikade list devices --json, so
+// Device is one device. Its JSON is what the store keeps and oikade list devices --json prints, so
 // add to it, and don't rename.
 type Device struct {
 	// Name is what code and the command line call it: what the home declares, or else copied from

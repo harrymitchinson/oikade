@@ -181,7 +181,7 @@ func TestGettingAValueOfTheWrongTypePanics(t *testing.T) {
 	Snapshot{devices: map[string]map[string]any{"door": {"open": true}}}.Get(wrong)
 }
 
-// A flow's or a moment's Set ranks where its decision's Flows line is: Safety above the override line.
+// A flow's Set ranks where its decision's Flows line is: Safety above the override line.
 func TestASetRanksAtItsDecisionsFlowsLine(t *testing.T) {
 	heater, lamp := Bool{Device: "heater", Capability: On}, Bool{Device: "lamp", Capability: On}
 	decided, err := decide(func(h *Home) {

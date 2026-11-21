@@ -116,7 +116,7 @@ func TestOpenRefusesAnotherFormat(t *testing.T) {
 	}
 }
 
-// Format 1 kept saved state and driver names under a namespace that no longer exists.
+// Format 1 kept saved state and driver names under a namespace this format doesn't have.
 func TestOpenRefusesTheNamespacedFormat(t *testing.T) {
 	dir := t.TempDir()
 	s := open(t, dir)

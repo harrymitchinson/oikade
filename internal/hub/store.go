@@ -18,7 +18,7 @@ import (
 	"github.com/harrymitchinson/oikade/internal/logging"
 )
 
-// Meta is what the hub knows about a declared Device from its spec.
+// Meta is what the hub is told about a declared Device, as against what its driver reports.
 type Meta struct {
 	DisplayName string
 	Room        string
@@ -285,7 +285,7 @@ func (s *Store) Room(room string) []ident.ID {
 	return out
 }
 
-// Undeclared returns the number of paired-but-undeclared devices per driver instance.
+// UndeclaredCounts returns the number of paired-but-undeclared devices per driver instance.
 func (s *Store) UndeclaredCounts() map[driver.InstanceKey]int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -354,7 +354,7 @@ func (s *Store) Changed(changes ...driver.Update) {
 }
 
 // Availability implements driver.Sink. A device going offline, or coming back, is logged, so the
-// log says when it went (OIK-340); one first reported online isn't, since that's every device at start.
+// log says when it went. One first reported online isn't, since that's every device at start.
 func (s *Store) Availability(dev ident.ID, online bool) {
 	var was *bool
 	if !s.update(dev, func(e *entry) {

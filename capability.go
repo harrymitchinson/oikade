@@ -64,6 +64,7 @@ const (
 // while the capability is, and a change, which fires whenever it changes. A group's, such as
 // windows.Open, is a change on any member, and Any and All make conditions of it.
 type Bool struct {
+	// Device is the device's name, or the group's or room's for a group's capability.
 	Device     string
 	Capability Capability[bool]
 	// g is the group or room the capability is of, or nil for a device's.
@@ -74,6 +75,7 @@ type Bool struct {
 // one for each such capability each of your devices has. Above, Below and Within make conditions of
 // it, and it's a change, which fires whenever it changes.
 type Number struct {
+	// Device is the device's name, or the group's or room's for a group's capability.
 	Device     string
 	Capability Capability[float64]
 	g          *group
@@ -85,6 +87,7 @@ type Number struct {
 //
 //	home.Decide(BedroomAC.Mode).Case("humid", oikade.ModeDry, BedroomSensor.Humidity.Above(65)).Default(oikade.ModeCool)
 type Choice struct {
+	// Device is the device's name, or the group's or room's for a group's capability.
 	Device     string
 	Capability Capability[ClimateMode]
 	g          *group
@@ -165,7 +168,6 @@ func raw(v any) any {
 //	home.Flow("front-door-arrival", arrival).When(FrontDoor.Open.Becomes(true))
 func (b Bool) Becomes(v bool) Change { return becomes{b.handle(), v} }
 
-// becomes is a change to one value.
 type becomes struct {
 	h  handle
 	to bool
@@ -181,8 +183,9 @@ func (c becomes) changes() []engine.Change {
 	return out
 }
 
-// DeviceType is what a device that's on or off is, in Matter's names, as oikade list devices shows it. A
-// Kind from Kinds is some of them.
+// DeviceType is what a device is, in Matter's names, as oikade list devices shows it. Kinds takes
+// any of these to pick a room's devices. Declaration.Is takes only the types of a device that's on
+// or off, since the rest follow from a device's capabilities.
 type DeviceType string
 
 // Thermostat is a heater or thermostat: a device with a Setpoint that isn't a RoomAirConditioner.
@@ -229,8 +232,8 @@ func Kinds(t DeviceType, more ...DeviceType) Kind {
 	return Kind{types: append([]DeviceType{t}, more...)}
 }
 
-// Change is what triggers a flow, in its When: a capability changing on a device, as a Bool or a
-// Number, a Bool's Becomes, or a change on any member of a group or device in a room.
+// Change is what triggers a flow, in its When: a capability changing on a device, as a Bool, a
+// Number or a Choice, a Bool's Becomes, or a change on any member of a group or device in a room.
 type Change interface {
 	changes() []engine.Change
 	handle() handle

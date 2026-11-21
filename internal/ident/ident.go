@@ -15,13 +15,12 @@ type ID struct {
 	Name string
 }
 
-// String returns the ID's name.
 func (id ID) String() string {
 	return id.Name
 }
 
 // LogValue logs an ID as its name, so a filter on a device's or a plugin's name finds every line
-// that names it (OIK-330).
+// that names it.
 func (id ID) LogValue() slog.Value {
 	return slog.StringValue(id.Name)
 }
@@ -40,7 +39,6 @@ const (
 	Client Kind = "client"
 )
 
-// MaxName is the longest a name may be.
 const MaxName = 63
 
 // Rule says what a name may be, as an error says it.
@@ -84,7 +82,8 @@ func Slug(k Kind, s string) string {
 	return strings.TrimRight(slug[:min(len(slug), MaxName)], "-")
 }
 
-// dashed is s in lowercase letters and digits, with a dash for each run of anything else between them.
+// dashed is s in lowercase letters and digits, with a dash for each run of anything else between
+// them.
 func dashed(s string) string {
 	var b strings.Builder
 	for _, c := range strings.ToLower(s) {

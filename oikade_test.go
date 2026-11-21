@@ -46,7 +46,6 @@ var (
 	radiator = Number{Device: "r", Capability: Setpoint}
 )
 
-// nothing is a flow's body that does nothing.
 func nothing(*FlowRun) {}
 
 func TestCompileRejectsAnUnsoundHome(t *testing.T) {
@@ -266,8 +265,9 @@ func TestLookupOfAnUndeclaredDevicePanics(t *testing.T) {
 	_, _ = cond(engine.Vars{"devices": map[string]map[string]any{"door": {}}})
 }
 
-// hallway has three motion sensors, one of which has never reported, a light and a plug, and the
-// kitchen has a sensor that's occupied.
+// hallway has three motion sensors, one of which has never reported, a light and a plug. The
+// kitchen has a sensor that's occupied, the cellar one that has never reported, and the porch is in
+// no room.
 func hallway() engine.Vars {
 	return engine.Vars{
 		"devices": map[string]map[string]any{
@@ -606,7 +606,8 @@ type reports struct {
 
 func (r *reports) Changed(changes ...driver.Update) { r.got = append(r.got, changes) }
 
-// A change message is one report, so the engine takes in all of it at once (OIK-212).
+// A change message is one report, so the engine takes in all of it at once: no hold acts on one of
+// its values before seeing the rest.
 func TestAChangeReachesTheEngineAsOneReport(t *testing.T) {
 	r := &reports{}
 	mirror := hub.NewStore(logging.Discard(), r)

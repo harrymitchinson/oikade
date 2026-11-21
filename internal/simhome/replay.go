@@ -373,8 +373,8 @@ func withoutEchoes(events []api.Event) []api.Event {
 }
 
 // automationsWrote says an event is a write your automations made: a rule's, or one that doesn't say
-// whose it is, which is arbitration's own or from before writes said. A controller's and oikade
-// set's are a person's. A replay makes neither, and takes the change each made as one from outside.
+// whose it is, which is arbitration's own. A controller's and oikade set's are a person's. A replay
+// makes neither, and takes the change each made as one from outside.
 func automationsWrote(e api.Event) bool {
 	return e.Type == api.EventWrite && e.By != personMatter && e.By != personCommand
 }

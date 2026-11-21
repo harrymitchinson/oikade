@@ -21,7 +21,8 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-// childEnv makes the test binary act as a child process, with the data directory as its value.
+// childAppendEnv and childHoldEnv make the test binary act as a child process, with the data
+// directory as their value.
 const (
 	childAppendEnv = "OIKADE_STORE_CHILD_APPEND"
 	childHoldEnv   = "OIKADE_STORE_CHILD_HOLD"
