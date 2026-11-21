@@ -2,55 +2,71 @@
 
 Home automation as code you can test, on one small machine.
 
-Your home is a Go module: decisions and flows that compile, run in tests on a fake clock, and deploy without stopping anything. `oikade-host` is one binary that keeps your devices, runs a Matter bridge for the Home app and other controllers, and supervises your code. Prometheus keeps the history.
+Your home is a Go module of decisions and flows. It compiles, runs in tests on a fake clock, and deploys without stopping anything. `oikade-host` is one binary that keeps your devices, runs a Matter bridge for the Home app and other controllers, and runs your code. `oikade` is the command you run on your laptop or in CI.
 
-| | Owner | Examples |
-|---|---|---|
-| **Your automations** | Git, as a Go module | What should happen: decisions, flows, arbitration |
-| **Devices and state** | The host's data directory | Which devices exist, their names and rooms, claims, latches, Matter's pairing |
-| **History** | Prometheus and Grafana | Temperature over time, how often the door opened, rule runs |
+## How it fits together
 
-Toggling a light from your phone is state, so Git doesn't care, and a deploy doesn't touch it.
-
-## Components
-
-```
- drivers                      oikade-host                          consumers
- ┌──────────────┐    ┌───────────────────────────────┐    ┌──────────────────────────────┐
- │ zigbee2mqtt  │◀──▶│ device state, arbitration,    │◀──▶│ your automations (a process  │
- │ plugin       │    │ the store, the Matter bridge, │    │ the host runs and replaces)  │
- ├──────────────┤    │ metrics, the local API        │───▶│ the Home app, Google Home, … │
- │ your plugins │◀──▶│                               │───▶│ Prometheus                   │
- └──────────────┘    └───────────────────────────────┘    └──────────────────────────────┘
+```text
+ plugins, each a process      oikade-host                     around it
+┌───────────────────┐     ┌─────────────────────────┐     ┌──────────────────────────────┐
+│ Zigbee2MQTT       │     │ devices and their state │◀───▶│ your automations: a process  │
+│ eWeLink LAN       │◀───▶│ arbitration             │     │ the host runs and replaces   │
+│ Overkiz           │     │ the store               │     ├──────────────────────────────┤
+│ Toshiba AC        │     │ the Matter bridge       │◀───▶│ the Home app, or any other   │
+│ one of your own   │     │ the API                 │     │ Matter controller            │
+│                   │     │ metrics                 │     ├──────────────────────────────┤
+│                   │     │                         │◀───▶│ oikade, on a laptop or in CI │
+│                   │     │                         │     ├──────────────────────────────┤
+│                   │     │                         │────▶│ Prometheus                   │
+└───────────────────┘     └─────────────────────────┘     └──────────────────────────────┘
 ```
 
-- **`oikade-host`** is long-lived. It owns everything that must survive, and serves Matter, metrics on `:8080` and a local API. Run one per home.
-- **Your process** is your module's binary. The host starts it, restarts it if it dies, and swaps it on a deploy, while Matter stays up and your devices stay as they are.
-- **Plugins** are processes too, each supervised by the host, so one that hangs is restarted while the rest carry on.
-- **`oikade`** is the command you run, on your laptop or in CI: `init`, `test`, `dev`, `deploy`, `status` and the rest. It reaches the host over its API, and carries nothing of the host itself.
+- **`oikade-host`** is long-lived, one per home. It owns everything that must survive: which devices exist, their names and rooms, claims, and Matter's pairing. It serves Matter, an API on a local socket and over TLS on the network, and metrics on `:8080`.
+- **Your automations** are your module's binary. The host starts it, restarts it if it dies, and swaps it on a deploy, while Matter stays up and your devices stay as they are.
+- **Plugins** connect device platforms. Each runs as a process of its own, so one that hangs is restarted while the rest carry on.
+- **`oikade`** is the CLI: `init`, `test`, `dev`, `deploy`, `status` and the rest. It reaches the host over its API.
+
+Your code lives in Git, and your home's state lives in the host. Toggling a light from your phone is state, so Git doesn't see it and a deploy doesn't touch it. Prometheus keeps the history.
 
 ## Requirements
 
-- **Linux with systemd, or Docker,** on arm64 or amd64. A Raspberry Pi is plenty: see [One Pi, with the host](docs/deploy-raspberry-pi.md).
+- **Linux with systemd, or Docker,** on arm64 or amd64. A Raspberry Pi is plenty.
 - **The same L2 network as your controllers, with IPv6.** Controllers find the bridge over mDNS and reach it over IPv6.
 - **A Matter controller with a hub,** such as the Home app with an Apple TV or HomePod as its home hub.
 - **For Zigbee,** a coordinator, and a Zigbee2MQTT and an MQTT broker you run. See the [Zigbee2MQTT plugin](plugins/zigbee2mqtt/README.md).
-- **Go,** wherever you build your home.
+- **Go 1.27 or later,** wherever you build your home.
 
-## Getting started in Go
+## First run
 
-A home is a Go module. You need Go and `oikade`, and no device or host:
+You need Go and `oikade`, and no device or host:
 
 ```sh
 go install github.com/harrymitchinson/oikade/cmd/oikade@main
-mkdir home && cd home
-oikade init
+oikade init home && cd home
 oikade test
+oikade dev
 ```
 
-Or take `oikade` from a [release](https://github.com/harrymitchinson/oikade/releases): `oikade-<os>-<arch>.tar.gz`, for darwin or linux on arm64 or amd64, holds it with this README and the licence, and `checksums.txt` has each archive's SHA-256.
+Or take `oikade` from a [release](https://github.com/harrymitchinson/oikade/releases): `oikade-<os>-<arch>.tar.gz` holds it for darwin or linux, on arm64 or amd64, and `checksums.txt` has each archive's SHA-256.
 
-`init` writes a module with one automation, its test, a `devices.go` with two example devices, a `.gitignore` that keeps your [values](docs/running-a-home.md#your-values) in `.env` out of Git, and a GitHub Actions workflow that runs `oikade check` and `oikade test` on every change, with your values from the secret `OIKADE_ENV`. Once you [turn deploys on](docs/running-a-home.md#deploying-from-ci), it also deploys what reaches `main`. `oikade types` replaces `devices.go` once you have real devices.
+`oikade init` writes a Go module: `main.go` with one decision, its test in `home_test.go`, `devices.go` with two example devices, a `.gitignore`, and a GitHub Actions workflow that checks and tests every change. `oikade dev` runs your home against simulated devices, on a clock you move by hand:
+
+```text
+$ oikade dev
+Simulating 2 devices from Sat 11:00. Type help for the commands.
+Sat 11:00 Wrote porch-light on = false
+set porch-sensor occupied true
+Sat 11:00 case/porch-light/on/motion applies
+Sat 11:00 Wrote porch-light on = true
+set porch-sensor occupied false
+advance 6m
+Sat 11:05 case/porch-light/on/motion no longer applies
+Sat 11:05 Wrote porch-light on = false
+```
+
+## A decision and its test
+
+This is the decision `oikade init` writes, in `main.go`:
 
 ```go
 func home() *oikade.Home {
@@ -60,95 +76,46 @@ func home() *oikade.Home {
 		Default(false)
 	return home
 }
-
-func main() {
-	home().Run()
-}
 ```
 
-A [decision](docs/automations.md#decisions) is everything that sets one capability, as a list read top to bottom: the first case that applies wins, and `Default` is what's left. A [flow](docs/writing-flows.md), added with `home.Flow`, does something when a trigger fires.
+A decision is everything that sets one capability, as a list read top to bottom: the first case that applies wins, and `Default` is what's left. Here the porch light is on while the sensor sees someone, and for 5 minutes after. `PorchLight` and `PorchSensor` come from `devices.go`, so a misspelt device or a capability it doesn't have doesn't compile.
 
-`devices.go` has a value for each device: `PorchLight.Name` is its name, and `PorchLight.On` is one of its capabilities, an `oikade.Bool`, an `oikade.Number` or, for an air conditioner's `Mode`, an `oikade.Choice`. Your editor lists what each device can do. A `Bool` is a [condition](docs/automations.md#conditions) and a `Number` makes one, as `Bathroom.Humidity.Above(70)` does, `To` writes one, as `BedroomAC.Mode.To(oikade.ModeDry)` does, and each is a change that triggers a rule. `home.Group` and `home.Room` put devices [together](docs/automations.md#groups-and-rooms), with the same fields.
-
-`oikade check` finds what's wrong before anything runs: the compiler, so a misspelt device, a capability the device doesn't have or a value of the wrong type doesn't build, then [flows that wouldn't replay](docs/writing-flows.md) and a `Set`, condition or other `oikade` value that's built and thrown away, such as `HallLamp.On.To(true)` without `r.Set`, or a chained method whose result isn't used, then the checks a deploy makes, which include an option given twice. `oikade deploy` makes these checks too. If it can reach your host, it also lists the devices a deploy would leave behind because their [plugin](docs/running-a-home.md#removing-a-plugin) is no longer imported.
-
-`oikade dev` runs your automations against a simulated home built from `devices.go`, on a clock you move by hand:
-
-```text
-$ oikade dev
-Simulating 2 devices from Fri 18:41. Type help for the commands.
-set porch-sensor occupied true
-Fri 18:41 Wrote porch-light on = true
-Fri 18:41 case/porch-light/on/motion applies
-set porch-sensor occupied false
-advance 6m
-Fri 18:46 Wrote porch-light on = false
-Fri 18:46 case/porch-light/on/motion no longer applies
-```
-
-`status` shows every device and what holds it, and `restart` crashes your automations and starts them again. Your automations' log goes to standard error.
-
-`oikade test` is `go test`. The `hometest` package runs the real engine, arbiters and planner in your test: set device values, move a fake clock, and look at writes and claims. A restart in the middle of a flow is one call:
+`oikade test` is `go test`. The `hometest` package runs the real engine in your test, with simulated devices and a fake clock:
 
 ```go
-func TestBedtimeSurvivesACrash(t *testing.T) {
+func TestPorchLightFollowsThePorchSensor(t *testing.T) {
 	h := hometest.New(t, home(), hometest.Options{})
-	h.Advance(22*time.Hour + 40*time.Minute) // Into the flow's 30-minute wait.
-	h.Restart()
-	h.Advance(21 * time.Minute)
-	h.ExpectValue(Lounge.On, false)
-	h.ExpectFinished("bedtime")
+
+	h.Set(PorchSensor.Occupied, true)
+	h.ExpectValue(PorchLight.On, true)
+
+	h.Set(PorchSensor.Occupied, false)
+	h.Advance(4 * time.Minute)
+	h.ExpectValue(PorchLight.On, true)
+
+	h.Advance(2 * time.Minute)
+	h.ExpectValue(PorchLight.On, false)
 }
 ```
 
-The clock starts at midnight UTC on a Monday, unless `Options.Start` says otherwise. A mistake in a condition goes to the test's log, which `go test` shows when it fails.
+The guides go on from here, in order: more automations, how to test them, then a host to run them.
 
-`h.Set` changes one value. A sensor often reports several at once, and your rules see all of them before any acts, so a safety line on one is never late for a lower line on another. `h.Report(Hall.Humidity.To(72), Hall.Occupied.To(true))` sends one device's values as one report, as the host does.
+## Guides
 
-`oikade replay` shows what your code would have done last week. It fetches the host's event log, runs the code in your working copy against it on a fake clock, and compares that with what the deployed version did:
+1. [Automations](docs/automations.md): decisions, conditions, times of day, arbitration, budgets, groups and rooms
+2. [Writing flows](docs/writing-flows.md): automations as ordinary Go that survive a crash
+3. [Testing a home](docs/testing.md): `oikade check`, `hometest`, `oikade dev` and `oikade replay`
+4. [Devices](docs/devices.md): names, refs, declaring devices in code, capabilities and the Matter bridge
+5. [Running a home](docs/running-a-home.md): installing the host, deploying, your values, CI, upgrades and backups
+6. [Working with a running home](docs/working-with-a-home.md): `status`, `history`, `tail`, `set` and `pause`
+7. [A host on a Raspberry Pi](docs/deploy-raspberry-pi.md): from a bare Pi to a paired home, step by step
+8. [Metrics and logs](docs/metrics.md): Prometheus, the Grafana dashboard and the host's log
 
-```text
-$ oikade replay
-Replayed Fri 30 Oct 19:02:11 to Fri 6 Nov 19:02:11: 161240 changes. The deployed version wrote 412 times, your code 414.
-- Mon 2 Nov 07:12:40 bathroom-fan on = true
-+ Mon 2 Nov 07:04:10 bathroom-fan on = true
-```
-
-A `-` is a write the deployed version made and your code doesn't, and a `+` the reverse. Two writes within 5 seconds count as the same one. Unchanged code shows `No differences.` `--since 48h` compares a shorter time, though your code always runs from the start of the log so that it gets there in the right state. `--json` prints the report. A week of 40 busy devices took about a minute on a laptop, so a full 14-day log takes about two.
-
-A replay never reaches a device: your code runs in `simhome`, as in `oikade dev`, and asks the host only for its status and its log. A flow's `Do` isn't called. It gets the answer the deployed version got, or none if that call isn't on record, and the report says so. What it can't know comes as a note: a pause, a deploy, or your automations being down. It also runs a rule the deployed version had paused, a device that went quiet counts as alive, and a host that died outright leaves no note. Anything your code prints goes to standard error, with its errors. A device renamed during the log looks like two devices.
-
-The log keeps each change, write and rule run, and is bounded by age and size, oldest first. `oikade-host --event-log-age 336h --event-log-mib 64` are the defaults. Losing it costs nothing else.
-
-`oikade history` reads the same log, to say what the house did and why. `oikade history porch-light --since 03:00` shows the light's changes since 3am, each write with who made it, a rule, a Matter controller or `oikade set`, and when the light dropped off and came back. `oikade status porch-light` shows it now, why each value is what it is, and its last 10 events, and `oikade status --check` fails a CI job after a deploy if something a command fixes is wrong. `oikade list devices` says what's on record and how each is set up, as `list` does for rules, plugins, clients and contexts. [Running a home](docs/running-a-home.md#working-with-a-running-home) has the rest. Prometheus stays the place for longer than the log keeps.
-
-A decision also says what a tap in the Home app does, and holds limits and budgets. The pool pump below runs near freezing, whatever its switch says, then in swimming hours, then for a budget of minutes the water's temperature sets, and in spring's cheap hours:
-
-```go
-summer := oikade.Yearly("1 Jun", "15 Sep")
-swimHours := oikade.Daily("10:00", "18:00")
-cheapHours := oikade.Daily("00:30", "05:30")
-
-home.Decide(PoolPump.On).
-	Limits(oikade.Limits{MinimumOn: 30 * time.Minute, MinimumOff: 30 * time.Minute}).
-	Case("frost", true, PoolWater.Temperature.Below(3)).Linger(30 * time.Minute).
-	OverrideFor(2 * time.Hour). // a tap wins over the lines below for two hours
-	Case("swimming-hours", true, summer, swimHours).
-	Budget("extra", true, oikade.NewBandedBudget(oikade.Bands{
-		Reading: PoolWater.Temperature,
-		Ranges:  []oikade.Band{{Below: 22, Minutes: 0}, {Below: 26, Minutes: 60}}, Otherwise: 120,
-	}).Prefer(cheapHours, 3).Forbid(swimHours)).
-	Case("spring", true, oikade.Yearly("1 Apr", "31 May"), cheapHours).
-	Default(false)
-```
-
-A line above `OverrideFor` is a safety line: a tap can't beat it, and pausing it or deploying without it needs `--allow-safety`. `oikade status` names the line that won, `frost wants true`, and why each case doesn't apply. The host saves each decision, so a device is arbitrated, and a safety line holds, while your automations are down. A budget's plan and run minutes are saved too, so a deploy in the middle of the day doesn't run it again. [Writing automations](docs/automations.md) has the rest.
+For contributors: [architecture](docs/architecture.md), the [plugin contract](docs/plugin-contract.md), the [host API](docs/host-api.md), [planning](docs/planning.md) and [contributing](CONTRIBUTING.md).
 
 ## Plugins
 
-A plugin connects a device platform that isn't Zigbee, such as the eWeLink LAN protocol or the Overkiz cloud API, without changing Oikade. It targets the platform, not one device: a new device on that platform is a model in the plugin, not a new plugin. Devices it serves are ordinary devices: they show up on the Matter bridge, in Grafana and in rules like Zigbee ones.
-
-On a host, a plugin is a Go module your home imports, as an `oikade.Plugin` part of your home, and the host runs it as a process of its own, so one that panics or hangs is restarted while automations and Matter carry on. It runs as the host's user, so **importing a plugin means trusting its code**. A platform with no good Go library runs as an outside process speaking the contract to a broker of yours, with `oikade-host --broker URL --outside-plugins NAME`. The [contract](docs/plugin-contract.md#a-plugin-your-home-imports) says how.
+A plugin connects a device platform, such as Zigbee or the eWeLink LAN protocol, without changing Oikade. It targets the platform, not one device, and the devices it serves are ordinary devices: on the Matter bridge, in metrics and in rules. Your home imports a plugin as Go code, and the host runs it as the host's user, so **importing a plugin means trusting its code**.
 
 First-party plugins, each with its own README:
 
@@ -157,22 +124,11 @@ First-party plugins, each with its own README:
 - [Overkiz](plugins/overkiz/README.md): Somfy io shutters and screens through a TaHoma hub's local API, and Atlantic, Thermor and Sauter towel radiators through Cozytouch's clouds
 - [Toshiba Home AC Control](plugins/toshibaac/README.md): Toshiba air conditioners with a WiFi module, through Toshiba's cloud
 
-To write a plugin in Go, use the [SDK](sdk/plugin) and the contract types in [`contract/v1`](contract/v1). A plugin's whole `main` is one `plugin.Run` call, and the SDK handles the Last Will, re-announcing after a reconnect, `/set` and SIGTERM. First-party plugins live in [`plugins/`](plugins), and anyone else's in its own repo, `oikade-plugin-<name>`, with its own images and releases. [`test/fixtures/simswitch`](test/fixtures/simswitch) is a complete plugin with simulated relays, which this repo's conformance tests drive. A plugin in another language implements the [contract](docs/plugin-contract.md) itself. Any plugin repo can check itself against the contract with [`oikade-conformance`](docs/plugin-contract.md#conformance).
-
-## Guides
-
-- [Automations](docs/automations.md): decisions, flows' triggers, rooms, budgets, arbitration, and composing a home
-- [Writing flows](docs/writing-flows.md): automations as ordinary Go that survive a crash
-- [Devices](docs/devices.md): names, rooms, device types, capabilities and the Matter bridge
-- [Running a home](docs/running-a-home.md): deploying, your values, the host, upgrades, the network API, backups and security
-- [Metrics and logs](docs/metrics.md): Prometheus, the Grafana dashboard and logging
-- [Raspberry Pi](docs/deploy-raspberry-pi.md): a host on a Pi, from scratch
-- Plugins: [Zigbee2MQTT](plugins/zigbee2mqtt/README.md), [eWeLink LAN](plugins/ewelinklan/README.md), [Overkiz](plugins/overkiz/README.md) and [Toshiba Home AC Control](plugins/toshibaac/README.md)
-- For contributors: [architecture](docs/architecture.md), the [plugin contract](docs/plugin-contract.md), the [host API](docs/host-api.md), [planning](docs/planning.md) and [contributing](CONTRIBUTING.md)
+To write one, the [plugin contract](docs/plugin-contract.md) says what a plugin speaks, the [SDK](sdk/plugin) makes a Go plugin's `main` one `plugin.Run` call, and [`oikade-conformance`](docs/plugin-contract.md#conformance) checks a plugin repo against the contract. First-party plugins live in [`plugins/`](plugins), and anyone else's in its own repo, `oikade-plugin-<name>`.
 
 ## Not yet
 
-Planned work is tracked in `plan/`, a folder kept beside this checkout on the maintainer's machine. Each release is a file there, and its description gives its goal, exit criteria and why it sits where it does. Designs live in their features' issues there, and [docs/planning.md](docs/planning.md) says how planning works.
+Planned work is in `plan/`, a folder kept beside this checkout on the maintainer's machine. Each release is a file there, whose description gives its goal, exit criteria and why it sits where it does, and designs live in their features' issues. [Planning](docs/planning.md) says how it works.
 
 ## Not doing
 
@@ -186,6 +142,6 @@ Oikade isn't a general-purpose hub. It has no Home Assistant driver and no UI fo
 - **Configuration from a UI.** Your automations are code, and the Zigbee2MQTT web UI is yours.
 - **Device types the Home app can't use over Matter.** On iOS 27.2, valves, garage doors and closures other than window coverings and locks, plain doorbells and TVs show as an icon with no controls, and Matter has no security system type (OIK-101).
 
-## License
+## Licence
 
 Licensed under the [Apache License, Version 2.0](LICENSE).
