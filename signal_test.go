@@ -36,6 +36,17 @@ func TestCheckRefusesASignalsMistakes(t *testing.T) {
 			func(h *Home) { h.Signal("anyone-home", occupied).Linger(time.Hour).Linger(2 * time.Hour) },
 			"signal anyone-home: Linger is given twice",
 		},
+		"LingerUntil twice": {
+			func(h *Home) { h.Signal("anyone-home", occupied).LingerUntil("00:00").LingerUntil(Clock("06:00")) },
+			"signal anyone-home: LingerUntil is given twice",
+		},
+		"a LingerUntil that isn't a time": {
+			func(h *Home) { h.Signal("anyone-home", occupied).LingerUntil("") }, `signal anyone-home: LingerUntil: no time`,
+		},
+		"a sun LingerUntil with no location": {
+			func(h *Home) { h.Signal("anyone-home", occupied).LingerUntil(Sunrise(7 * time.Hour)) },
+			"signal anyone-home: LingerUntil: a sunrise or sunset needs the home's location",
+		},
 		"a zero Signal in a case": {
 			func(h *Home) { h.Decide(towelRail).Case("away", false, Signal{}).Default(true) }, "a zero Signal",
 		},

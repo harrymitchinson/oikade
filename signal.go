@@ -32,7 +32,9 @@ type madeSignal struct {
 	name                  string
 	when                  []Condition
 	delay, linger, maxAge time.Duration
-	once                  once
+	// until is nil for no LingerUntil.
+	until *Time
+	once  once
 }
 
 // Signal adds a signal to the home, true while every condition is. Give each a name of its own, and
@@ -52,6 +54,19 @@ func (s Signal) Delay(d time.Duration) Signal {
 // Linger is how long the signal stays true once its conditions are false.
 func (s Signal) Linger(d time.Duration) Signal {
 	return s.option("Linger", func(sg *madeSignal) { sg.linger = d })
+}
+
+// LingerUntil keeps the signal true once its conditions are false, until the next t: a time such
+// as "00:00", or a Sunrise or Sunset, as in Daily. After a Linger, it's the next t once the Linger
+// is over, so this is true through the day after anyone was last seen, and false at the midnight
+// that ends a whole day with nobody seen:
+//
+//	home.Signal("anyone-home", presence.Occupied.Any()).Linger(24 * time.Hour).LingerUntil("00:00")
+//
+// A t less than a second past counts as now, so a signal whose conditions turn false at t is false
+// then, not a day later.
+func (s Signal) LingerUntil[T string | Time](t T) Signal {
+	return s.option("LingerUntil", func(sg *madeSignal) { sg.until = new(timeOf(t)) })
 }
 
 // MaxAge leaves out a device that hasn't reported for d, as if it had never reported, as well as
@@ -172,9 +187,13 @@ func (h *Home) compileSignals() ([]engine.Signal, error) {
 		if err := s.once.err(); err != nil {
 			bad(err)
 		}
+		until, err := lingerUntil(s.until, h.options)
+		if err != nil {
+			bad(err)
+		}
 		out = append(out, engine.Signal{
-			Name: s.name, When: toEngine(cond), OnDelay: s.delay, OffDelay: s.linger, MaxAge: s.maxAge,
-			Why: signalWhy(cond),
+			Name: s.name, When: toEngine(cond), OnDelay: s.delay, OffDelay: s.linger, OffUntil: until,
+			MaxAge: s.maxAge, Why: signalWhy(cond),
 		})
 	}
 	return out, errors.Join(errs...)

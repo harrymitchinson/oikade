@@ -28,7 +28,9 @@ type Signal struct {
 	Name              string
 	When              Condition
 	OnDelay, OffDelay time.Duration
-	MaxAge            time.Duration
+	// OffUntil is a hold's. One that isn't a time, which CheckTime says, is logged and left out.
+	OffUntil Timer
+	MaxAge   time.Duration
 	// Why, if set, says what When says now, for oikade status. It reads the same Vars.
 	Why func(Vars) string
 }
@@ -81,7 +83,11 @@ type signals struct {
 func (e *Engine) initSignals() {
 	e.signals.values = map[string]bool{}
 	for _, sig := range e.Signals {
-		s := &signalState{Signal: sig, timing: &hold{onDelay: sig.OnDelay, offDelay: sig.OffDelay}}
+		until, err := offUntil(sig.OffUntil)
+		if err != nil {
+			e.Log.Error("Ignored Signal's OffUntil", "err", err, "signal", signalRef(sig.Name))
+		}
+		s := &signalState{Signal: sig, timing: &hold{onDelay: sig.OnDelay, offDelay: sig.OffDelay, offUntil: until}}
 		s.When = guarded(sig.When)
 		s.saved, s.fresh = e.SignalStates.Get(ident.ID{Name: sig.Name})
 		s.fresh = !s.fresh
@@ -160,7 +166,8 @@ func (e *Engine) stepSignal(s *signalState, on bool, now time.Time) SignalState 
 	if s.fresh {
 		return SignalState{Value: on, Since: now}
 	}
-	st, value := s.timing.step(HoldState{Active: s.saved.Value, OnAt: s.saved.OnAt, OffAt: s.saved.OffAt}, on, true, now)
+	st, value := s.timing.step(HoldState{Active: s.saved.Value, OnAt: s.saved.OnAt, OffAt: s.saved.OffAt}, on, true, now,
+		offClock{loc: e.Location, suns: e.suns})
 	out := SignalState{Value: value, Since: s.saved.Since, OnAt: st.OnAt, OffAt: st.OffAt}
 	if value != s.saved.Value {
 		out.Since = now

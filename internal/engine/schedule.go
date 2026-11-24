@@ -128,6 +128,20 @@ func (t timeTrigger) on(y int, m time.Month, d int, loc *time.Location, suns *su
 	return at, true
 }
 
+// after returns the trigger's first time after from. It reports false when none is due within a
+// week, as nextFire does.
+func (t timeTrigger) after(from time.Time, loc *time.Location, suns *sunCache) (time.Time, bool) {
+	local := from.In(loc).AddDate(0, 0, -1)
+	day := time.Date(local.Year(), local.Month(), local.Day(), 12, 0, 0, 0, loc)
+	for range lookback + 2 {
+		if at, ok := t.on(day.Year(), day.Month(), day.Day(), loc, suns); ok && at.After(from) {
+			return at, true
+		}
+		day = day.AddDate(0, 0, 1)
+	}
+	return time.Time{}, false
+}
+
 // wallClock returns minutes past midnight on y-m-d in loc. A time a daylight saving change skips
 // is when the clocks go forward, and a time that happens twice is the first.
 func wallClock(y int, m time.Month, d, minutes int, loc *time.Location) time.Time {

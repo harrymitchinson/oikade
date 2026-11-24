@@ -271,6 +271,22 @@ func (t Time) timer() engine.Timer {
 	return engine.At{Time: t.clock}
 }
 
+// lingerUntil is a LingerUntil's t as the engine takes it, nil for none, and an error for one that
+// isn't a time or that needs a location the home hasn't got.
+func lingerUntil(t *Time, o Options) (engine.Timer, error) {
+	if t == nil {
+		return nil, nil
+	}
+	err := needsLocation(o, *t)
+	if err == nil {
+		err = engine.CheckTime(t.timer())
+	}
+	if err != nil {
+		return nil, fmt.Errorf("LingerUntil: %w", err)
+	}
+	return t.timer(), nil
+}
+
 // needsLocation says, for a rule with these times, why it can't run in a home without a location.
 func needsLocation(o Options, times ...Time) error {
 	if o.site() == nil && slices.ContainsFunc(times, Time.isSun) {

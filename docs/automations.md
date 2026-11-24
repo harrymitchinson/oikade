@@ -38,6 +38,7 @@ What follows a case changes it:
 |---|---|
 | `Delay(d)` | How long its conditions must stay true before it applies. |
 | `Linger(d)` | How long it still applies after they stop being true. |
+| `LingerUntil(t)` | It still applies after they stop being true until the next [time of day](#times-of-day) `t`, after the `Linger` if it has one. See [Until a time of day](#until-a-time-of-day). |
 | `LatchUntil(c)` | Once it applies, it keeps applying until `c` is true. See [Latches](#latches). |
 
 The other lines:
@@ -57,6 +58,22 @@ A capability has one decision. `oikade check` refuses a second, a line after `De
 ### When a case is looked at
 
 A case's conditions are looked at again on every device change, and at least once a minute. A `Daily` among them, on its own or in an `All`, is exact: the case starts and ends on its edge, and `oikade status` shows when it next does. A `Daily` inside an `Any` or a `Not` changes within a minute of its edge.
+
+### Until a time of day
+
+`LingerUntil(t)` keeps a case, or a [signal](#signals), true once its conditions are false, until the next `t`: a [time of day](#times-of-day) such as `"00:00"`, or a `Sunrise` or `Sunset` (OIK-387). After a `Linger`, it's the next `t` once the `Linger` is over. So this signal is true through the day after anyone was last seen, and false at the midnight that ends a whole day with nobody seen:
+
+```go
+anyoneHome := home.Signal("anyone-home", presence.Occupied.Any()).
+	Linger(24 * time.Hour).
+	LingerUntil("00:00")
+```
+
+Someone last seen at 08:00 on Monday keeps it true until 00:00 on Wednesday, and so does someone last seen at 23:30 on Monday. With `LingerUntil("00:00")` alone, it's "seen today", false at the next midnight.
+
+- **A case whose `Daily` ends at `t` ends there,** not a day later, even when it's looked at late, as after a restart. A signal is looked at on the minute, a moment late, so for one a `t` less than a second past counts as now.
+- **`oikade status` says when it ends,** as it does for a `Linger`, and the host keeps that across a restart. A deploy that changes `t` doesn't move an end that's already running.
+- **Times of day work as they do in a `Daily`:** a time the clocks skip is when they go forward, and a day with no sunrise has none. With no `t` within a week, it ends when the `Linger` does.
 
 ### Restarts and deploys
 
@@ -109,7 +126,7 @@ home.Flow("everyone-left", closeShutters).When(anyoneHome.Becomes(false))
 ```
 
 - **It's a condition and a change.** A case, a flow's `If`, `Is` and `WaitFor`, and a `ConditionFunc`'s `s.Is` read it. A flow's `When` takes it, or its `Becomes(true)` or `Becomes(false)`.
-- **`Delay` and `Linger`** work as a case's: its conditions must stay true for the `Delay` before it's true, and it stays true for the `Linger` once they're false. Every rule that reads it shares that one timer.
+- **`Delay`, `Linger` and `LingerUntil`** work as a case's: its conditions must stay true for the `Delay` before it's true, and it stays true for the `Linger`, and then until the [`LingerUntil`](#until-a-time-of-day), once they're false. Every rule that reads it shares that one timer.
 - **It never waits.** Conditions that can't be worked out, as before a sensor has reported, count as false, so its `Linger` runs out and the rules that read it carry on. Without a `Linger`, it's false for the moment its sensors haven't reported after the host starts, so give one that rides that out.
 - **It survives a restart and a deploy.** The host keeps its value, and when its `Delay` or `Linger` ends, under its name. A new signal, or a renamed one, starts at what its conditions say, which triggers nothing.
 - **`oikade status signal/NAME` says what it is and why,** and `oikade history signal/NAME` when it changed. See [Signals](working-with-a-home.md#signals).

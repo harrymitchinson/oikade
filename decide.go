@@ -49,8 +49,10 @@ type line struct {
 	name  string
 	value any
 	when  []Condition
-	// delay and linger are how long the case's conditions must stay true, or false, first.
+	// delay and linger are how long the case's conditions must stay true, or false, first, and
+	// lingerUntil is nil for no LingerUntil.
 	delay, linger time.Duration
+	lingerUntil   *Time
 	latch         bool
 	until         Condition
 	budget        *Budget
@@ -133,6 +135,21 @@ func (d *Decision[T]) Delay(dur time.Duration) *Decision[T] {
 // Linger is how long the last case still applies once its conditions are false.
 func (d *Decision[T]) Linger(dur time.Duration) *Decision[T] {
 	return d.onCase("Linger", func(l *line) { l.linger = dur })
+}
+
+// LingerUntil keeps the last case applying once its conditions are false, until the next t: a
+// time such as "23:00", or a Sunrise or Sunset, as in Daily. After a Linger, it's the next t once
+// the Linger is over. Once someone's been out on the terrace after dark, the light stays on until
+// 23:00:
+//
+//	home.Decide(TerraceLight.On).
+//		Case("out", true, TerraceSensor.Occupied, oikade.Daily(oikade.Sunset(0), oikade.Clock("23:00"))).
+//		LingerUntil("23:00").
+//		Default(false)
+//
+// A case whose Daily ends at t ends there, not a day later, however late it's looked at.
+func (d *Decision[T]) LingerUntil[U string | Time](t U) *Decision[T] {
+	return d.onCase("LingerUntil", func(l *line) { l.lingerUntil = new(timeOf(t)) })
 }
 
 // LatchUntil keeps the last case applying once it starts, until c is true, such as
@@ -535,6 +552,9 @@ func (l line) compile(h handle, safety bool, o Options) (decidedCase, error) {
 		errs = append(errs, fmt.Errorf("Linger %v must not be negative", l.linger))
 	}
 	c.hold.OnDelay, c.hold.OffDelay = max(l.delay, 0), max(l.linger, 0)
+	until, err := lingerUntil(l.lingerUntil, o)
+	errs = append(errs, err)
+	c.hold.OffUntil = until
 	c.hold.WhyNot = whyNot(cond)
 	if l.latch {
 		// A latch is the engine's on a When, so a latched case keeps its Daily there.

@@ -527,6 +527,8 @@ type Hold struct {
 	// When, if set, must be true. It's looked at on every device change and every minute.
 	When              Condition
 	OnDelay, OffDelay time.Duration
+	// OffUntil, if set, keeps the hold active past its OffDelay until the next time it names.
+	OffUntil Timer
 	// Latch keeps the hold active once it starts, until a Release, or Until. It needs When.
 	Latch bool
 	// Until, if set, ends a latch when it's true. It's looked at as When is.
@@ -588,13 +590,14 @@ func NewHold(key ident.ID, h Hold) (*Compiled, error) {
 	if err := checkPriority(h.Priority); err != nil {
 		errs = append(errs, err)
 	}
+	delays := h.OnDelay != 0 || h.OffDelay != 0 || h.OffUntil != nil
 	switch {
 	case h.Follow != nil:
-		if h.Budget != nil || h.Window != nil || h.When != nil || h.OnDelay != 0 || h.OffDelay != 0 || h.Latch {
+		if h.Budget != nil || h.Window != nil || h.When != nil || delays || h.Latch {
 			errs = append(errs, errors.New("hold: follow must be the only condition"))
 		}
 	case h.Budget != nil:
-		if h.Window != nil || h.OnDelay != 0 || h.OffDelay != 0 || h.Latch {
+		if h.Window != nil || delays || h.Latch {
 			errs = append(errs, errors.New("hold: a budget's only other condition is when"))
 		}
 		spec := *h.Budget
@@ -624,5 +627,29 @@ func NewHold(key ident.ID, h Hold) (*Compiled, error) {
 	if h.OffDelay < 0 {
 		errs = append(errs, errors.New("hold: offDelay must not be negative"))
 	}
+	until, err := offUntil(h.OffUntil)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("hold.offUntil: %w", err))
+	}
+	c.hold.offUntil = until
 	return c, errors.Join(errs...)
+}
+
+// offUntil compiles an OffUntil, which is nil for none.
+func offUntil(t Timer) (*timeTrigger, error) {
+	if t == nil {
+		return nil, nil
+	}
+	tt, err := windowTime(t)
+	if err != nil {
+		return nil, err
+	}
+	return &tt, nil
+}
+
+// CheckTime says what's wrong with t as a time of day with no days, as a Window's edge and an
+// OffUntil are.
+func CheckTime(t Timer) error {
+	_, err := windowTime(t)
+	return err
 }
