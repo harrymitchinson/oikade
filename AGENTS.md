@@ -9,7 +9,7 @@ cmd/oikade-conformance/        The conformance checker plugin repos run (public 
 *.go, oikadetest/              Package oikade: what a home is written with (public API)
 contract/v1/                   The oikade/v1 plugin contract as Go types (public API)
 sdk/plugin/                    The Go plugin SDK (public API)
-plugins/                       First-party plugins: ewelinklan, overkiz, toshibaac, zigbee2mqtt
+plugins/                       First-party plugins: ewelinklan, hue, overkiz, toshibaac, zigbee2mqtt
 internal/host/                 The host: supervision, deploys, the API, plugins, the Matter bridge, the event log
 internal/engine/               Rules (holds, flows, triggers), run in your process and, for arbiters, in the host
 internal/control/              Arbitration of one capability: claims, levels, lines

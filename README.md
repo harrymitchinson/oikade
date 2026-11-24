@@ -123,6 +123,7 @@ First-party plugins, each with its own README:
 - [eWeLink LAN](plugins/ewelinklan/README.md): relays with sensors on the eWeLink LAN protocol, such as SONOFF's TH Elite
 - [Overkiz](plugins/overkiz/README.md): Somfy io shutters and screens through a TaHoma hub's local API, and Atlantic, Thermor and Sauter towel radiators through Cozytouch's clouds
 - [Toshiba Home AC Control](plugins/toshibaac/README.md): Toshiba air conditioners with a WiFi module, through Toshiba's cloud
+- [Hue](plugins/hue/README.md): the lights and motion sensors on a Philips Hue bridge, through its API on your network
 
 To write one, the [plugin contract](docs/plugin-contract.md) says what a plugin speaks, the [SDK](sdk/plugin) makes a Go plugin's `main` one `plugin.Run` call, and [`oikade-conformance`](docs/plugin-contract.md#conformance) checks a plugin repo against the contract. First-party plugins live in [`plugins/`](plugins), and anyone else's in its own repo, `oikade-plugin-<name>`.
 
