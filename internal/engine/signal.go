@@ -69,6 +69,8 @@ type signals struct {
 	// ctx is Run's, which saves outlive, and saving the states waiting to be saved, latest only.
 	ctx    context.Context
 	saving map[string]*SignalState
+	// offline are the devices last heard going offline, so a repeat doesn't look again.
+	offline map[string]bool
 }
 
 // initSignals loads the signals' saved states, so a flow resumed before the first look reads them.
@@ -184,7 +186,8 @@ func (h *home) forSignal(maxAge time.Duration, now time.Time) (view *home, left 
 		if len(view.devices[name]) > 0 {
 			left = append(left, name)
 		}
-		delete(view.devices, name)
+		// Kept, with no values, so a read of it hasn't reported rather than naming no device.
+		view.devices[name] = map[string]any{}
 	}
 	slices.Sort(left)
 	return view, left, aged
@@ -204,16 +207,30 @@ func (e *Engine) signalLeftOut(s *signalState, left []string) {
 }
 
 // Availability implements driver.Sink: a device going offline has the signals look at once, as
-// they leave it out. One coming back counts at the next look, by the minute or with its report, so a
-// look between the two doesn't read its old values as new.
-func (e *Engine) Availability(_ ident.ID, online bool) {
-	if online || len(e.Signals) == 0 {
+// they leave it out. One coming back counts at the next look, by the minute or with a report, rather
+// than at once, which would most often come between its coming back and its report.
+func (e *Engine) Availability(dev ident.ID, online bool) {
+	if len(e.Signals) == 0 {
 		return
 	}
 	e.mu.Lock()
-	e.signals.next = e.Clock.Now()
+	// A driver can say the same again, as a plugin does when it restarts.
+	went := !online && !e.signals.offline[dev.Name]
+	if online {
+		delete(e.signals.offline, dev.Name)
+	} else {
+		if e.signals.offline == nil {
+			e.signals.offline = map[string]bool{}
+		}
+		e.signals.offline[dev.Name] = true
+	}
+	if went {
+		e.signals.next = e.Clock.Now()
+	}
 	e.mu.Unlock()
-	e.signal()
+	if went {
+		e.signal()
+	}
 }
 
 // futureOf is t if it's after now, and zero otherwise, so a delay that ended isn't looked at again.

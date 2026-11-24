@@ -80,8 +80,8 @@ func TestASignalsViewLeavesOutDeadDevices(t *testing.T) {
 		t.Errorf("aged = %v, want the study's, an hour from now", aged)
 	}
 	for _, name := range []string{"attic", "cellar", "landing"} {
-		if _, ok := view.devices[name]; ok {
-			t.Errorf("the view still has %s", name)
+		if values, ok := view.devices[name]; !ok || len(values) > 0 {
+			t.Errorf("the view has %s as %v, ok %v, want it there with no values", name, values, ok)
 		}
 	}
 	if len(h.devices) != 5 {
@@ -90,8 +90,8 @@ func TestASignalsViewLeavesOutDeadDevices(t *testing.T) {
 
 	// Without one, only the offline are, the attic and the cellar, which had nothing to leave out.
 	if view, left, aged := h.forSignal(0, now); !slices.Equal(left, []string{"attic"}) || !aged.IsZero() ||
-		len(view.devices) != 3 {
-		t.Errorf("with no MaxAge: left = %v, aged = %v, %d devices, want the attic and cellar left out", left, aged,
-			len(view.devices))
+		len(view.devices["attic"]) > 0 || len(view.devices["hall"]) == 0 {
+		t.Errorf("with no MaxAge: left = %v, aged = %v, devices %v, want the attic and cellar left out", left, aged,
+			view.devices)
 	}
 }

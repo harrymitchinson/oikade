@@ -134,3 +134,36 @@ func TestACaseStillReadsAnOfflineSensor(t *testing.T) {
 	expect(t, sim, "towel-rail", setpoint, 7.0)
 	expect(t, sim, "hall-lamp", on, true)
 }
+
+// A signal that reads an offline sensor alone can't work it out, which counts as false, and the log
+// says so at Info, as for any value nobody has reported, rather than as a mistake.
+func TestASignalOfOneOfflineSensorIsFalse(t *testing.T) {
+	home := oikade.NewHome(oikade.Options{})
+	hallBusy := home.Signal("hall-busy", hallSensor)
+	home.Decide(hallLamp).Case("busy", true, hallBusy).Default(false)
+	simulated, err := simhome.FromHome(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := testkit.Logs(t)
+	sim, err := simhome.New(simhome.Options{Home: simulated, Start: monday, Log: log.Logger, Devices: []simhome.Device{
+		{Name: "hall-sensor", Capabilities: []string{occupied}, Values: map[string]any{occupied: true}},
+		{Name: "hall-lamp", Capabilities: []string{on}, Values: map[string]any{on: false}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(sim.Close)
+	expect(t, sim, "hall-lamp", on, true)
+
+	if err := sim.Availability("hall-sensor", false); err != nil {
+		t.Fatal(err)
+	}
+	expect(t, sim, "hall-lamp", on, false)
+	if log.Has("level=ERROR") {
+		t.Error("a dead sensor was logged as a mistake")
+	}
+	if !log.Has("Could not evaluate Signal", "hall-sensor occupied hasn't reported") {
+		t.Error("nothing logged why the signal can't be worked out")
+	}
+}
