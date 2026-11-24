@@ -71,20 +71,26 @@ func TestTheBridgesCertificateIsChecked(t *testing.T) {
 	}
 }
 
-func TestTheEmbeddedRootIsPhilipsHues(t *testing.T) {
-	block, _ := pem.Decode(hueRootCA)
-	if block == nil {
-		t.Fatal("the root isn't PEM")
+func TestTheEmbeddedRootsAreHues(t *testing.T) {
+	var names []string
+	rest := hueRootCA
+	for {
+		var block *pem.Block
+		if block, rest = pem.Decode(rest); block == nil {
+			break
+		}
+		root, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !root.IsCA {
+			t.Errorf("%s isn't an authority", root.Subject)
+		}
+		names = append(names, root.Subject.CommonName+" "+strings.ToUpper(hex.EncodeToString(root.SubjectKeyId)))
 	}
-	root, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The key ID a Hue Bridge Pro's certificate names as its issuer's.
-	if got, want := strings.ToUpper(hex.EncodeToString(root.SubjectKeyId)), "67638D4C5AC34FAA3C22D46729FA962A71C51A64"; got != want {
-		t.Errorf("the root's key ID is %s, want %s", got, want)
-	}
-	if root.Subject.CommonName != "root-bridge" || !root.IsCA {
-		t.Errorf("the root is %s, want Philips Hue's root-bridge authority", root.Subject)
+	// root-bridge's key ID is the one a Hue Bridge Pro's certificate names as its issuer's.
+	want := []string{"root-bridge 67638D4C5AC34FAA3C22D46729FA962A71C51A64", "Hue Root CA 01 C5D694A9B020125FFCF45472E28315360806AAA1"}
+	if strings.Join(names, "\n") != strings.Join(want, "\n") {
+		t.Errorf("the roots are %q, want %q", names, want)
 	}
 }

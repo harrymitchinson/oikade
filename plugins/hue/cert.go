@@ -10,8 +10,9 @@ import (
 	"time"
 )
 
-// hueRootCA is Philips Hue's root-bridge authority, which signs every bridge's certificate for its
-// bridge ID. It's valid until 2038-01-19.
+// hueRootCA is Philips Hue's root-bridge authority, which signs a bridge's certificate for its
+// bridge ID, valid until 2038-01-19, and Signify's Hue Root CA 01, valid until 2050-12-31, which
+// openHAB's Hue binding trusts beside it for newer bridges.
 //
 //go:embed hue-root-ca.crt
 var hueRootCA []byte
@@ -19,7 +20,7 @@ var hueRootCA []byte
 var hueRoots = func() *x509.CertPool {
 	pool := x509.NewCertPool()
 	if !pool.AppendCertsFromPEM(hueRootCA) {
-		panic("hue: the embedded root CA is not a PEM certificate")
+		panic("hue: the embedded root CAs are not PEM certificates")
 	}
 	return pool
 }()
