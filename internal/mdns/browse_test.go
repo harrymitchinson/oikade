@@ -81,6 +81,28 @@ func TestBrowseTakesAnInstancesRecords(t *testing.T) {
 	}
 }
 
+func TestBrowseTakesRecordsBeforeTheirInstance(t *testing.T) {
+	f := newFakeAsker(t, func(int, dnsmessage.Message) [][]byte {
+		return [][]byte{hostResponse(t,
+			aRecord("C42996C84D62.local.", 120, "192.0.2.20"),
+			srvRecord(hueInstance, "C42996C84D62.local."),
+			txtRecord(hueInstance, "bridgeid=c42996fffec84d62"),
+			ptrRecord(hueService, 120, hueInstance),
+		)}
+	})
+	defer func() { _ = f.Close() }()
+	got, err := browse(t.Context(), f, hueService, func(s []Service) bool { return len(s) > 0 })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].TXT["bridgeid"] != "c42996fffec84d62" || len(got[0].Addrs) != 1 {
+		t.Errorf("got %+v", got)
+	}
+	if n := f.queries(); n != 1 {
+		t.Errorf("asked %d times, want once", n)
+	}
+}
+
 func TestBrowseAsksForWhatAnAnswerLeftOut(t *testing.T) {
 	shortRequery(t, 10*time.Millisecond)
 	f := newFakeAsker(t, func(n int, q dnsmessage.Message) [][]byte {

@@ -135,24 +135,26 @@ func (b *browsed) take(packet []byte) bool {
 	}
 	records := slices.Concat(m.Answers, m.Additionals)
 	changed := false
-	// Instances first, as a packet may give a host's address before the SRV record that names it.
+	// Instances, then their records, then addresses, since a packet may give them in any order.
+	for _, rr := range records {
+		body, ok := rr.Body.(*dnsmessage.PTRResource)
+		if !ok || hostKey(rr.Header.Name.String()) != b.service {
+			continue
+		}
+		instance := strings.TrimSuffix(body.PTR.String(), ".")
+		key := hostKey(instance)
+		switch {
+		case rr.Header.TTL == 0:
+			changed = changed || b.instances[key] != nil
+			delete(b.instances, key)
+		case b.instances[key] == nil && len(b.instances) < maxBrowsed:
+			b.instances[key] = &Service{Instance: instance}
+			changed = true
+		}
+	}
 	for _, rr := range records {
 		name := hostKey(rr.Header.Name.String())
 		switch body := rr.Body.(type) {
-		case *dnsmessage.PTRResource:
-			if name != b.service {
-				continue
-			}
-			instance := strings.TrimSuffix(body.PTR.String(), ".")
-			key := hostKey(instance)
-			switch {
-			case rr.Header.TTL == 0:
-				changed = changed || b.instances[key] != nil
-				delete(b.instances, key)
-			case b.instances[key] == nil && len(b.instances) < maxBrowsed:
-				b.instances[key] = &Service{Instance: instance}
-				changed = true
-			}
 		case *dnsmessage.SRVResource:
 			if s := b.instances[name]; s != nil && rr.Header.TTL > 0 {
 				s.Host, s.Port = strings.TrimSuffix(body.Target.String(), "."), body.Port
