@@ -37,6 +37,7 @@ const (
 	Flow   Kind = "flow"
 	Plugin Kind = "plugin"
 	Client Kind = "client"
+	Signal Kind = "signal"
 )
 
 const MaxName = 63

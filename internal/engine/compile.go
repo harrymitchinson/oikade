@@ -50,10 +50,20 @@ type action struct {
 // triggers the Rule. room is empty when the device has none.
 func (c *Compiled) matches(device, room string, types []devicetype.Type, name string, value any) bool {
 	for _, t := range c.changes {
-		if t.Capability != name || t.To != nil && t.To != value {
+		if t.Signal != "" || t.Capability != name || t.To != nil && t.To != value {
 			continue
 		}
 		if (t.Device != "" && t.Device == device) || (t.Room != "" && t.Room == room && devicetype.Any(types, t.DeviceTypes)) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesSignal reports whether a signal's change to value triggers the Rule.
+func (c *Compiled) matchesSignal(name string, value bool) bool {
+	for _, t := range c.changes {
+		if t.Signal == name && (t.To == nil || t.To == value) {
 			return true
 		}
 	}

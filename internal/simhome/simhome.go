@@ -49,6 +49,8 @@ type Home struct {
 	Site *sun.Site
 	// Averages are the rolling averages the home's conditions read, kept across a restart.
 	Averages func() []engine.Average
+	// Signals are the home's signals, whose states are kept across a restart.
+	Signals []engine.Signal
 	// Inventory is the devices the home declares, whose rooms and types ReadTypes gives them.
 	Inventory []wire.DeviceDeclaration
 }
@@ -116,6 +118,7 @@ type Sim struct {
 	holds     *memory[engine.HoldState]
 	controls  *memory[engine.ControlState]
 	averages  *memory[engine.AverageState]
+	signals   *memory[engine.SignalState]
 	journal   *journal
 	settleFor time.Duration
 
@@ -144,6 +147,7 @@ func New(o Options) (*Sim, error) {
 		home: o.Home, devices: o.Devices, clock: clock.NewFake(o.Start), location: o.Location, log: logging.OrDiscard(o.Log),
 		holds: newMemory[engine.HoldState](), controls: newMemory[engine.ControlState](), journal: newJournal(),
 		averages: newMemory[engine.AverageState](),
+		signals:  newMemory[engine.SignalState](),
 		ended:    map[string][]string{}, fires: map[string]time.Time{}, active: map[string]bool{},
 		runs: map[string]int{}, dry: o.Dry, calls: maps.Clone(o.Calls), skipped: map[string]int{},
 		settleFor: cmp.Or(o.SettleTimeout, settleTimeout),
@@ -194,7 +198,12 @@ func (s *Sim) start() error {
 	eng := &engine.Engine{
 		Store: s.store, Setter: driver.SetterFunc(s.set), States: s.holds, Controls: s.controls, Clock: s.clock,
 		Location: s.location, Site: s.home.Site, Log: s.log.With("logger", "automations"),
-		AverageStates: s.averages,
+		AverageStates: s.averages, Signals: s.home.Signals, SignalStates: s.signals,
+		OnSignal: func(name string, st engine.SignalState) {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			s.note(ident.NewRef(ident.Signal, name).String(), fmt.Sprintf(" is %t", st.Value))
+		},
 		OnBudget: func(key ident.ID, r engine.BudgetReport) {
 			if r.Unplanned {
 				s.mu.Lock()

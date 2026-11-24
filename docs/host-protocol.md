@@ -28,6 +28,7 @@ A process has 5 seconds to send its `hello`:
 |---|---|
 | `rules` | The process's rules by key, so the `welcome` can return their saved state |
 | `averages` | The rolling averages its conditions read, by name, so the `welcome` can return their saved state |
+| `signals` | The home's signals, by name, so the `welcome` can return their saved state |
 | `info` | Each rule's `name`, `kind` (`case` or `flow`), `safety` and `latch`, and a case's `device`, `capability` and `case`, which `oikade status` shows and `oikade pause` checks. A Safety rule's `rooms` are each `room`, `capability` and `deviceTypes` (none for any) it writes at Safety, which a deploy checks the declared rooms and types against |
 | `control` | Each `device` and `entry` the home arbitrates, or a `room`'s, with its `deviceTypes`, which each device there of those types with the capability takes unless it has its own |
 | `inventory` | Every device the home declares with `Home.Device`: its `name`, and its `plugin` and `id`, `room` and `deviceType` if it gives them. None leaves every device under its app's name (OIK-295) |
@@ -58,6 +59,7 @@ The host answers `rejected` or `welcome`.
 | `holds` | The saved state of each rule in `rules` that has any |
 | `fires` | When each rule's timers were last accounted for |
 | `averageStates` | The saved state of each average in `averages` |
+| `signalStates` | The saved state of each signal in `signals`: its `value`, `since`, and when a delay or linger ends (`onAt`, `offAt`) |
 | `runs` | How many `run` messages follow straight after it. Each carries one unfinished flow run and its journal in `unfinished`. They're separate because a journal can reach 4 MiB, and a message 16 MiB |
 
 The host streams from the `welcome` on. A change landing as the session opens can arrive twice, so a process ignores a value it already has.
@@ -91,6 +93,7 @@ Each request has an `id`, and gets a `reply` with the same one. Requests are car
 | `deleteHold` | `rule` | Forgets a hold's state. The reply means it's on disk | |
 | `saveFire` | `rule`, `time` | Saves when a rule's timers were last accounted for. The reply means it's on disk | |
 | `saveAverage` | `rule`, `average` | Saves a rolling average a condition reads, by its name in `rule`, such as `greenhouse temperature 24h`: the reading's sums in buckets, and its last value and when. The reply means it's on disk | |
+| `saveSignal` | `rule`, `signal` | Saves a signal's state, by its name in `rule`, such as `anyone-home`. The reply means it's on disk | |
 | `journal` | `run`, `data` | Appends a journal entry. The reply means it's on disk | `seq`, its place in the run |
 | `finish` | `run` | Forgets a run's journal. The reply means it's on disk | |
 

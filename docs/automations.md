@@ -76,6 +76,7 @@ A condition is something true or false about the home now. It's a value, so the 
 | `oikade.Daily("22:00", "06:00")` | it's between two [times of day](#times-of-day), which may be a `Sunrise` or a `Sunset`. An end at or before the start is the next day. `.Days(time.Saturday, time.Sunday)` limits it to the windows that start on those days |
 | `oikade.Yearly("1 Jun", "15 Sep")` | it's between two dates of the year, both whole days, in the host's time zone. An end before the start is the next year, so `Yearly("1 Nov", "28 Feb")` is the winter |
 | `oikade.Any(a, b, …)`, `oikade.All(a, b, …)`, `oikade.Not(a)` | any of them is, all of them are, or it isn't |
+| `anyoneHome`, from `home.Signal` | a [signal](#signals) is true |
 | `oikade.ConditionFunc("cellar damp", func(s oikade.Snapshot) bool { … })` | the function says so, for what the others can't say |
 
 ```go
@@ -94,6 +95,26 @@ A date or time that isn't one, such as `Yearly("1 Jun", "31 Jun")`, `Within(25, 
 - **It isn't a trigger,** since it never changes as a reading does. A budget's `Bands` take it to be as fresh as the device's last report.
 
 An average of an average, one over less than a minute, and one in a flow's `When` fail `oikade check`.
+
+### Signals
+
+A signal is a fact about the home that many rules read, such as whether anyone's home, worked out once from its conditions under a name of its own (OIK-385):
+
+```go
+presence := home.Group("presence", HallSensor, BathroomSensor)
+anyoneHome := home.Signal("anyone-home", presence.Occupied.Any()).Linger(36 * time.Hour)
+
+home.Decide(TowelRail.Setpoint).Case("away", 7, oikade.Not(anyoneHome)).Default(19)
+home.Flow("everyone-left", closeShutters).When(anyoneHome.Becomes(false))
+```
+
+- **It's a condition and a change.** A case, a flow's `If`, `Is` and `WaitFor`, and a `ConditionFunc`'s `s.Is` read it. A flow's `When` takes it, or its `Becomes(true)` or `Becomes(false)`.
+- **`Delay` and `Linger`** work as a case's: its conditions must stay true for the `Delay` before it's true, and it stays true for the `Linger` once they're false. Every rule that reads it shares that one timer.
+- **It never waits.** Conditions that can't be worked out, as before a sensor has reported, count as false, so its `Linger` runs out and the rules that read it carry on. Without a `Linger`, it's false for the moment its sensors haven't reported after the host starts, so give one that rides that out.
+- **It survives a restart and a deploy.** The host keeps its value, and when its `Delay` or `Linger` ends, under its name. A new signal, or a renamed one, starts at what its conditions say, which triggers nothing.
+- **It reads the signals made before it.** The signals are worked out in the order they were made, before any case or flow looks. A `ConditionFunc` in a signal that reads itself or a later one is a mistake: the log says so, and that signal's conditions count as false.
+
+A name used twice, or one that isn't lowercase letters, digits and dashes, fails `oikade check`.
 
 ### A value nobody has reported
 

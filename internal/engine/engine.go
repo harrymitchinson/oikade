@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -83,6 +84,13 @@ type Engine struct {
 	// memory only.
 	Averages      []Average
 	AverageStates AverageStates
+	// Signals are worked out in order before any hold or flow looks, and kept in SignalStates. Nil
+	// keeps them in memory only. Set them before Init.
+	Signals      []Signal
+	SignalStates SignalStates
+	// OnSignal, if set, is called with e.mu held when a signal's value changes, with its new state. It
+	// must not block.
+	OnSignal func(name string, st SignalState)
 	// Arbitration, if set, takes this engine's claims, and it runs no arbiters itself.
 	Arbitration Arbitration
 	// ControlMetrics, if set, gets the winning level of each arbitrated capability.
@@ -154,6 +162,7 @@ type Engine struct {
 	// flows it set off, for startWrites.
 	holdWrites []holdWrite
 	averages   averages
+	signals    signals
 	triggers   []pendingTrigger
 	// bridgeWrites are Matter's and oikade commands' writes waiting for their device to report them.
 	bridgeWrites map[ident.ID]map[string]bridgeWrite
@@ -207,6 +216,11 @@ func (e *Engine) Init() {
 	if e.AverageStates == nil {
 		e.AverageStates = newMemoryStates[AverageState]()
 	}
+	if e.SignalStates == nil {
+		e.SignalStates = newMemoryStates[SignalState]()
+	}
+	e.initSignals()
+	e.signals.next = e.Clock.Now()
 	e.arbs = map[ident.ID]map[string]*arb{}
 	e.controlDue = map[ident.ID]bool{}
 	e.saveDue = map[ident.ID]bool{}
@@ -415,6 +429,9 @@ func (e *Engine) Run(ctx context.Context) {
 	e.averages.mu.Lock()
 	e.averages.ctx = saveCtx
 	e.averages.mu.Unlock()
+	e.mu.Lock()
+	e.signals.ctx = saveCtx
+	e.mu.Unlock()
 	saverDone := make(chan struct{})
 	go func() { e.saveControls(saveCtx); close(saverDone) }()
 	defer func() {
@@ -514,6 +531,9 @@ func (e *Engine) earliestLocked() time.Time {
 			}
 		}
 	}
+	if len(e.signals.list) > 0 {
+		next = soonest(next, e.signals.next)
+	}
 	if len(e.controlDue) > 0 {
 		next = e.Clock.Now()
 	}
@@ -536,6 +556,12 @@ func (e *Engine) fireDue(ctx context.Context) {
 				ar.next = time.Time{}
 				e.decide(ctx, dev, name, ar)
 			}
+		}
+	}
+	if e.signalsDue(now) {
+		// Before the holds, so they read the signals as they are now.
+		if changed := e.lookAtSignals(now, nil); len(changed) > 0 {
+			e.signalsChanged(changed, now)
 		}
 	}
 	for key, s := range e.rules {
@@ -579,12 +605,15 @@ func (e *Engine) vars(trigger map[string]any) Vars {
 type home struct {
 	devices map[string]map[string]any
 	members map[string]hub.Member
+	// signals are each signal's value, as last worked out.
+	signals map[string]bool
 }
 
+// home reads the devices, and the signals as last worked out. Call with e.mu held.
 func (e *Engine) home() *home {
 	devices := e.Store.Values()
 	e.addAverages(devices, e.Clock.Now())
-	return &home{devices: devices, members: e.Store.Members()}
+	return &home{devices: devices, members: e.Store.Members(), signals: maps.Clone(e.signals.values)}
 }
 
 // conditionVars are what a condition sees at now. h is the home's devices, or nil to read
@@ -600,6 +629,7 @@ func (e *Engine) conditionVars(now time.Time, h *home) Vars {
 		"tz":       e.Location.String(),
 		"location": e.Location,
 		"site":     e.Site,
+		VarSignals: signalReader(h.signals),
 	}
 }
 
@@ -623,6 +653,12 @@ func (e *Engine) handle(ctx context.Context, changes []driver.Update) {
 	e.observeAverages(changes, now)
 	evaluated := false
 	var devices *home
+	var signalled []string
+	if len(e.signals.list) > 0 {
+		// Before the holds, so they read the signals as this report leaves them.
+		devices = e.home()
+		signalled = e.lookAtSignals(now, devices)
+	}
 	// vars are each change's, read once a rule needs them.
 	vars := make([]Vars, len(changes))
 	for key, s := range e.rules {
@@ -649,9 +685,10 @@ func (e *Engine) handle(ctx context.Context, changes []driver.Update) {
 			e.triggerAfterWrites(key, s, vars[i])
 		}
 	}
+	e.triggerSignals(signalled)
 	e.startWrites(ctx)
-	if evaluated {
-		// The evaluation may have moved a hold's next look earlier.
+	if evaluated || len(e.signals.list) > 0 {
+		// The evaluation may have moved a hold's or a signal's next look earlier.
 		e.signal()
 	}
 	close(e.changes)
@@ -666,6 +703,10 @@ func (e *Engine) membersChanged(dev ident.ID) {
 	now := e.Clock.Now()
 	due := false
 	e.membersGen++
+	if len(e.signals.list) > 0 {
+		// A signal may read a room.
+		e.signals.next, due = now, true
+	}
 	for _, s := range e.rules {
 		// A hold with when may read the rooms, a room hold writes their members, and a group hold
 		// writes a member once it's discovered.
@@ -1015,7 +1056,7 @@ func (e *Engine) stateIdle() bool {
 	if !e.earliestLocked().IsZero() && !e.armed.After(now) {
 		return false // Run's timer has fired, or isn't set yet
 	}
-	if len(e.controlDue) > 0 {
+	if len(e.controlDue) > 0 || len(e.signals.list) > 0 && !e.signals.next.After(now) {
 		return false
 	}
 	for _, arbs := range e.arbs {

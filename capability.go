@@ -154,6 +154,10 @@ func (b Bool) changes() []engine.Change   { return b.handle().changes() }
 func (n Number) changes() []engine.Change { return n.handle().changes() }
 func (c Choice) changes() []engine.Change { return c.handle().changes() }
 
+func (b Bool) checkChange() error   { return checkGroup(b.handle()) }
+func (n Number) checkChange() error { return checkGroup(n.handle()) }
+func (c Choice) checkChange() error { return checkGroup(c.handle()) }
+
 // raw is a value as the engine holds it: a ClimateMode is its name.
 func raw(v any) any {
 	if m, ok := v.(ClimateMode); ok {
@@ -173,7 +177,7 @@ type becomes struct {
 	to bool
 }
 
-func (c becomes) handle() handle { return c.h }
+func (c becomes) checkChange() error { return checkGroup(c.h) }
 
 func (c becomes) changes() []engine.Change {
 	out := c.h.changes()
@@ -233,8 +237,10 @@ func Kinds(t DeviceType, more ...DeviceType) Kind {
 }
 
 // Change is what triggers a flow, in its When: a capability changing on a device, as a Bool, a
-// Number or a Choice, a Bool's Becomes, or a change on any member of a group or device in a room.
+// Number or a Choice, a Bool's Becomes, a change on any member of a group or device in a room, or a
+// Signal changing.
 type Change interface {
 	changes() []engine.Change
-	handle() handle
+	// checkChange says what's wrong with the change, for oikade check.
+	checkChange() error
 }

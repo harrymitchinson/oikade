@@ -47,7 +47,7 @@ home.Flow("hallway-motion-light", func(r *oikade.FlowRun) {
 
 | Method | |
 |---|---|
-| `When(changes…)` | The changes that start it. A `Bool`, a `Number` or a `Choice` fires whenever it changes, and a `Bool`'s `Becomes(true)` only when it changes to true. A [group's or a room's](automations.md#triggers-and-writes) fires on a change from any of its members. |
+| `When(changes…)` | The changes that start it. A `Bool`, a `Number` or a `Choice` fires whenever it changes, and a `Bool`'s `Becomes(true)` only when it changes to true. A [group's or a room's](automations.md#triggers-and-writes) fires on a change from any of its members, and a [signal](automations.md#signals) as it changes. |
 | `At(times…)` | [Times of day](automations.md#times-of-day) it starts at, instead of or as well as `When`. `At(Clock("18:00"), Sunset(0))` fires at both, and the same time twice fires once. |
 | `If(cond)` | A [condition](automations.md#conditions), looked at when a trigger fires. The run starts only if it's true. |
 | `Restart()` | A trigger while a run is in progress cancels that run, and what it had recorded, and starts a new one. Without it, such a trigger is ignored, and counted as `busy`. |

@@ -49,6 +49,7 @@ type server struct {
 	holds    *engine.Stored[engine.HoldState]
 	fires    *engine.Stored[time.Time]
 	averages *engine.Stored[engine.AverageState]
+	signals  *engine.Stored[engine.SignalState]
 	journal  *store.Journal
 	// paused are the rules paused, with when.
 	paused *engine.Stored[time.Time]
@@ -305,11 +306,16 @@ func (s *server) welcome(hello wire.Message) (wire.Message, []wire.Run, error) {
 	welcome := wire.Message{
 		Type: wire.TypeWelcome, Version: wire.Version,
 		Holds: map[string]engine.HoldState{}, Fires: map[string]time.Time{},
-		AverageStates: map[string]engine.AverageState{},
+		AverageStates: map[string]engine.AverageState{}, SignalStates: map[string]engine.SignalState{},
 	}
 	for _, name := range hello.Averages {
 		if st, ok := s.averages.Get(key(name)); ok {
 			welcome.AverageStates[name] = st
+		}
+	}
+	for _, name := range hello.Signals {
+		if st, ok := s.signals.Get(key(name)); ok {
+			welcome.SignalStates[name] = st
 		}
 	}
 	for _, name := range hello.Rules {
@@ -903,6 +909,12 @@ func (s *server) answer(m wire.Message) wire.Message {
 			break
 		}
 		err = s.averages.Put(s.ctx, key(m.Rule), *m.Average)
+	case wire.TypeSaveSignal:
+		if m.Signal == nil {
+			err = errors.New("saving a signal needs its state")
+			break
+		}
+		err = s.signals.Put(s.ctx, key(m.Rule), *m.Signal)
 	case wire.TypeJournal:
 		fault.Hit(fault.HostJournalBefore)
 		if !fault.Drop(fault.HostJournalAppend) {

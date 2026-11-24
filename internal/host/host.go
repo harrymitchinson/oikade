@@ -150,6 +150,9 @@ func (h *Host) Run(ctx context.Context) error {
 		averages: &engine.Stored[engine.AverageState]{
 			Values: data.Namespace(engine.AverageStatesNamespace), Log: h.Log,
 		},
+		signals: &engine.Stored[engine.SignalState]{
+			Values: data.Namespace(engine.SignalStatesNamespace), Log: h.Log,
+		},
 		journal: data.Journal(),
 		paused:  &engine.Stored[time.Time]{Values: data.Namespace(pausedNamespace), Log: h.Log},
 		feed:    newFeed(), events: newEventLog(data.Events(), h.EventLog, h.Log.With("logger", "events")), pushed: &pushed{},

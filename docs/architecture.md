@@ -68,7 +68,7 @@ A write's context says whose it is (`driver.WithWriter`). The engine marks a rul
 
 ### Locks, and what must not block
 
-- **Conditions read a mirror.** Your process keeps a copy of the device state, so a condition never waits for a socket. Hold states are read once, from the `welcome`. The engine reads both with its lock held.
+- **Conditions read a mirror.** Your process keeps a copy of the device state, so a condition never waits for a socket. Hold and signal states are read once, from the `welcome`. The engine reads both with its lock held.
 - **A condition runs with the engine's lock held, so it must not block.** Your process answers the host's heartbeat only once that lock is free, so a condition stuck in a loop stops the answers, and the host replaces the process.
 - **Nothing that changes the host's state is sent with the lock held.** Each such change is a request that waits for its answer.
 - **Nothing that reports an event waits.** The event log's `add` only appends to a queue, and `internal/host/feed.go` fans events out to tails without ever waiting for a reader.
@@ -114,7 +114,7 @@ The host only ever crashes safe: a write reaches disk before anything depends on
 
 | On disk before anything depends on it | Not durable |
 |---|---|
-| Every request from your process: a claim, a release, a hold's state, a timer's last fire, an average, a journal entry | The event log, which commits every 5 seconds ([the event log](#the-event-log)) |
+| Every request from your process: a claim, a release, a hold's state, a timer's last fire, an average, a signal's state, a journal entry | The event log, which commits every 5 seconds ([the event log](#the-event-log)) |
 | The registry, the home's settings, declarations and options, and pauses | An arbiter's other changes, such as a write it has made, which save in the background |
 | Matter's identity and fabrics | Your process's state, which it rebuilds from the host's |
 | A deploy's upload, its values and the version history, and a setup's secrets | Setup sessions, login codes, and what a session told the host for `oikade status` |
@@ -386,6 +386,14 @@ Flows start when a trigger fires and the condition holds, and run in `internal/f
 - It's saved in the host's `averages` namespace through `saveAverage` when a report lands in a new bucket, and every changed one is saved when the engine stops.
 - A condition reads one as a capability of its device, `temperature over 24h`, which the engine adds to the devices it looks at. A budget's `Bands` read it the same way.
 
+### Signals
+
+`internal/engine/signal.go`'s `engine.Signal`s are what `Home.Signal` made, in the order they were made, which `oikade` gives `Engine.Signals` (OIK-385).
+
+- **They're worked out before any hold looks:** on each report, when a delay or linger ends, every minute, and when a room's members change, with a hold's timing (`hold.step`). A condition reads one through `VarSignals`, and a signal reads only those before it in the same look.
+- **A change triggers flows,** whose `engine.Change` names the signal, and has every hold with a `When` look again. A signal with no saved state starts at its conditions, which is no change.
+- **Its `SignalState`** (the value, since when, and when a delay or linger ends) is saved in the host's `signals` namespace through `saveSignal` as it changes, the latest first. A kill between a change and its save repeats the change in the next process, as a timer's fire is caught up again. A signal the home no longer makes is left there, as an average is.
+
 ### The day planner
 
 `internal/schedule` lays out a day in slots of 15, 30 or 60 minutes, 30 unless a budget's `SlotMinutes` says, which rules require, forbid or prefer, and spends a daily budget across them. A budget is a `schedule.Spec`, and its plan lives in `HoldState.Budget`, so it survives a deploy.
@@ -446,7 +454,7 @@ Only writes that can reach the same device wait for each other: in one room, or 
 `internal/store` is the host's state store.
 
 - **One file.** A data directory holds one [bbolt](https://github.com/etcd-io/bbolt) file, `oikade.db`, and only one process can have it open. The operating system drops that lock when the process dies, so a crash never leaves it locked, and a second process gets a clear error.
-- **Namespaces** share the file with separate keys: the registry, latches, claims and Matter state, its saved subscriptions among them. `engine.Stored` implements `engine.States` on a namespace.
+- **Namespaces** share the file with separate keys: the registry, latches, claims, averages, signals and Matter state, its saved subscriptions among them. `engine.Stored` implements `engine.States` on a namespace.
 - **The journal** keeps ordered entries per run. `Append` returns only once its entry is on disk. Each write is one transaction with two fsyncs, so its cost is about twice the disk's fsync time. A crash mid-write loses only the entry that was never acknowledged.
 - **The format is checked.** The file records its format version, and `Open` refuses one it doesn't know. It also refuses, with the same `ErrFormat`, a file that isn't bbolt's, or one shorter than its meta page says, which it checks before bbolt maps it, because bbolt reading past the end of a file cut short faults the process (OIK-307).
 

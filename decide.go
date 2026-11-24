@@ -256,6 +256,24 @@ func (d *Decision[T]) Then(r Ref[T]) *Decision[T] {
 // decider is a Decision of any type.
 type decider interface {
 	compile(o Options) compiledDecision
+	// conditions names the decision as its mistakes do, with every condition its lines read.
+	conditions() (string, []Condition)
+}
+
+func (d *Decision[T]) conditions() (string, []Condition) {
+	what := compiledDecision{}
+	if d.ref != nil {
+		h := d.ref.handle()
+		what.device, what.capability = h.device, h.capability
+	}
+	var out []Condition
+	for _, l := range d.lines {
+		out = append(out, l.when...)
+		if l.until != nil {
+			out = append(out, l.until)
+		}
+	}
+	return what.name(), out
 }
 
 // compiledDecision is a decision compiled: its arbitration settings, and a hold for each of its cases.

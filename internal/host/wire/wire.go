@@ -69,6 +69,7 @@ const (
 	TypeDeleteHold  Type = "deleteHold"
 	TypeSaveFire    Type = "saveFire"
 	TypeSaveAverage Type = "saveAverage"
+	TypeSaveSignal  Type = "saveSignal"
 	TypeJournal     Type = "journal"
 	TypeFinish      Type = "finish"
 	TypeReply       Type = "reply"
@@ -241,6 +242,9 @@ type Message struct {
 	// Averages names the process's rolling averages, by engine.Average's Key, so the Welcome can
 	// return their saved state, in AverageStates.
 	Averages []string `json:"averages,omitempty"`
+	// Signals names the process's signals, so the Welcome can return their saved state, in
+	// SignalStates.
+	Signals []string `json:"signals,omitempty"`
 	// Info says what the process's rules are, for oikade status and pause.
 	Info []RuleInfo `json:"info,omitempty"`
 	// Control is every device setting the process's home declares.
@@ -265,7 +269,9 @@ type Message struct {
 	Fires   map[string]time.Time        `json:"fires,omitempty"`
 	// AverageStates is a Welcome's: the saved averages Averages named.
 	AverageStates map[string]engine.AverageState `json:"averageStates,omitempty"`
-	Error         string                         `json:"error,omitempty"`
+	// SignalStates is a Welcome's: the saved signals Signals named.
+	SignalStates map[string]engine.SignalState `json:"signalStates,omitempty"`
+	Error        string                        `json:"error,omitempty"`
 	// Unfinished is a Run's run, one per message, and in what Dial returns, all of them.
 	Unfinished []Run `json:"unfinished,omitempty"`
 
@@ -290,6 +296,8 @@ type Message struct {
 	Hold *engine.HoldState `json:"hold,omitempty"`
 	// Average is a saved average's, with Rule its Key.
 	Average *engine.AverageState `json:"average,omitempty"`
+	// Signal is a saved signal's, with Rule its name.
+	Signal *engine.SignalState `json:"signal,omitempty"`
 	// Run and Data are a journal entry's, and Seq its place in the run.
 	Run  string `json:"run,omitempty"`
 	Data []byte `json:"data,omitempty"`
