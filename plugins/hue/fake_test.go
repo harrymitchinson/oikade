@@ -102,6 +102,12 @@ type fakeBridge struct {
 	puts     []put
 	putError string
 	hang     bool
+	// links are the devicetypes a key was asked for with, and unpressed how many of the first are
+	// answered as the link button not pressed.
+	links     []string
+	unpressed int
+	// linkRefusal is what the bridge refuses a key with instead, "" for nothing.
+	linkRefusal string
 }
 
 // put is one write the bridge took.
@@ -112,6 +118,12 @@ type put struct {
 
 func newFakeBridge(t *testing.T, id string) *fakeBridge {
 	t.Helper()
+	return newFakeBridgeFrom(t, id, newAuthority(t))
+}
+
+// newFakeBridgeFrom is a bridge whose certificate ca signed, as Philips Hue signs every bridge's.
+func newFakeBridgeFrom(t *testing.T, id string, ca *authority) *fakeBridge {
+	t.Helper()
 	raw, err := os.ReadFile("testdata/resources.json")
 	if err != nil {
 		t.Fatal(err)
@@ -120,11 +132,12 @@ func newFakeBridge(t *testing.T, id string) *fakeBridge {
 	if err := json.Unmarshal(raw, &a); err != nil {
 		t.Fatal(err)
 	}
-	f := &fakeBridge{t: t, ca: newAuthority(t), resources: a.Data, events: make(chan string, 64), end: make(chan struct{}), open: make(chan struct{})}
+	f := &fakeBridge{t: t, ca: ca, resources: a.Data, events: make(chan string, 64), end: make(chan struct{}), open: make(chan struct{})}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /clip/v2/resource", f.read)
 	mux.HandleFunc("GET /eventstream/clip/v2", f.stream)
 	mux.HandleFunc("PUT /clip/v2/resource/light/{id}", f.put)
+	mux.HandleFunc("POST /api", f.link)
 	f.server = httptest.NewUnstartedServer(mux)
 	f.server.EnableHTTP2 = true
 	f.server.TLS = &tls.Config{Certificates: []tls.Certificate{f.ca.issue(t, id, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))}}
@@ -242,6 +255,53 @@ func (f *fakeBridge) put(w http.ResponseWriter, r *http.Request) {
 	default:
 		f.t.Error("the stream's events are full")
 	}
+}
+
+// link answers asking for a key as the bridge does: an error until the link button is pressed, then
+// the key, both with a 200.
+func (f *fakeBridge) link(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Devicetype string `json:"devicetype"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		f.t.Errorf("asked for a key with a body that isn't JSON: %v", err)
+	}
+	if k := r.Header.Get("hue-application-key"); k != "" {
+		f.t.Errorf("asked for a key with the key %q", k)
+	}
+	f.mu.Lock()
+	f.links = append(f.links, body.Devicetype)
+	pressed, refusal := len(f.links) > f.unpressed, f.linkRefusal
+	f.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	if refusal != "" {
+		_, _ = fmt.Fprintf(w, `[{"error":{"type":7,"address":"/devicetype","description":%q}}]`, refusal)
+		return
+	}
+	if !pressed {
+		_, _ = fmt.Fprint(w, `[{"error":{"type":101,"address":"","description":"link button not pressed"}}]`)
+		return
+	}
+	_, _ = fmt.Fprintf(w, `[{"success":{"username":%q}}]`, appKey)
+}
+
+// pressAfter has the link button pressed once a key has been asked for n times.
+func (f *fakeBridge) pressAfter(n int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.unpressed = n
+}
+
+func (f *fakeBridge) refuseLinks(description string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.linkRefusal = description
+}
+
+func (f *fakeBridge) asked() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.links)
 }
 
 func (f *fakeBridge) written() []put {

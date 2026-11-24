@@ -6,13 +6,28 @@ Each device appears in `oikade list devices` as `hardware/<plugin>/<ID>`, where 
 
 ## Setting it up
 
-```go
-home.Plugin("hue", hue.New(hue.Config{})).
-	HideFromMatter() // the Hue bridge puts these in the Home app itself
-home.Device("hall-light").Hardware("hue", "0x7cc6b6fffecb1814").Room("hall").Is(oikade.OnOffLight)
-```
+1. **Import it** in your home's code, and deploy:
 
-**The plugin can't get a key from the bridge yet,** so it says `has no key for the Hue bridge yet` in `oikade status`. Its setup, which asks you to press the bridge's link button, is still being built (OIK-384).
+   ```go
+   home.Plugin("hue", hue.New(hue.Config{})).
+   	HideFromMatter() // the Hue bridge puts these in the Home app itself
+   home.Device("hall-light").Hardware("hue", "0x7cc6b6fffecb1814").Room("hall").Is(oikade.OnOffLight)
+   ```
+
+   Until it has a key for the bridge, `oikade status` says `Plugin hue needs setup: run oikade setup hue`.
+2. **Run setup,** from any machine that reaches the host, then press the link button on the bridge when it asks. The host keeps the key the bridge gives, with the bridge's ID, and the devices come online within seconds, with no deploy:
+
+   ```sh
+   $ oikade setup hue
+   Looking for Hue bridges over mDNS
+   Found Hue Bridge Pro C42996FFFEC84D62
+   Press the link button on the bridge
+   ✓ hue is set up: 60 devices
+   ```
+
+   Setup waits 2 minutes for the button. The bridge names the key `oikade#hue`, after the plugin.
+
+**Setup finds the bridge over mDNS** on the host's network, or at `Address`. With more than one bridge and no `Address`, it lists them and asks which, by ID, as it does when the bridge it set up before doesn't answer. Run again while its key works, it changes nothing. A key removed in the Hue app, or a new bridge, needs setup again, and the bridge's button pressed.
 
 **A Hue bridge puts its devices in the Home app itself,** so on Oikade's Matter bridge too they'd show twice. `HideFromMatter()` keeps them off it ([Hiding a plugin's devices from Matter](../../docs/devices.md#hiding-a-plugins-devices-from-matter)).
 
@@ -49,7 +64,7 @@ A write fails at once while the bridge doesn't answer. A bridge that doesn't ans
 
 The plugin reads everything on the bridge once, then follows the bridge's event stream, so a change shows in `oikade status` within a second or so. When a device or room is added, removed or changed in the Hue app, it reads everything again.
 
-While the bridge doesn't answer, every device is offline and `oikade status` says why. The plugin tries again after 5 s, doubling up to a minute. A key the bridge refuses, as one removed in the Hue app, is tried again every minute. A stream the bridge ends, after a minute or more, is opened again at once, with the devices online meanwhile.
+While the bridge doesn't answer, every device is offline and `oikade status` says why. The plugin tries again after 5 s, doubling up to a minute. A key the bridge refuses, as one removed in the Hue app, needs setup again, and is tried again every minute until then. A stream the bridge ends, after a minute or more, is opened again at once, with the devices online meanwhile.
 
 ## What it can't do
 

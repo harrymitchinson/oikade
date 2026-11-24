@@ -49,6 +49,9 @@ type timing struct {
 	// ping is how long the event stream may be quiet before the connection is checked, and pong how
 	// long the bridge has to answer.
 	ping, pong time.Duration
+	// browse is how long setup listens for bridges over mDNS, link how often it asks for a key, and
+	// press how long it waits for the link button.
+	browse, link, press time.Duration
 	// backoff waits d after a failure, or until ctx ends. Nil is sleep; a test sees the waits
 	// through it.
 	backoff func(ctx context.Context, d time.Duration)
@@ -58,6 +61,7 @@ var defaults = timing{
 	retry: 5 * time.Second, retryMax: time.Minute, refused: time.Minute, limited: time.Minute,
 	find: 10 * time.Second, request: 10 * time.Second, ping: 30 * time.Second, pong: 15 * time.Second,
 	pace: 100 * time.Millisecond, set: 4 * time.Second, write: 5 * time.Second,
+	browse: 3 * time.Second, link: time.Second, press: 2 * time.Minute,
 }
 
 // maxSkipped bounds the devices not reported, and the values left out, that are logged.
@@ -78,8 +82,12 @@ type bridge struct {
 	declared []string
 	timing   timing
 	log      *slog.Logger
-	// find is where the bridge with this ID is on the network, which tests replace.
-	find func(ctx context.Context, id string, within time.Duration) (string, error)
+	// find is where the bridge with this ID is on the network, and bridges every bridge on it, as
+	// lookForBridges, which tests replace.
+	find    func(ctx context.Context, id string, within time.Duration) (string, error)
+	bridges func(ctx context.Context, within time.Duration, want string) ([]found, error)
+	// wake ends a wait in Serve, once setup has kept a key.
+	wake chan struct{}
 
 	plugin *plugin.Plugin
 
@@ -102,8 +110,8 @@ func newBridge(c Config, env plugin.Environment, declared []contract.DeclaredDev
 	for _, d := range declared {
 		ids = append(ids, d.ID)
 	}
-	return &bridge{config: c, env: env, declared: ids, timing: t, find: find, log: log,
-		skipped: map[skip]bool{}, ignored: map[[2]string]bool{}}
+	return &bridge{config: c, env: env, declared: ids, timing: t, find: find, bridges: lookForBridges, wake: make(chan struct{}, 1),
+		log: log, skipped: map[skip]bool{}, ignored: map[[2]string]bool{}}
 }
 
 // Serve implements plugin.Handler. It reports the devices on record as not found until the bridge
@@ -115,6 +123,11 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 	}
 	wait := b.timing.retry
 	for ctx.Err() == nil {
+		// A wake from a setup while a session ran isn't for the next wait.
+		select {
+		case <-b.wake:
+		default:
+		}
 		var live time.Time
 		err := b.session(ctx, func() { live = time.Now() })
 		if ctx.Err() != nil {
@@ -133,9 +146,12 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 		}
 		b.lost(ctx)
 		where := b.describe()
+		// Setup gives a key, or replaces one the bridge refuses or that can't be read.
+		b.setNeedsSetup(ctx, errors.Is(err, errNoKey) || errors.Is(err, errSecret) || refusedKey(err))
 		switch {
 		case errors.Is(err, errNoKey):
-			b.setProblem(ctx, "has no key for the Hue bridge yet")
+			// Needing setup says it.
+			b.setProblem(ctx, "")
 			b.backoff(ctx, b.timing.retry)
 		case errors.Is(err, errSecret):
 			b.log.Error("Could not read the Hue bridge's key", "err", err, "retry", b.timing.refused.String())
@@ -248,6 +264,7 @@ func (b *bridge) session(ctx context.Context, connected func()) error {
 		return end(err)
 	}
 	b.setProblem(ctx, "")
+	b.setNeedsSetup(ctx, false)
 	connected()
 	events := newEventReader(stream)
 	for {
@@ -305,18 +322,15 @@ func bridgeID(id string) bool {
 // findBridge looks for the bridge over mDNS, as the _hue._tcp instance whose bridgeid is id, and
 // returns its address.
 func findBridge(ctx context.Context, id string, within time.Duration) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, within)
-	defer cancel()
-	match := func(s mdns.Service) bool { return strings.EqualFold(s.TXT["bridgeid"], id) }
-	found, err := mdns.Browse(ctx, "_hue._tcp.local", func(s []mdns.Service) bool { return slices.ContainsFunc(s, match) })
+	all, err := lookForBridges(ctx, within, id)
 	if err != nil {
 		return "", err
 	}
-	i := slices.IndexFunc(found, match)
+	i := slices.IndexFunc(all, func(f found) bool { return strings.EqualFold(f.id, id) })
 	if i < 0 {
 		return "", fmt.Errorf("%w: nothing answered for Hue bridge %s", mdns.ErrNotFound, id)
 	}
-	return serviceAddress(found[i]), nil
+	return all[i].address, nil
 }
 
 // serviceAddress is where an mDNS instance is: its first IPv4 address if a response gave it, or its
@@ -541,15 +555,26 @@ func (b *bridge) setProblem(ctx context.Context, problem string) {
 	b.check(b.plugin.SetError(ctx, problem), "Could not report the plugin's problem", "")
 }
 
+func (b *bridge) setNeedsSetup(ctx context.Context, needs bool) {
+	b.check(b.plugin.SetNeedsSetup(ctx, needs), "Could not report whether the plugin needs setup", "")
+}
+
 // name is the plugin's name, as the home imports it.
 func (b *bridge) name() string { return cmp.Or(b.env.Root.Plugin(), "hue") }
 
+// backoff waits d, or until setup keeps a key.
 func (b *bridge) backoff(ctx context.Context, d time.Duration) {
 	if b.timing.backoff != nil {
 		b.timing.backoff(ctx, d)
 		return
 	}
-	sleep(ctx, d)
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+	case <-t.C:
+	case <-b.wake:
+	}
 }
 
 func sleep(ctx context.Context, d time.Duration) {

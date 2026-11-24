@@ -42,6 +42,7 @@ var fast = timing{
 	retry: 10 * time.Millisecond, retryMax: 40 * time.Millisecond, refused: 50 * time.Millisecond, limited: 50 * time.Millisecond,
 	find: time.Second, request: 2 * time.Second, ping: 10 * time.Second, pong: 5 * time.Second,
 	pace: 20 * time.Millisecond, set: 2 * time.Second, write: 2 * time.Second,
+	browse: time.Second, link: 10 * time.Millisecond, press: 5 * time.Second,
 }
 
 // logs is a log the tests can read.
@@ -86,6 +87,7 @@ type options struct {
 	config   Config
 	secret   string
 	find     func(ctx context.Context, id string, within time.Duration) (string, error)
+	bridges  func(ctx context.Context, within time.Duration, want string) ([]found, error)
 	declared []string
 	timing   timing
 }
@@ -148,11 +150,17 @@ func start(t *testing.T, f *fakeBridge, o options) *bench {
 		devices = append(devices, contract.DeclaredDevice{ID: id, Name: id, DisplayName: id})
 	}
 	handler := newBridge(o.config, b.env, devices, timings, o.find, slog.New(slog.NewJSONHandler(b.logs, nil)))
+	handler.bridges = o.bridges
+	if handler.bridges == nil {
+		handler.bridges = func(context.Context, time.Duration, string) ([]found, error) {
+			return []found{{id: bridgeOne, model: "BSB003", address: f.address()}}, nil
+		}
+	}
 	b.handler = handler
 	ctx, cancel := context.WithCancel(t.Context())
 	started, startCancel := context.WithTimeout(ctx, waitLimit)
 	defer startCancel()
-	p, err := plugin.Start(started, plugin.Options{Environment: b.env, OnSet: handler.Set, Logger: slog.New(slog.DiscardHandler)})
+	p, err := plugin.Start(started, plugin.Options{Environment: b.env, OnSet: handler.Set, OnSetup: handler.Setup, Logger: slog.New(slog.DiscardHandler)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,9 +182,24 @@ func start(t *testing.T, f *fakeBridge, o options) *bench {
 // keep writes the plugin's secret, as setup would.
 func (b *bench) keep(value string) {
 	b.t.Helper()
-	if err := os.WriteFile(filepath.Join(b.env.SecretsDir, "hue.hue-bridge"), []byte(value), 0o600); err != nil {
+	b.keepAs("hue.hue-bridge", value)
+}
+
+func (b *bench) keepAs(name, value string) {
+	b.t.Helper()
+	if err := os.WriteFile(filepath.Join(b.env.SecretsDir, name), []byte(value), 0o600); err != nil {
 		b.t.Fatal(err)
 	}
+}
+
+// kept is the plugin's secret, "" if there's none.
+func (b *bench) kept() string {
+	b.t.Helper()
+	raw, err := os.ReadFile(filepath.Join(b.env.SecretsDir, "hue.hue-bridge"))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		b.t.Fatal(err)
+	}
+	return string(raw)
 }
 
 // topic is a topic's last value.
@@ -441,15 +464,16 @@ func TestARefusedKeySaysSo(t *testing.T) {
 	b.waitOnline()
 }
 
-func TestNoKeySaysSo(t *testing.T) {
+func TestNoKeyNeedsSetup(t *testing.T) {
 	f := newFakeBridge(t, bridgeOne)
 	b := start(t, f, options{secret: "none", declared: []string{hallLight}})
-	b.waitProblem("has no key for the Hue bridge yet")
+	b.waitNeedsSetup(true)
 	if d := b.devices(); len(d.Devices) != 1 || d.Devices[0].Found {
 		t.Errorf("devices %+v, want the hall light on record, not found", d.Devices)
 	}
 	b.keep(keptSecret(bridgeOne, appKey))
 	b.waitOnline()
+	b.waitNeedsSetup(false)
 }
 
 func TestASecretThatIsntOneSaysSo(t *testing.T) {
