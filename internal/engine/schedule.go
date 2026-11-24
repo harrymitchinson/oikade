@@ -128,7 +128,8 @@ func (t timeTrigger) on(y int, m time.Month, d int, loc *time.Location, suns *su
 	return at, true
 }
 
-// after returns the trigger's first time after from, looking a week ahead.
+// after returns the trigger's first time after from. It reports false when none is due within a
+// week, as nextFire does.
 func (t timeTrigger) after(from time.Time, loc *time.Location, suns *sunCache) (time.Time, bool) {
 	local := from.In(loc).AddDate(0, 0, -1)
 	day := time.Date(local.Year(), local.Month(), local.Day(), 12, 0, 0, 0, loc)

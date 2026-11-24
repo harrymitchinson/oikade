@@ -147,8 +147,7 @@ func (d *Decision[T]) Linger(dur time.Duration) *Decision[T] {
 //		LingerUntil("23:00").
 //		Default(false)
 //
-// A t less than a second past counts as now, since a look runs a moment late: a case whose Daily
-// ends at t ends there, not a day later.
+// A case whose Daily ends at t ends there, not a day later, however late it's looked at.
 func (d *Decision[T]) LingerUntil[U string | Time](t U) *Decision[T] {
 	return d.onCase("LingerUntil", func(l *line) { l.lingerUntil = new(timeOf(t)) })
 }

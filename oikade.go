@@ -271,7 +271,8 @@ func (t Time) timer() engine.Timer {
 	return engine.At{Time: t.clock}
 }
 
-// lingerUntil is a LingerUntil's t as the engine takes it, or nil for none or one that isn't a time.
+// lingerUntil is a LingerUntil's t as the engine takes it, nil for none, and an error for one that
+// isn't a time or that needs a location the home hasn't got.
 func lingerUntil(t *Time, o Options) (engine.Timer, error) {
 	if t == nil {
 		return nil, nil

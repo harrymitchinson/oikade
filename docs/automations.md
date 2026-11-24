@@ -71,7 +71,7 @@ anyoneHome := home.Signal("anyone-home", presence.Occupied.Any()).
 
 Someone last seen at 08:00 on Monday keeps it true until 00:00 on Wednesday, and so does someone last seen at 23:30 on Monday. With `LingerUntil("00:00")` alone, it's "seen today", false at the next midnight.
 
-- **A `t` less than a second past counts as now,** since a look runs a moment late, so a case whose `Daily` ends at `t` ends there, not a day later.
+- **A case whose `Daily` ends at `t` ends there,** not a day later, even when it's looked at late, as after a restart. A signal is looked at on the minute, a moment late, so for one a `t` less than a second past counts as now.
 - **`oikade status` says when it ends,** as it does for a `Linger`, and the host keeps that across a restart. A deploy that changes `t` doesn't move an end that's already running.
 - **Times of day work as they do in a `Daily`:** a time the clocks skip is when they go forward, and a day with no sunrise has none. With no `t` within a week, it ends when the `Linger` does.
 

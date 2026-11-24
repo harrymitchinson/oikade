@@ -314,7 +314,11 @@ func (e *Engine) evaluate(ctx context.Context, key ident.ID, s *state, now time.
 	} else {
 		on, known, next = e.condition(key, hs, h, now, devices)
 	}
-	st, active := h.step(st, on, known, now, e.Location, e.suns)
+	clock := offClock{loc: e.Location, suns: e.suns}
+	if h.offUntil != nil && h.window != nil {
+		clock.closed = h.window.closed(now, e.Location, e.suns)
+	}
+	st, active := h.step(st, on, known, now, clock)
 	e.whyNot(key, hs, h, known && !on && !active, now, devices)
 	// A followed value that changed while the hold stays active is written again.
 	rewrite := h.follow != nil && active && st.Active && !sameTarget(st.Target, hs.saved.Target)
@@ -567,8 +571,8 @@ func (e *Engine) writeGroups(t HoldTarget) (groups []string, claims bool) {
 }
 
 // step moves a hold's state on to now, given its condition, and returns whether it should be
-// active. An offUntil's times are in loc, and at suns.
-func (h *hold) step(st HoldState, on, known bool, now time.Time, loc *time.Location, suns *sunCache) (HoldState, bool) {
+// active. clock works out an offUntil.
+func (h *hold) step(st HoldState, on, known bool, now time.Time, clock offClock) (HoldState, bool) {
 	active := st.Active
 	switch {
 	case st.Latched:
@@ -588,7 +592,7 @@ func (h *hold) step(st HoldState, on, known bool, now time.Time, loc *time.Locat
 		st.OnAt = time.Time{}
 		if st.Active {
 			if h.lingers() && st.OffAt.IsZero() {
-				st.OffAt = h.offAt(now, loc, suns)
+				st.OffAt = h.offAt(now, clock)
 			}
 			if !now.Before(st.OffAt) {
 				active, st.OffAt = false, time.Time{}

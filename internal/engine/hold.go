@@ -3,6 +3,7 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
+	"iter"
 	"math"
 	"slices"
 	"time"
@@ -51,17 +52,7 @@ type window struct {
 // the same time as the start makes it a whole day. Next is zero when nothing changes within a
 // week, as with sun times and no site.
 func (w *window) at(t time.Time, loc *time.Location, suns *sunCache) (in bool, next time.Time) {
-	local := t.In(loc)
-	first := local.AddDate(0, 0, -2)
-	for day := time.Date(first.Year(), first.Month(), first.Day(), 12, 0, 0, 0, loc); day.Before(local.AddDate(0, 0, lookback)); day = day.AddDate(0, 0, 1) {
-		start, ok := w.start.on(day.Year(), day.Month(), day.Day(), loc, suns)
-		if !ok || len(w.days) > 0 && !slices.Contains(w.days, start.In(loc).Weekday()) {
-			continue
-		}
-		end, ok := w.endAfter(start, loc, suns)
-		if !ok {
-			continue
-		}
+	for start, end := range w.spans(t, 2, loc, suns) {
 		if !start.After(t) && t.Before(end) {
 			in = true
 		}
@@ -72,6 +63,40 @@ func (w *window) at(t time.Time, loc *time.Location, suns *sunCache) (in bool, n
 		}
 	}
 	return in, next
+}
+
+// closed returns when the window last closed, if it's closed at t, and zero if it's open, or
+// hasn't been open within a week.
+func (w *window) closed(t time.Time, loc *time.Location, suns *sunCache) time.Time {
+	var last time.Time
+	for start, end := range w.spans(t, lookback, loc, suns) {
+		if !start.After(t) && t.Before(end) {
+			return time.Time{}
+		}
+		if !end.After(t) && end.After(last) {
+			last = end
+		}
+	}
+	return last
+}
+
+// spans are the window's openings, its starts and their ends, from those that start back days
+// before t to those that start a week after.
+func (w *window) spans(t time.Time, back int, loc *time.Location, suns *sunCache) iter.Seq2[time.Time, time.Time] {
+	return func(yield func(time.Time, time.Time) bool) {
+		local := t.In(loc)
+		first := local.AddDate(0, 0, -back)
+		for day := time.Date(first.Year(), first.Month(), first.Day(), 12, 0, 0, 0, loc); day.Before(local.AddDate(0, 0, lookback)); day = day.AddDate(0, 0, 1) {
+			start, ok := w.start.on(day.Year(), day.Month(), day.Day(), loc, suns)
+			if !ok || len(w.days) > 0 && !slices.Contains(w.days, start.In(loc).Weekday()) {
+				continue
+			}
+			end, ok := w.endAfter(start, loc, suns)
+			if ok && !yield(start, end) {
+				return
+			}
+		}
+	}
 }
 
 // endAfter returns the window's first end after start, looking at most two days ahead.
@@ -87,21 +112,34 @@ func (w *window) endAfter(start time.Time, loc *time.Location, suns *sunCache) (
 }
 
 // untilSlack is how long before an off delay's end an offUntil counts as come, since a look at a
-// window's end runs a moment after it: a window that ends at the offUntil ends the hold there, not
-// a day later.
+// time of day runs a moment after it: a signal that turns false on the minute of its offUntil turns
+// false then, not a day later.
 const untilSlack = time.Second
 
 // lingers reports whether an off delay runs once the hold's condition is false.
 func (h *hold) lingers() bool { return h.offDelay > 0 || h.offUntil != nil }
 
+// offClock is what an offUntil is worked out with.
+type offClock struct {
+	loc  *time.Location
+	suns *sunCache
+	// closed is when the hold's window closed, if it's closed now, and zero otherwise. The condition
+	// was false from then at the latest, however late the look, as after a restart.
+	closed time.Time
+}
+
 // offAt is when an off delay that starts at now ends: after offDelay, and then at the next
-// offUntil, if there's one within a week.
-func (h *hold) offAt(now time.Time, loc *time.Location, suns *sunCache) time.Time {
+// offUntil after the condition turned false, plus offDelay, if there's one within a week.
+func (h *hold) offAt(now time.Time, c offClock) time.Time {
 	end := now.Add(h.offDelay)
 	if h.offUntil == nil {
 		return end
 	}
-	if at, ok := h.offUntil.after(end.Add(-untilSlack), loc, suns); ok {
+	from := end
+	if !c.closed.IsZero() {
+		from = c.closed.Add(h.offDelay)
+	}
+	if at, ok := h.offUntil.after(from.Add(-untilSlack), c.loc, c.suns); ok {
 		return at
 	}
 	return end

@@ -62,7 +62,7 @@ func TestAnOffUntilEndsAnOffDelayAtTheNextTime(t *testing.T) {
 				}
 				h.offUntil = until
 			}
-			if got := h.offAt(tc.now, london, newSunCache(tc.site)); !got.Equal(tc.want) {
+			if got := h.offAt(tc.now, offClock{loc: london, suns: newSunCache(tc.site)}); !got.Equal(tc.want) {
 				t.Errorf("offAt = %v, want %v", got.In(london), tc.want.In(london))
 			}
 		})
@@ -75,19 +75,66 @@ func TestAnOffUntilKeepsAHoldActiveWithNoOffDelay(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := &hold{offUntil: until}
-	st, active := h.step(HoldState{Active: true}, false, true, local("2026-11-23 21:05 GMT"), london, nil)
+	st, active := h.step(HoldState{Active: true}, false, true, local("2026-11-23 21:05 GMT"), offClock{loc: london})
 	if !active || !st.OffAt.Equal(local("2026-11-23 23:00 GMT")) {
 		t.Fatalf("active = %t, offAt = %v, want active until 23:00", active, st.OffAt.In(london))
 	}
-	st, active = h.step(st, false, true, local("2026-11-23 23:00 GMT"), london, nil)
+	st, active = h.step(st, false, true, local("2026-11-23 23:00 GMT"), offClock{loc: london})
 	if active || !st.OffAt.IsZero() {
 		t.Fatalf("active = %t, offAt = %v at 23:00, want inactive", active, st.OffAt)
 	}
 
-	// A window that ends at the time ends it there, though the look runs a moment late.
-	st, active = h.step(HoldState{Active: true}, false, true, local("2026-11-23 23:00 GMT").Add(time.Millisecond), london, nil)
+	// A look a moment after the time, as a signal's on the minute, ends it then.
+	st, active = h.step(HoldState{Active: true}, false, true, local("2026-11-23 23:00 GMT").Add(time.Millisecond),
+		offClock{loc: london})
 	if active {
 		t.Fatalf("active = %t, offAt = %v, want it ended at once", active, st.OffAt.In(london))
+	}
+}
+
+// A window that closes at the hold's offUntil ends it there, however late the look, as after a
+// restart: its condition was false from the close.
+func TestAnOffUntilCountsFromTheWindowsClose(t *testing.T) {
+	until, err := offUntil(atTrigger("23:00"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &hold{offUntil: until}
+	late := local("2026-11-23 23:05 GMT")
+	st, active := h.step(HoldState{Active: true}, false, true, late,
+		offClock{loc: london, closed: local("2026-11-23 23:00 GMT")})
+	if active {
+		t.Fatalf("active = %t, offAt = %v, want it ended at once", active, st.OffAt.In(london))
+	}
+	st, active = h.step(HoldState{Active: true}, false, true, late, offClock{loc: london})
+	if !active || !st.OffAt.Equal(local("2026-11-24 23:00 GMT")) {
+		t.Fatalf("active = %t, offAt = %v with no window, want tomorrow's 23:00", active, st.OffAt.In(london))
+	}
+}
+
+func TestAWindowSaysWhenItClosed(t *testing.T) {
+	w, err := (&Window{Start: atTrigger("20:00"), End: atTrigger("23:00")}).compile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for at, want := range map[string]time.Time{
+		"2026-11-23 21:00 GMT": {},
+		"2026-11-23 23:00 GMT": local("2026-11-23 23:00 GMT"),
+		"2026-11-24 02:00 GMT": local("2026-11-23 23:00 GMT"),
+		"2026-11-24 19:59 GMT": local("2026-11-23 23:00 GMT"),
+		"2026-11-24 20:00 GMT": {},
+	} {
+		if got := w.closed(local(at), london, nil); !got.Equal(want) {
+			t.Errorf("closed at %s = %v, want %v", at, got.In(london), want)
+		}
+	}
+	night, err := (&Window{Start: atTrigger("22:00"), End: atTrigger("06:00"), Days: []time.Weekday{time.Friday}}).compile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Friday night's window, Saturday 06:00, is the last to close by Monday noon.
+	if got, want := night.closed(local("2026-11-23 12:00 GMT"), london, nil), local("2026-11-21 06:00 GMT"); !got.Equal(want) {
+		t.Errorf("closed = %v, want %v", got.In(london), want)
 	}
 }
 
