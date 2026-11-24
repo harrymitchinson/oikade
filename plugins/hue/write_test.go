@@ -65,8 +65,8 @@ func TestWritesArePaced(t *testing.T) {
 		t.Fatalf("wrote %q, want 3 writes", bodies(puts))
 	}
 	for i := 1; i < len(puts); i++ {
-		// A little slack for the clock the fake reads when the write arrives.
-		if gap := puts[i].at.Sub(puts[i-1].at); gap < slow.pace-10*time.Millisecond {
+		// Slack for when each write reaches the fake, after the plugin's clock paced it.
+		if gap := puts[i].at.Sub(puts[i-1].at); gap < slow.pace/2 {
 			t.Errorf("write %d came %s after the one before, want %s at least", i, gap, slow.pace)
 		}
 	}
@@ -104,9 +104,59 @@ func TestAWriteTheBridgeRefusesSaysWhy(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "the bridge answered 404 Not Found: device (light) has communication issues") {
 		t.Errorf("got %v, want the bridge's refusal", err)
 	}
-	if n := b.logs.count("Could not write to Hue light"); n != 1 {
-		t.Errorf("logged %d refused writes, want 1: %s", n, b.logs)
+	// Set says so, and the SDK logs it.
+	if n := b.logs.count("Could not write to Hue light"); n != 0 {
+		t.Errorf("logged %d refused writes, want none: %s", n, b.logs)
 	}
+}
+
+func TestAWriteRefusedAfterItsSetReturnedIsLogged(t *testing.T) {
+	f := newFakeBridge(t, bridgeOne)
+	slow := fast
+	slow.pace, slow.set = 200*time.Millisecond, 10*time.Millisecond
+	b := start(t, f, options{timing: slow})
+	b.waitOnline()
+	f.refuseWrites("device (light) has communication issues, command (on) may not have effect")
+	_ = b.set(hallLight, contract.On, true)
+	if err := b.set(deskLamp, contract.On, false); err != nil {
+		t.Fatalf("got %v, want nil while it waits its turn", err)
+	}
+	b.eventually("the refusal logged", func() bool { return b.logs.count("Could not write to Hue light") == 1 })
+}
+
+func TestAWriteTheBridgeDoesntAnswerEndsTheSession(t *testing.T) {
+	f := newFakeBridge(t, bridgeOne)
+	slow := fast
+	slow.write = 100 * time.Millisecond
+	b := start(t, f, options{timing: slow})
+	b.waitOnline()
+	b.waitAvailability(hallLight, "online")
+	f.hangWrites()
+	if err := b.set(hallLight, contract.On, true); err == nil || !strings.Contains(err.Error(), "context deadline exceeded") {
+		t.Errorf("got %v, want it timed out", err)
+	}
+	b.waitAvailability(hallLight, "offline")
+	b.waitProblem("could not reach the Hue bridge " + bridgeOne + ": the bridge didn't answer a write")
+}
+
+func TestAReplacedWriteKeepsALightsOrder(t *testing.T) {
+	f := newFakeBridge(t, bridgeOne)
+	slow := fast
+	slow.pace, slow.set = 300*time.Millisecond, 10*time.Millisecond
+	b := start(t, f, options{timing: slow})
+	b.waitOnline()
+	// The first goes at once, and the rest wait their turn.
+	for _, w := range []struct {
+		capability string
+		value      any
+	}{{contract.Brightness, 10.0}, {contract.On, true}, {contract.Brightness, 30.0}, {contract.On, false}} {
+		if err := b.set(deskLamp, w.capability, w.value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b.waitState(deskLamp, `{"brightness":30,"on":false}`)
+	want := []string{deskLampID + ` {"dimming":{"brightness":10}}`, deskLampID + ` {"dimming":{"brightness":30}}`, deskLampID + ` {"on":{"on":false}}`}
+	b.eventually("the writes", func() bool { return strings.Join(bodies(f.written()), "\n") == strings.Join(want, "\n") })
 }
 
 func TestAWriteFailsAtOnceWithoutTheBridge(t *testing.T) {
@@ -137,12 +187,13 @@ func TestAWriteThePluginCantSendIsRefused(t *testing.T) {
 		value          any
 		want           string
 	}{
-		{deskLamp, contract.Brightness, 150.0, "brightness is from 0 to 100"},
-		{deskLamp, contract.Brightness, -1.0, "brightness is from 0 to 100"},
+		{deskLamp, contract.Brightness, 150.0, "can't set brightness to 150 on " + deskLamp + ": it's from 0 to 100"},
+		{deskLamp, contract.Brightness, -1.0, "it's from 0 to 100"},
 		{hallSensor, contract.Occupied, true, hallSensor + " has no light to set"},
 		{"0x00178801ffffffff", contract.On, true, "no Hue device 0x00178801ffffffff"},
-		{hallLight, contract.On, 1.0, "can't set on to 1"},
-		{hallLight, contract.Brightness, true, "brightness takes a number"},
+		{hallLight, contract.On, 1.0, "can't set on to 1 on " + hallLight},
+		{hallLight, contract.Brightness, true, "can't set brightness to true on " + hallLight},
+		{hallLight, contract.Temperature, 21.0, "can't set temperature to 21 on " + hallLight},
 	} {
 		if err := b.set(c.id, c.capability, c.value); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("set %s %s %v: got %v, want %q", c.id, c.capability, c.value, err, c.want)
@@ -182,5 +233,8 @@ func TestAWriteWaitingWhenTheSessionEndsIsDropped(t *testing.T) {
 	if err := <-waiting; err == nil || !strings.Contains(err.Error(), "lost the Hue bridge before the write went") {
 		t.Errorf("got %v, want it lost", err)
 	}
-	b.eventually("the drop logged", func() bool { return b.logs.count("Dropped Hue write") == 1 })
+	// Set said so, so only the SDK logs it.
+	if n := b.logs.count("Dropped Hue write"); n != 0 {
+		t.Errorf("logged %d dropped writes, want none: %s", n, b.logs)
+	}
 }

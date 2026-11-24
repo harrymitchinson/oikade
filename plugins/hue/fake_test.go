@@ -97,9 +97,11 @@ type fakeBridge struct {
 	// open is closed once a stream is open, and replaced when it ends.
 	open chan struct{}
 	seq  int
-	// puts are the writes, and putError what the bridge answers one with instead, "" for none.
+	// puts are the writes, putError what the bridge answers one with instead, "" for none, and
+	// hang whether it answers none.
 	puts     []put
 	putError string
+	hang     bool
 }
 
 // put is one write the bridge took.
@@ -214,8 +216,12 @@ func (f *fakeBridge) put(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	f.mu.Lock()
 	f.puts = append(f.puts, put{light: id, body: string(body), at: time.Now()})
-	refuse := f.putError
+	refuse, hang := f.putError, f.hang
 	f.mu.Unlock()
+	if hang {
+		<-r.Context().Done()
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	if refuse != "" {
 		w.WriteHeader(http.StatusNotFound)
@@ -230,14 +236,24 @@ func (f *fakeBridge) put(w http.ResponseWriter, r *http.Request) {
 	}
 	change["id"], change["type"] = id, "light"
 	event, _ := json.Marshal(change)
-	f.send("update", string(event))
+	// Not send, which can fail the test: this isn't the test's goroutine.
+	select {
+	case f.events <- f.event("update", string(event)):
+	default:
+		f.t.Error("the stream's events are full")
+	}
 }
 
-// written is every write the bridge took.
 func (f *fakeBridge) written() []put {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.puts)
+}
+
+func (f *fakeBridge) hangWrites() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.hang = true
 }
 
 func (f *fakeBridge) refuseWrites(description string) {
@@ -263,6 +279,11 @@ func (f *fakeBridge) waitOpen() {
 func (f *fakeBridge) send(kind string, data ...string) {
 	f.t.Helper()
 	f.waitOpen()
+	f.events <- f.event(kind, data...)
+}
+
+// event is one event in the stream, of type kind, of the resources in data.
+func (f *fakeBridge) event(kind string, data ...string) string {
 	f.mu.Lock()
 	f.seq++
 	seq := f.seq
@@ -275,9 +296,9 @@ func (f *fakeBridge) send(kind string, data ...string) {
 		"creationtime": "2026-11-24T10:07:54Z", "id": fmt.Sprintf("caeb36fd-0000-0000-0000-%012d", seq), "type": kind, "data": items,
 	}})
 	if err != nil {
-		f.t.Fatal(err)
+		f.t.Error(err)
 	}
-	f.events <- fmt.Sprintf("id: 1795514874:%d\ndata: %s\n\n", seq, payload)
+	return fmt.Sprintf("id: 1795514874:%d\ndata: %s\n\n", seq, payload)
 }
 
 // endStream ends the open stream, as the bridge might.

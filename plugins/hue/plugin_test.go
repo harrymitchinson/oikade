@@ -41,7 +41,7 @@ var root = contract.NewRoot("hue")
 var fast = timing{
 	retry: 10 * time.Millisecond, retryMax: 40 * time.Millisecond, refused: 50 * time.Millisecond, limited: 50 * time.Millisecond,
 	find: time.Second, request: 2 * time.Second, ping: 10 * time.Second, pong: 5 * time.Second,
-	pace: 20 * time.Millisecond, set: 2 * time.Second,
+	pace: 20 * time.Millisecond, set: 2 * time.Second, write: 2 * time.Second,
 }
 
 // logs is a log the tests can read.
