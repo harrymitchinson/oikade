@@ -60,27 +60,29 @@ const (
 	TypeChange     Type = "change"
 	TypeDiscovered Type = "discovered"
 	// TypeSeen is a device reporting, which a value that didn't change doesn't show.
-	TypeSeen        Type = "seen"
-	TypeClaim       Type = "claim"
-	TypeRelease     Type = "release"
-	TypeReleaseAll  Type = "releaseAll"
-	TypeSet         Type = "set"
-	TypeSaveHold    Type = "saveHold"
-	TypeDeleteHold  Type = "deleteHold"
-	TypeSaveFire    Type = "saveFire"
-	TypeSaveAverage Type = "saveAverage"
-	TypeSaveSignal  Type = "saveSignal"
-	TypeJournal     Type = "journal"
-	TypeFinish      Type = "finish"
-	TypeReply       Type = "reply"
-	TypePause       Type = "pause"
-	TypeResume      Type = "resume"
-	TypeRuleRun     Type = "ruleRun"
-	TypeRoomReads   Type = "roomReads"
-	TypeStopped     Type = "stopped"
-	TypeWhyNot      Type = "whyNot"
-	TypeMetrics     Type = "metrics"
-	TypePublish          = pluginwire.TypePublish
+	TypeSeen Type = "seen"
+	// TypeAvailability is a device going offline, or coming back.
+	TypeAvailability Type = "availability"
+	TypeClaim        Type = "claim"
+	TypeRelease      Type = "release"
+	TypeReleaseAll   Type = "releaseAll"
+	TypeSet          Type = "set"
+	TypeSaveHold     Type = "saveHold"
+	TypeDeleteHold   Type = "deleteHold"
+	TypeSaveFire     Type = "saveFire"
+	TypeSaveAverage  Type = "saveAverage"
+	TypeSaveSignal   Type = "saveSignal"
+	TypeJournal      Type = "journal"
+	TypeFinish       Type = "finish"
+	TypeReply        Type = "reply"
+	TypePause        Type = "pause"
+	TypeResume       Type = "resume"
+	TypeRuleRun      Type = "ruleRun"
+	TypeRoomReads    Type = "roomReads"
+	TypeStopped      Type = "stopped"
+	TypeWhyNot       Type = "whyNot"
+	TypeMetrics      Type = "metrics"
+	TypePublish           = pluginwire.TypePublish
 )
 
 // Manifest is what your binary's check mode prints: enough for the host to judge a version before
@@ -216,6 +218,8 @@ type Device struct {
 	DeviceTypes []devicetype.Type `json:"deviceTypes,omitempty"`
 	// LastSeen is when the device last reported, which says how old its values are.
 	LastSeen time.Time `json:"lastSeen,omitzero"`
+	// Online is nil until the device's driver says.
+	Online *bool `json:"online,omitempty"`
 	// Values are bools and numbers, by capability.
 	Values map[string]any `json:"values,omitempty"`
 }
@@ -283,8 +287,10 @@ type Message struct {
 	// in together.
 	Changes []Change `json:"changes,omitempty"`
 	// Discovered is a Discovered's device.
-	Discovered *Device   `json:"discovered,omitempty"`
-	Time       time.Time `json:"time,omitzero"`
+	Discovered *Device `json:"discovered,omitempty"`
+	// Online is an availability's: whether Device is online now.
+	Online *bool     `json:"online,omitempty"`
+	Time   time.Time `json:"time,omitzero"`
 
 	// Claim is a claim's, and Source a release's, or the rule a set is for. Below limits a releaseAll
 	// to lower levels.

@@ -385,6 +385,17 @@ func (s *Sim) Report(device string, values map[string]any) error {
 	return s.settle()
 }
 
+// Availability has a device go offline, or come back, as its driver would say, then waits for the
+// home to catch up.
+func (s *Sim) Availability(device string, online bool) error {
+	dev := key(device)
+	if _, ok := s.store.Get(dev); !ok {
+		return fmt.Errorf("no device %s", device)
+	}
+	s.store.Availability(dev, online)
+	return s.settle()
+}
+
 // Move puts a device in another room, as a declaration does, then waits for the home to catch
 // up. An empty room is none.
 func (s *Sim) Move(device, room string) error {

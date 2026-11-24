@@ -56,3 +56,18 @@ func TestADeployKeepsASignalByItsName(t *testing.T) {
 		t.Fatalf("the renamed signal's first value counted as a change\n%s", r.dump())
 	}
 }
+
+// leftOut is your process's line as a signal starts leaving a dead device out.
+const leftOut = "Left dead Devices out of Signal"
+
+// Your process hears from the host that a device went offline, as it goes and in the welcome after,
+// and leaves it out of a signal.
+func TestASignalLeavesOutADeviceTheHostSaysIsOffline(t *testing.T) {
+	t.Parallel()
+	r := start(t)
+	r.sync()
+	r.online("presence-sensor", false)
+	r.waitFor(func(l line) bool { return l.is(leftOut, "signal", "signal/anyone-home") })
+	r.kill()
+	r.waitFor(func(l line) bool { return l.is(leftOut, "signal", "signal/anyone-home") })
+}

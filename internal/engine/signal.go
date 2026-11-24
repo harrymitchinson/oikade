@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"time"
 
 	"oikade.dev/internal/ident"
@@ -20,10 +21,14 @@ const VarSignals = "signals"
 // Signal is a Bool the engine works out from When, under a name of its own. It's worked out before
 // any hold or flow looks, so they read its value now, and its change triggers flows. OnDelay and
 // OffDelay are a hold's. A When that can't be evaluated counts as false.
+//
+// When reads the home without the devices that are offline, or, with a MaxAge, haven't reported for
+// that long, as if they had never reported. Zero MaxAge means no limit.
 type Signal struct {
 	Name              string
 	When              Condition
 	OnDelay, OffDelay time.Duration
+	MaxAge            time.Duration
 }
 
 // SignalState is what a signal needs across a restart.
@@ -50,6 +55,8 @@ type signalState struct {
 	// stopped is why the signal's When couldn't be evaluated at its last look, so each stretch is
 	// logged once. Empty means it could.
 	stopped string
+	// left are the devices with values that its last look left out as dead, by name.
+	left []string
 }
 
 // signals are the engine's signals, in the order they're worked out. Use them with e.mu held.
@@ -62,6 +69,8 @@ type signals struct {
 	// ctx is Run's, which saves outlive, and saving the states waiting to be saved, latest only.
 	ctx    context.Context
 	saving map[string]*SignalState
+	// offline are the devices last heard going offline, so a repeat doesn't look again.
+	offline map[string]bool
 }
 
 // initSignals loads the signals' saved states, so a flow resumed before the first look reads them.
@@ -112,7 +121,10 @@ func (e *Engine) lookAtSignals(now time.Time, devices *home) (changed []string) 
 	// On the minute, so a signal of a time of day changes on its edge.
 	next := now.Truncate(whenEvery).Add(whenEvery)
 	for _, s := range e.signals.list {
-		vars := e.conditionVars(now, devices)
+		view, left, aged := devices.forSignal(s.MaxAge, now)
+		e.signalLeftOut(s, left)
+		next = soonest(next, aged)
+		vars := e.conditionVars(now, view)
 		vars[VarSignals] = read
 		on, err := s.When(vars)
 		e.signalStopped(s, err)
@@ -150,6 +162,75 @@ func (e *Engine) stepSignal(s *signalState, on bool, now time.Time) SignalState 
 		out.Since = now
 	}
 	return out
+}
+
+// forSignal is the home as a signal reads it: without the devices that are offline or, with a
+// maxAge, haven't reported for that long. left are those of them with values, by name, and aged is
+// when the next of the rest gets too old, or zero for never.
+func (h *home) forSignal(maxAge time.Duration, now time.Time) (view *home, left []string, aged time.Time) {
+	var dead []string
+	for name, l := range h.liveness {
+		old := l.LastSeen.Add(maxAge)
+		switch {
+		case l.Offline, maxAge > 0 && !now.Before(old):
+			dead = append(dead, name)
+		case maxAge > 0:
+			aged = soonest(aged, old)
+		}
+	}
+	if len(dead) == 0 {
+		return h, nil, aged
+	}
+	view = &home{devices: maps.Clone(h.devices), members: h.members, signals: h.signals, liveness: h.liveness}
+	for _, name := range dead {
+		if len(view.devices[name]) > 0 {
+			left = append(left, name)
+		}
+		// Kept, with no values, so a read of it hasn't reported rather than naming no device.
+		view.devices[name] = map[string]any{}
+	}
+	slices.Sort(left)
+	return view, left, aged
+}
+
+// signalLeftOut logs a change in the devices a signal leaves out as dead. Call with e.mu held.
+func (e *Engine) signalLeftOut(s *signalState, left []string) {
+	if slices.Equal(left, s.left) {
+		return
+	}
+	if len(left) == 0 {
+		e.Log.Info("Counted every Device in Signal again", "signal", signalRef(s.Name))
+	} else {
+		e.Log.Info("Left dead Devices out of Signal", "signal", signalRef(s.Name), "devices", left)
+	}
+	s.left = left
+}
+
+// Availability implements driver.Sink: a device going offline has the signals look at once, as
+// they leave it out. One coming back counts at the next look, by the minute or with a report, rather
+// than at once, which would most often come between its coming back and its report.
+func (e *Engine) Availability(dev ident.ID, online bool) {
+	if len(e.Signals) == 0 {
+		return
+	}
+	e.mu.Lock()
+	// A driver can say the same again, as a plugin does when it restarts.
+	went := !online && !e.signals.offline[dev.Name]
+	if online {
+		delete(e.signals.offline, dev.Name)
+	} else {
+		if e.signals.offline == nil {
+			e.signals.offline = map[string]bool{}
+		}
+		e.signals.offline[dev.Name] = true
+	}
+	if went {
+		e.signals.next = e.Clock.Now()
+	}
+	e.mu.Unlock()
+	if went {
+		e.signal()
+	}
 }
 
 // futureOf is t if it's after now, and zero otherwise, so a delay that ended isn't looked at again.

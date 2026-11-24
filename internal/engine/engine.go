@@ -607,13 +607,19 @@ type home struct {
 	members map[string]hub.Member
 	// signals are each signal's value, as last worked out.
 	signals map[string]bool
+	// liveness is each device's, which only signals read, and is nil when there are none.
+	liveness map[string]hub.Liveness
 }
 
 // home reads the devices, and the signals as last worked out. Call with e.mu held.
 func (e *Engine) home() *home {
 	devices := e.Store.Values()
 	e.addAverages(devices, e.Clock.Now())
-	return &home{devices: devices, members: e.Store.Members(), signals: maps.Clone(e.signals.values)}
+	h := &home{devices: devices, members: e.Store.Members(), signals: maps.Clone(e.signals.values)}
+	if len(e.signals.list) > 0 {
+		h.liveness = e.Store.Liveness()
+	}
+	return h
 }
 
 // conditionVars are what a condition sees at now. h is the home's devices, or nil to read

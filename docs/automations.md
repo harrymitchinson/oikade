@@ -116,6 +116,21 @@ home.Flow("everyone-left", closeShutters).When(anyoneHome.Becomes(false))
 
 A name used twice, or one that isn't lowercase letters, digits and dashes, fails `oikade check`.
 
+#### Dead sensors
+
+A sensor that dies while it sees someone would hold `anyone-home` true for good. A signal reads the home without its dead devices, as if they had never reported, so a group's `Any` skips them and a read of one alone can't be worked out:
+
+- **A device its plugin says is offline** is left out from the moment it goes, and counts again at the next look once it's back, within a minute.
+- **`MaxAge(d)` also leaves out a device that hasn't reported for d**, whatever its plugin says, and counts it again once it reports, within a minute if nothing it reported changed. Zero, the default, means no limit, which suits a sensor that reports only when it changes and can be quiet for days in an empty house.
+
+```go
+anyoneHome := home.Signal("anyone-home", presence.Occupied.Any()).
+	MaxAge(24 * time.Hour).
+	Linger(36 * time.Hour)
+```
+
+The log says `Left dead Devices out of Signal` at Info, with the signal and the devices, when the ones left out change, and `Counted every Device in Signal again` once none are. Only signals leave dead devices out: a case or a flow that reads a sensor itself still reads its last value.
+
 ### A value nobody has reported
 
 A condition reading a value nobody has reported yet stops there: a case keeps its state, and a flow's `If` doesn't let it run. If a `Delay` or `Linger` runs out meanwhile, the case starts or ends once the value is back, if its conditions still say so.

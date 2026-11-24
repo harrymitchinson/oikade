@@ -268,6 +268,23 @@ func (s *Store) Members() map[string]Member {
 	return out
 }
 
+// Liveness is whether a device is offline, and when it last reported.
+type Liveness struct {
+	Offline  bool
+	LastSeen time.Time
+}
+
+// Liveness returns device name -> Liveness. A device whose driver hasn't said is online.
+func (s *Store) Liveness() map[string]Liveness {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string]Liveness, len(s.devices))
+	for k, e := range s.devices {
+		out[k.Name] = Liveness{Offline: e.Online != nil && !*e.Online, LastSeen: e.LastSeen}
+	}
+	return out
+}
+
 // Room returns the declared devices whose room is room, sorted by name.
 func (s *Store) Room(room string) []ident.ID {
 	if room == "" {

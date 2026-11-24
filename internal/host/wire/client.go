@@ -26,7 +26,9 @@ type Events struct {
 	Discovered func(Device)
 	// Seen says a device reported, in Message's Device and Time.
 	Seen func(Message)
-	Ping func(id uint64)
+	// Availability says a device went offline, or came back, in Message's Device and Online.
+	Availability func(Message)
+	Ping         func(id uint64)
 	// Paused says a rule was paused, or resumed if paused is false.
 	Paused func(rule string, paused bool)
 }
@@ -134,6 +136,10 @@ func (c *Client) Listen(ev Events) {
 		case TypeSeen:
 			if ev.Seen != nil {
 				ev.Seen(m)
+			}
+		case TypeAvailability:
+			if ev.Availability != nil && m.Online != nil {
+				ev.Availability(m)
 			}
 		case TypePing:
 			ev.Ping(m.ID)

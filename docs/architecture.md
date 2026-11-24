@@ -392,6 +392,7 @@ Flows start when a trigger fires and the condition holds, and run in `internal/f
 
 - **They're worked out before any hold looks:** on each report, when a delay or linger ends, every minute, and when a room's members change, with a hold's timing (`hold.step`). A condition reads one through `VarSignals`, and a signal reads only those before it in the same look.
 - **A change triggers flows,** whose `engine.Change` names the signal, and has every hold with a `When` look again. A signal with no saved state starts at its conditions, which is no change.
+- **Each reads the home without its dead devices:** those whose `hub.Liveness` is offline, and with a `MaxAge`, those whose `LastSeen` is that old. Your process's mirror hears a device go offline or come back from the host's `availability` message, and its state from the welcome. A device going offline has the signals look at once, and saying so again doesn't. One coming back counts at the next look, by the minute or with a report, rather than at once, which would most often come between its `availability` and its report. A device getting too old is the next look's time, as a delay's end is.
 - **Its `SignalState`** (the value, since when, and when a delay or linger ends) is saved in the host's `signals` namespace through `saveSignal` as it changes, the latest first. A kill between a change and its save repeats the change in the next process, as a timer's fire is caught up again. A signal the home no longer makes is left there, as an average is.
 
 ### The day planner

@@ -160,9 +160,10 @@ func runAutomations(ctx context.Context, h *Home, rules []*engine.Compiled, flow
 	pings := make(chan uint64, 1)
 	go answerPings(ctx, client, eng, pings)
 	go client.Listen(wire.Events{
-		Changed:    func(m wire.Message) { changed(mirror, m) },
-		Discovered: func(d wire.Device) { discovered(mirror, metas, settings, d) },
-		Seen:       func(m wire.Message) { mirror.Seen(deviceKey(m.Device), m.Time) },
+		Changed:      func(m wire.Message) { changed(mirror, m) },
+		Discovered:   func(d wire.Device) { discovered(mirror, metas, settings, d) },
+		Seen:         func(m wire.Message) { mirror.Seen(deviceKey(m.Device), m.Time) },
+		Availability: func(m wire.Message) { mirror.Availability(deviceKey(m.Device), *m.Online) },
 		Ping: func(id uint64) {
 			select {
 			case pings <- id:
@@ -388,6 +389,9 @@ func seed(mirror *hub.Store, d wire.Device) {
 	if !d.LastSeen.IsZero() {
 		mirror.Seen(key, d.LastSeen)
 	}
+	if d.Online != nil {
+		mirror.Availability(key, *d.Online)
+	}
 	if d.Discovered {
 		mirror.Discovered(key, driver.Info{Found: true, Capabilities: d.Capabilities})
 	}
@@ -409,6 +413,9 @@ func discovered(mirror *hub.Store, metas map[ident.ID]hub.Meta, settings []wire.
 	mirror.Discovered(deviceKey(d.Name), driver.Info{Found: true, Capabilities: d.Capabilities})
 	if !d.LastSeen.IsZero() {
 		mirror.Seen(deviceKey(d.Name), d.LastSeen)
+	}
+	if d.Online != nil {
+		mirror.Availability(deviceKey(d.Name), *d.Online)
 	}
 }
 
