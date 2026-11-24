@@ -25,6 +25,14 @@
 // A value its sensor hasn't got yet is left out, and one turned off in the Hue app isn't occupied.
 // A value its capability doesn't take is left out and logged once, rather than refused by the SDK.
 //
+// Set sends a light PUT /clip/v2/resource/light/<id> with on or dimming. writer sends a session's
+// writes in order, at most one every pace, as the bridge asks of light commands, and a newer write
+// to a light's capability takes the place of one waiting. Set returns once the bridge has taken its
+// write, or after timing's set while it still waits, and logs only a write its Set didn't wait for.
+// The event stream then shows the light's change. A write the bridge doesn't answer within timing's
+// write ends the session, as the bridge is gone. A write still waiting when the session ends is
+// dropped.
+//
 // A session that lasted at least retryMax and whose stream then ends reads the bridge again at once,
 // with its devices online. Anything else makes every device offline, says why in the status, and
 // backs off from retry to retryMax: a refused key waits refused, and too many requests limited.

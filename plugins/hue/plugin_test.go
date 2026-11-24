@@ -41,6 +41,7 @@ var root = contract.NewRoot("hue")
 var fast = timing{
 	retry: 10 * time.Millisecond, retryMax: 40 * time.Millisecond, refused: 50 * time.Millisecond, limited: 50 * time.Millisecond,
 	find: time.Second, request: 2 * time.Second, ping: 10 * time.Second, pong: 5 * time.Second,
+	pace: 20 * time.Millisecond, set: 2 * time.Second, write: 2 * time.Second,
 }
 
 // logs is a log the tests can read.
@@ -67,10 +68,11 @@ func (l *logs) count(msg string) int {
 
 // bench is the plugin under a broker, with every value each of its topics was published with.
 type bench struct {
-	t      *testing.T
-	bridge *fakeBridge
-	logs   *logs
-	env    plugin.Environment
+	t       *testing.T
+	bridge  *fakeBridge
+	handler *bridge
+	logs    *logs
+	env     plugin.Environment
 	// waits are the backoffs the plugin waited.
 	waits chan time.Duration
 
@@ -85,6 +87,7 @@ type options struct {
 	secret   string
 	find     func(ctx context.Context, id string, within time.Duration) (string, error)
 	declared []string
+	timing   timing
 }
 
 func keptSecret(bridge, key string) string {
@@ -97,7 +100,10 @@ func start(t *testing.T, f *fakeBridge, o options) *bench {
 	t.Helper()
 	broker := mqtttest.StartBroker(t)
 	b := &bench{t: t, bridge: f, logs: &logs{}, topics: map[string][]string{}, waits: make(chan time.Duration, 100)}
-	timings := fast
+	timings := o.timing
+	if timings.retry == 0 {
+		timings = fast
+	}
 	timings.backoff = func(ctx context.Context, d time.Duration) {
 		select {
 		case b.waits <- d:
@@ -142,6 +148,7 @@ func start(t *testing.T, f *fakeBridge, o options) *bench {
 		devices = append(devices, contract.DeclaredDevice{ID: id, Name: id, DisplayName: id})
 	}
 	handler := newBridge(o.config, b.env, devices, timings, o.find, slog.New(slog.NewJSONHandler(b.logs, nil)))
+	b.handler = handler
 	ctx, cancel := context.WithCancel(t.Context())
 	started, startCancel := context.WithTimeout(ctx, waitLimit)
 	defer startCancel()

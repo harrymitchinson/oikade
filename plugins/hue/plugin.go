@@ -43,6 +43,9 @@ type timing struct {
 	limited time.Duration
 	// find bounds looking for the bridge over mDNS, and request one request.
 	find, request time.Duration
+	// pace is the least time between writes, set how long Set waits for its write's turn, and write
+	// how long the bridge has to answer one.
+	pace, set, write time.Duration
 	// ping is how long the event stream may be quiet before the connection is checked, and pong how
 	// long the bridge has to answer.
 	ping, pong time.Duration
@@ -54,6 +57,7 @@ type timing struct {
 var defaults = timing{
 	retry: 5 * time.Second, retryMax: time.Minute, refused: time.Minute, limited: time.Minute,
 	find: 10 * time.Second, request: 10 * time.Second, ping: 30 * time.Second, pong: 15 * time.Second,
+	pace: 100 * time.Millisecond, set: 4 * time.Second, write: 5 * time.Second,
 }
 
 // maxSkipped bounds the devices not reported, and the values left out, that are logged.
@@ -82,6 +86,8 @@ type bridge struct {
 	mu sync.Mutex
 	// home is the last read and the events since, nil while there's no session.
 	home *home
+	// writer is the session's, nil while there's none.
+	writer *writer
 	// skipped are the devices not reported that have been logged, and ignored the values left out,
 	// by device and capability, each up to maxSkipped.
 	skipped map[skip]bool
@@ -177,8 +183,9 @@ var (
 	// be read.
 	errNoKey  = errors.New("no key for the Hue bridge")
 	errSecret = errors.New("could not read the Hue bridge's key")
-	// errStream is the event stream ending.
-	errStream = errors.New("the event stream ended")
+	// errStream is the event stream ending, and errUnanswered a write the bridge didn't answer.
+	errStream     = errors.New("the event stream ended")
+	errUnanswered = errors.New("the bridge didn't answer a write")
 	// errReport is a report the SDK refused or couldn't publish: the plugin's fault, or the host's
 	// connection, not the bridge's.
 	errReport = errors.New("could not report to Oikade")
@@ -206,8 +213,15 @@ func (b *bridge) session(ctx context.Context, connected func()) error {
 	}
 	c := newClient(address, k.Key, bridgeTLS(cmp.Or(b.config.roots, hueRoots), k.Bridge), b.timing)
 	defer c.close()
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	// A write the bridge didn't answer ends the session, and is why it ended, whatever failed next.
+	end := func(err error) error {
+		if cause := context.Cause(ctx); errors.Is(cause, errUnanswered) {
+			return cause
+		}
+		return err
+	}
 	// Opened before the read, so a change during it waits in the stream: applying every change since
 	// the stream opened, in order, over the read leaves each value at its latest.
 	stream, err := c.events(ctx)
@@ -215,8 +229,23 @@ func (b *bridge) session(ctx context.Context, connected func()) error {
 		return err
 	}
 	defer func() { _ = stream.Close() }()
+	// Writing starts first, so a write that comes as soon as the devices are reported can go.
+	w := newWriter(b.timing, func(err error) { cancel(fmt.Errorf("%w: %w", errUnanswered, err)) }, b.log)
+	var writing sync.WaitGroup
+	writing.Go(func() { w.run(ctx, c) })
+	b.mu.Lock()
+	b.writer = w
+	b.mu.Unlock()
+	defer func() {
+		b.mu.Lock()
+		b.writer = nil
+		b.mu.Unlock()
+		cancel(nil)
+		writing.Wait()
+		w.close()
+	}()
 	if err := b.read(ctx, c); err != nil {
-		return err
+		return end(err)
 	}
 	b.setProblem(ctx, "")
 	connected()
@@ -224,15 +253,15 @@ func (b *bridge) session(ctx context.Context, connected func()) error {
 	for {
 		data, err := events.next()
 		if err != nil {
-			return fmt.Errorf("%w: %w", errStream, err)
+			return end(fmt.Errorf("%w: %w", errStream, err))
 		}
 		again, err := b.take(ctx, data)
 		if err != nil {
-			return err
+			return end(err)
 		}
 		if again {
 			if err := b.read(ctx, c); err != nil {
-				return err
+				return end(err)
 			}
 		}
 	}
@@ -530,9 +559,4 @@ func sleep(ctx context.Context, d time.Duration) {
 	case <-ctx.Done():
 	case <-t.C:
 	}
-}
-
-// Set implements plugin.Handler. The plugin doesn't write to the bridge yet.
-func (b *bridge) Set(context.Context, *plugin.Plugin, contract.SetCommand) error {
-	return errors.New("the Hue plugin can't change a device yet")
 }
