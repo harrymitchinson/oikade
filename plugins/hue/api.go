@@ -153,9 +153,62 @@ func (c *client) events(ctx context.Context) (io.ReadCloser, error) {
 	return resp.Body, nil
 }
 
-// do sends a request with the key, and turns an answer other than 200 into an apiError.
+// errNotPressed is the bridge refusing a key until its link button is pressed.
+var errNotPressed = errors.New("the bridge's link button isn't pressed")
+
+// link asks the bridge for a key for devicetype, app#instance, which it gives once its link button
+// is pressed.
+func (c *client) link(ctx context.Context, devicetype string) (string, error) {
+	body, err := json.Marshal(map[string]string{"devicetype": devicetype})
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/api", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.do(c.reads, req)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxError))
+	if err != nil {
+		return "", fmt.Errorf("could not read the bridge's answer to asking for a key: %w", err)
+	}
+	// It's the API before CLIP v2: a list of one answer, a success or an error, whatever the status.
+	var answers []struct {
+		Success *struct {
+			Username string `json:"username"`
+		} `json:"success"`
+		Error *struct {
+			Type        int    `json:"type"`
+			Description string `json:"description"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &answers); err != nil {
+		return "", fmt.Errorf("could not read the bridge's answer to asking for a key: %w", err)
+	}
+	for _, a := range answers {
+		switch {
+		case a.Success != nil && a.Success.Username != "":
+			return a.Success.Username, nil
+		case a.Error != nil && a.Error.Type == 101:
+			return "", errNotPressed
+		case a.Error != nil:
+			return "", &apiError{status: resp.StatusCode, description: a.Error.Description}
+		}
+	}
+	return "", errors.New("the bridge answered asking for a key with no key")
+}
+
+// do sends a request with the key, if there's one, and turns an answer other than 200 into an
+// apiError.
 func (c *client) do(h *http.Client, req *http.Request) (*http.Response, error) {
-	req.Header.Set("hue-application-key", c.key)
+	if c.key != "" {
+		req.Header.Set("hue-application-key", c.key)
+	}
 	resp, err := h.Do(req)
 	if err != nil {
 		return nil, err

@@ -1,6 +1,7 @@
 package hue
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	_ "embed"
@@ -30,8 +31,9 @@ type certError struct{ reason string }
 
 func (e *certError) Error() string { return e.reason }
 
-// bridgeTLS checks a bridge's certificate against roots, and that its CN is the bridge's ID. It
-// checks the name itself, as Go's own check reads only a certificate's SANs, and a bridge's has none.
+// bridgeTLS checks a bridge's certificate against roots, and that its CN is the bridge's ID, or any
+// bridge's for "". It checks the name itself, as Go's own check reads only a certificate's SANs, and
+// a bridge's has none.
 func bridgeTLS(roots *x509.CertPool, bridge string) *tls.Config {
 	config := &tls.Config{
 		InsecureSkipVerify: true, //nolint:gosec // VerifyConnection checks it.
@@ -59,12 +61,35 @@ func bridgeTLS(roots *x509.CertPool, bridge string) *tls.Config {
 			}
 			return &certError{fmt.Sprintf("for %s isn't signed by Philips Hue: check the Address (%v)", name, err)}
 		}
-		if !strings.EqualFold(leaf.Subject.CommonName, bridge) {
+		switch {
+		case bridge == "" && !bridgeID(leaf.Subject.CommonName):
+			return &certError{fmt.Sprintf("is for %s, which isn't a Hue bridge's ID", name)}
+		case bridge != "" && !strings.EqualFold(leaf.Subject.CommonName, bridge):
 			return &certError{fmt.Sprintf("is for the bridge %s, not %s", name, bridge)}
 		}
 		return nil
 	}
 	return config
+}
+
+// identify is the ID and model of the bridge at address, from the certificate Philips Hue signed for
+// it.
+func identify(ctx context.Context, address string, roots *x509.CertPool) (found, error) {
+	raw, err := dialBridge(ctx, "tcp", address)
+	if err != nil {
+		return found{}, err
+	}
+	conn := tls.Client(raw, bridgeTLS(roots, ""))
+	defer func() { _ = conn.Close() }()
+	if err := conn.HandshakeContext(ctx); err != nil {
+		return found{}, err
+	}
+	leaf := conn.ConnectionState().PeerCertificates[0]
+	f := found{id: strings.ToUpper(leaf.Subject.CommonName), address: address}
+	if ou := leaf.Subject.OrganizationalUnit; len(ou) > 0 {
+		f.model = ou[0]
+	}
+	return f, nil
 }
 
 // certFailure is the bridge's certificate the plugin doesn't trust in err, or nil.

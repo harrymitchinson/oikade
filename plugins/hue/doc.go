@@ -4,9 +4,11 @@
 //	home.Plugin("hue", hue.New(hue.Config{})).
 //		HideFromMatter() // the Hue bridge puts these in the Home app itself
 //
-// The bridge's ID and the key it gave are one host secret, <plugin>.hue-bridge, as JSON. The plugin
-// finds the bridge over mDNS, as the _hue._tcp instance whose TXT bridgeid is that ID, or at
-// Config.Address. bridgeTLS checks the bridge's certificate against Philips Hue's two roots,
+// The bridge's ID and the key it gave are one host secret, <plugin>.hue-bridge, as JSON, which Setup
+// keeps: the plugin needs setup while there's none, or the bridge refuses it. The plugin finds the
+// bridge over mDNS, as the _hue._tcp instance whose TXT bridgeid is that ID, or at Config.Address.
+// Setup asks the bridge for a key with POST /api, the API before CLIP v2, until its link button is
+// pressed, and takes the bridge's ID from mDNS or, at an Address, from its certificate. bridgeTLS checks the bridge's certificate against Philips Hue's two roots,
 // embedded, and its CN against the ID, since the certificate has no SANs.
 //
 // A session opens the event stream, /eventstream/clip/v2, then reads /clip/v2/resource. A change
