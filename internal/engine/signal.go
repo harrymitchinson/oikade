@@ -207,15 +207,13 @@ func (e *Engine) signalLeftOut(s *signalState, left []string) {
 // they leave it out. One coming back counts at the next look, by the minute or with its report, so a
 // look between the two doesn't read its old values as new.
 func (e *Engine) Availability(_ ident.ID, online bool) {
+	if online || len(e.Signals) == 0 {
+		return
+	}
 	e.mu.Lock()
-	due := !online && len(e.signals.list) > 0
-	if due {
-		e.signals.next = e.Clock.Now()
-	}
+	e.signals.next = e.Clock.Now()
 	e.mu.Unlock()
-	if due {
-		e.signal()
-	}
+	e.signal()
 }
 
 // futureOf is t if it's after now, and zero otherwise, so a delay that ended isn't looked at again.
