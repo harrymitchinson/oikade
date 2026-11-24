@@ -47,9 +47,9 @@ type Type = pluginwire.Type
 
 // Message types. Hello and Welcome, or Rejected, open a session, and Ping, Pong, Change, Discovered,
 // Seen and Availability flow for as long as it lasts, as do Pause and Resume from the host, and
-// RuleRun, RoomReads, Stopped, WhyNot, SignalWhy and Metrics from your process. The rest are requests, each answered by
-// a Reply with its ID. A plugin's session has only Hello, Welcome or Rejected, Ping, Pong and
-// Publish, which flows both ways.
+// RuleRun, RoomReads, Stopped, WhyNot, SignalWhy and Metrics from your process. The rest are
+// requests, each answered by a Reply with its ID. A plugin's session has only Hello, Welcome or
+// Rejected, Ping, Pong and Publish, which flows both ways.
 const (
 	TypeHello           = pluginwire.TypeHello
 	TypeWelcome         = pluginwire.TypeWelcome

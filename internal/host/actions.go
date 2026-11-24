@@ -196,7 +196,6 @@ func (s *apiServer) signalStatus(name string, said signalSaid) api.Signal {
 	return sig
 }
 
-// timeOrNil is t, or nil if it's zero.
 func timeOrNil(t time.Time) *time.Time {
 	if t.IsZero() {
 		return nil

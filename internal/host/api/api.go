@@ -612,8 +612,8 @@ type Event struct {
 	Time time.Time `json:"time,omitzero"`
 	Type string    `json:"type"`
 	// Device, Capability and Value are a change's, a write's or a refused write's, and Previous a
-	// change's. Value and Previous are also a signal's. Device is also the device that went offline or came back, was forgotten, or was
-	// renamed, with Previous its name before.
+	// change's. Value and Previous are also a signal's. Device is also the device that went offline
+	// or came back, was forgotten, or was renamed, with Previous its name before.
 	Device     string `json:"device,omitempty"`
 	Capability string `json:"capability,omitempty"`
 	Value      any    `json:"value,omitempty"`

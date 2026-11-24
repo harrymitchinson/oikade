@@ -56,6 +56,13 @@ func (d *Declaration) Room(room string) *Declaration           { return d }
 func (h *Home) Flow(name string, run func(*FlowRun)) *Flow { return &Flow{} }
 func (f *Flow) When(c ...Change) *Flow                     { return f }
 
+// Signal is added to its home as it's made, and shows in oikade status whether or not a rule reads
+// it.
+type Signal struct{}
+
+func (h *Home) Signal(name string, when ...Condition) Signal { return Signal{} }
+func (s Signal) Linger(d int) Signal                         { return s }
+
 type Plugin struct{}
 
 func (h *Home) Plugin(name string, factory any) *Plugin { return &Plugin{} }

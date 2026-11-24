@@ -201,7 +201,7 @@ func (h *home) forSignal(maxAge time.Duration, now time.Time) (view *home, left 
 // or what its conditions say changed. Call with e.mu held.
 func (e *Engine) signalWhy(s *signalState, vars Vars, left []string) {
 	why := ""
-	if s.Why != nil {
+	if s.Why != nil && e.OnSignalWhy != nil {
 		why = s.Why(vars)
 	}
 	moved := !slices.Equal(left, s.left)

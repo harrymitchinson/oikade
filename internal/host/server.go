@@ -935,8 +935,13 @@ func (s *server) answer(m wire.Message) wire.Message {
 		}
 		was, saved := s.signals.Get(key(m.Rule))
 		if err = s.signals.Put(s.ctx, key(m.Rule), *m.Signal); err == nil && saved && was.Value != m.Signal.Value {
+			// When it changed, as a save can wait behind another.
+			at := m.Signal.Since
+			if at.IsZero() {
+				at = time.Now()
+			}
 			s.emit(api.Event{
-				Time: time.Now(), Type: api.EventSignal, Ref: ident.NewRef(ident.Signal, m.Rule).String(),
+				Time: at, Type: api.EventSignal, Ref: ident.NewRef(ident.Signal, m.Rule).String(),
 				Value: m.Signal.Value, Previous: was.Value,
 			})
 		}

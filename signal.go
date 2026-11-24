@@ -184,9 +184,10 @@ func (h *Home) compileSignals() ([]engine.Signal, error) {
 // engine holds its lock.
 func signalWhy(c Condition) func(engine.Vars) string {
 	return func(vars engine.Vars) (why string) {
+		const unknown = "its conditions can't be worked out, so they count as false: "
 		defer func() {
 			if r := recover(); r != nil {
-				why = fmt.Sprint(r)
+				why = unknown + fmt.Sprint(r)
 			}
 		}()
 		err := evaluate(vars, func(s Snapshot) {
@@ -197,7 +198,7 @@ func signalWhy(c Condition) func(engine.Vars) string {
 			}
 		})
 		if err != nil {
-			return "its conditions can't be worked out, so they count as false: " + err.Error()
+			return unknown + err.Error()
 		}
 		return why
 	}

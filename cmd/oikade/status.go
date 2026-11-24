@@ -563,7 +563,6 @@ func upcoming(t, now time.Time) string {
 	return clock(t, now)
 }
 
-// upperFirst is s with its first letter upper case, as a sentence starts.
 func upperFirst(s string) string {
 	if s == "" {
 		return s
