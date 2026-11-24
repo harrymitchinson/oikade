@@ -55,7 +55,7 @@ The host answers `rejected` or `welcome`.
 | Field | Means |
 |---|---|
 | `paused` | The rules not to run |
-| `devices` | Every device, with its `room`, `capabilities`, `deviceTypes`, `values`, `lastSeen`, and the capabilities the host arbitrates (`arbitrated`) |
+| `devices` | Every device, with its `room`, `capabilities`, `deviceTypes`, `values`, `lastSeen`, `online` once its plugin has said, and the capabilities the host arbitrates (`arbitrated`) |
 | `holds` | The saved state of each rule in `rules` that has any |
 | `fires` | When each rule's timers were last accounted for |
 | `averageStates` | The saved state of each average in `averages` |
@@ -72,6 +72,7 @@ The host streams from the `welcome` on. A change landing as the session opens ca
 | `change` | `device`, `changes` (each a `capability`, `value` and `previous`), `time` | One report from the device changed these values. Take them in together, before any rule looks |
 | `discovered` | `discovered` (a device) | A device reported for the first time |
 | `seen` | `device`, `time` | A device reported, changed or not |
+| `availability` | `device`, `online` | A device went offline, or came back. A device first heard of online sends none |
 | `ping` | `id` | Answer with a `pong` with this `id` |
 | `pause` | `rule` | Stop running this rule until a `resume`, and end its claims below Safety |
 | `resume` | `rule` | Run this rule again |

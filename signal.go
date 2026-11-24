@@ -21,17 +21,18 @@ import (
 //	home.Flow("arrived", arrived).When(anyoneHome.Becomes(true))
 //
 // Conditions that can't be worked out, as before a sensor has reported, count as false, so a rule
-// that reads a signal never waits for it. The host keeps a signal's value, and when its Delay or
-// Linger ends, under its name.
+// that reads a signal never waits for it. A signal reads an offline device as if it had never
+// reported, and MaxAge does the same for one that has been quiet too long, so a dead sensor can't
+// hold it true. The host keeps a signal's value, and when its Delay or Linger ends, under its name.
 type Signal struct {
 	s *madeSignal
 }
 
 type madeSignal struct {
-	name          string
-	when          []Condition
-	delay, linger time.Duration
-	once          once
+	name                  string
+	when                  []Condition
+	delay, linger, maxAge time.Duration
+	once                  once
 }
 
 // Signal adds a signal to the home, true while every condition is. Give each a name of its own, and
@@ -51,6 +52,13 @@ func (s Signal) Delay(d time.Duration) Signal {
 // Linger is how long the signal stays true once its conditions are false.
 func (s Signal) Linger(d time.Duration) Signal {
 	return s.option("Linger", func(sg *madeSignal) { sg.linger = d })
+}
+
+// MaxAge leaves out a device that hasn't reported for d, as if it had never reported, as well as
+// one that's offline. Zero, the default, means no limit, which suits a sensor that reports only when
+// it changes.
+func (s Signal) MaxAge(d time.Duration) Signal {
+	return s.option("MaxAge", func(sg *madeSignal) { sg.maxAge = d })
 }
 
 func (s Signal) option(name string, set func(*madeSignal)) Signal {
@@ -158,10 +166,15 @@ func (h *Home) compileSignals() ([]engine.Signal, error) {
 		if s.linger < 0 {
 			bad(fmt.Errorf("Linger %v must not be negative", s.linger))
 		}
+		if s.maxAge < 0 {
+			bad(fmt.Errorf("MaxAge %v must not be negative", s.maxAge))
+		}
 		if err := s.once.err(); err != nil {
 			bad(err)
 		}
-		out = append(out, engine.Signal{Name: s.name, When: toEngine(cond), OnDelay: s.delay, OffDelay: s.linger})
+		out = append(out, engine.Signal{
+			Name: s.name, When: toEngine(cond), OnDelay: s.delay, OffDelay: s.linger, MaxAge: s.maxAge,
+		})
 	}
 	return out, errors.Join(errs...)
 }

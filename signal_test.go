@@ -29,6 +29,9 @@ func TestCheckRefusesASignalsMistakes(t *testing.T) {
 		"a negative Linger": {
 			func(h *Home) { h.Signal("anyone-home", occupied).Linger(-time.Hour) }, "Linger -1h0m0s must not be negative",
 		},
+		"a negative MaxAge": {
+			func(h *Home) { h.Signal("anyone-home", occupied).MaxAge(-time.Hour) }, "MaxAge -1h0m0s must not be negative",
+		},
 		"Linger twice": {
 			func(h *Home) { h.Signal("anyone-home", occupied).Linger(time.Hour).Linger(2 * time.Hour) },
 			"signal anyone-home: Linger is given twice",
