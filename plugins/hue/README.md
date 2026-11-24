@@ -39,7 +39,11 @@ A device's ID is its Zigbee MAC, as Zigbee2MQTT writes it, such as `0x7cc6b6fffe
 
 ## Writes
 
-The plugin doesn't change a device yet: a write to one fails.
+A write turns a light on or off, or sets its brightness, and returns once the bridge has taken it, before the light has changed. The light's own report then shows it, within a second or so.
+
+The bridge takes about ten light commands a second, so the plugin sends at most one every 100 ms, in the order they came. A write that's still waiting its turn after 4 seconds, as in a scene of many lights, goes when its turn comes. A newer write to the same light's `on` or `brightness` takes the place of one still waiting, so the light ends where you last set it.
+
+A write fails at once while the bridge doesn't answer. One the bridge refuses, such as to a light it can't reach, is logged as `Could not write to Hue light`, with the light and what the bridge said.
 
 ## Keeping up, and when things go wrong
 

@@ -9,10 +9,12 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -95,6 +97,15 @@ type fakeBridge struct {
 	// open is closed once a stream is open, and replaced when it ends.
 	open chan struct{}
 	seq  int
+	// puts are the writes, and putError what the bridge answers one with instead, "" for none.
+	puts     []put
+	putError string
+}
+
+// put is one write the bridge took.
+type put struct {
+	light, body string
+	at          time.Time
 }
 
 func newFakeBridge(t *testing.T, id string) *fakeBridge {
@@ -111,6 +122,7 @@ func newFakeBridge(t *testing.T, id string) *fakeBridge {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /clip/v2/resource", f.read)
 	mux.HandleFunc("GET /eventstream/clip/v2", f.stream)
+	mux.HandleFunc("PUT /clip/v2/resource/light/{id}", f.put)
 	f.server = httptest.NewUnstartedServer(mux)
 	f.server.EnableHTTP2 = true
 	f.server.TLS = &tls.Config{Certificates: []tls.Certificate{f.ca.issue(t, id, time.Now().Add(-time.Hour), time.Now().Add(time.Hour))}}
@@ -185,6 +197,53 @@ func (f *fakeBridge) stream(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+// put takes a write and, as the bridge does, sends an event with what it changed.
+func (f *fakeBridge) put(w http.ResponseWriter, r *http.Request) {
+	if !f.allowed(w, r) {
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		f.t.Error(err)
+	}
+	if ct := r.Header.Get("Content-Type"); ct != "application/json" {
+		f.t.Errorf("wrote with Content-Type %q", ct)
+	}
+	id := r.PathValue("id")
+	f.mu.Lock()
+	f.puts = append(f.puts, put{light: id, body: string(body), at: time.Now()})
+	refuse := f.putError
+	f.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	if refuse != "" {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = fmt.Fprintf(w, `{"errors":[{"description":%q}],"data":[]}`, refuse)
+		return
+	}
+	_, _ = fmt.Fprintf(w, `{"errors":[],"data":[{"rid":%q,"rtype":"light"}]}`, id)
+	var change map[string]any
+	if err := json.Unmarshal(body, &change); err != nil {
+		f.t.Errorf("wrote %s, which isn't JSON", body)
+		return
+	}
+	change["id"], change["type"] = id, "light"
+	event, _ := json.Marshal(change)
+	f.send("update", string(event))
+}
+
+// written is every write the bridge took.
+func (f *fakeBridge) written() []put {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.puts)
+}
+
+func (f *fakeBridge) refuseWrites(description string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.putError = description
 }
 
 // waitOpen waits for a stream to be open.

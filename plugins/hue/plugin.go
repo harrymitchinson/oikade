@@ -43,6 +43,9 @@ type timing struct {
 	limited time.Duration
 	// find bounds looking for the bridge over mDNS, and request one request.
 	find, request time.Duration
+	// pace is the least time between writes, and set how long Set waits for its write's turn, which
+	// must be within the host's Matter write timeout (5s).
+	pace, set time.Duration
 	// ping is how long the event stream may be quiet before the connection is checked, and pong how
 	// long the bridge has to answer.
 	ping, pong time.Duration
@@ -54,6 +57,7 @@ type timing struct {
 var defaults = timing{
 	retry: 5 * time.Second, retryMax: time.Minute, refused: time.Minute, limited: time.Minute,
 	find: 10 * time.Second, request: 10 * time.Second, ping: 30 * time.Second, pong: 15 * time.Second,
+	pace: 100 * time.Millisecond, set: 4 * time.Second,
 }
 
 // maxSkipped bounds the devices not reported, and the values left out, that are logged.
@@ -82,6 +86,8 @@ type bridge struct {
 	mu sync.Mutex
 	// home is the last read and the events since, nil while there's no session.
 	home *home
+	// writer is the session's, nil while there's none.
+	writer *writer
 	// skipped are the devices not reported that have been logged, and ignored the values left out,
 	// by device and capability, each up to maxSkipped.
 	skipped map[skip]bool
@@ -218,6 +224,20 @@ func (b *bridge) session(ctx context.Context, connected func()) error {
 	if err := b.read(ctx, c); err != nil {
 		return err
 	}
+	w := newWriter(b.timing.pace, b.log)
+	var writing sync.WaitGroup
+	writing.Go(func() { w.run(ctx, c) })
+	b.mu.Lock()
+	b.writer = w
+	b.mu.Unlock()
+	defer func() {
+		b.mu.Lock()
+		b.writer = nil
+		b.mu.Unlock()
+		cancel()
+		writing.Wait()
+		w.close()
+	}()
 	b.setProblem(ctx, "")
 	connected()
 	events := newEventReader(stream)
@@ -530,9 +550,4 @@ func sleep(ctx context.Context, d time.Duration) {
 	case <-ctx.Done():
 	case <-t.C:
 	}
-}
-
-// Set implements plugin.Handler. The plugin doesn't write to the bridge yet.
-func (b *bridge) Set(context.Context, *plugin.Plugin, contract.SetCommand) error {
-	return errors.New("the Hue plugin can't change a device yet")
 }

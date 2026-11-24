@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 
 	"oikade.dev/internal/mdns"
 )
@@ -112,6 +113,30 @@ func (c *client) resources(ctx context.Context) ([]json.RawMessage, error) {
 		return nil, &apiError{status: resp.StatusCode, description: a.Errors[0].Description}
 	}
 	return a.Data, nil
+}
+
+// put changes a resource: its type, such as light, and its ID.
+func (c *client) put(ctx context.Context, rtype, id string, change any) error {
+	body, err := json.Marshal(change)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.base+"/clip/v2/resource/"+rtype+"/"+url.PathEscape(id), bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.do(c.reads, req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxError))
+	var a answer
+	if json.Unmarshal(raw, &a) == nil && len(a.Errors) > 0 {
+		return &apiError{status: resp.StatusCode, description: a.Errors[0].Description}
+	}
+	return nil
 }
 
 // events opens the bridge's event stream.
