@@ -467,3 +467,31 @@ func TestAnAddressSkipsMDNS(t *testing.T) {
 	})
 	b.waitOnline()
 }
+
+func TestAMotionSensorTurnedOffIsntOccupied(t *testing.T) {
+	f := newFakeBridge(t, bridgeOne)
+	b := start(t, f, options{})
+	b.waitOnline()
+	f.send("update", `{"id":"bf215aa3-7c36-46c6-bbd9-7e3eda524b86","type":"motion","motion":{"motion":true,"motion_valid":true,"motion_report":{"motion":true}}}`)
+	b.waitState(hallSensor, `{"battery":100,"occupied":true,"temperature":8.68}`)
+	f.send("update", `{"id":"bf215aa3-7c36-46c6-bbd9-7e3eda524b86","type":"motion","enabled":false}`)
+	b.waitState(hallSensor, `{"battery":100,"occupied":false,"temperature":8.68}`)
+}
+
+func TestAValueTheCapabilityDoesntTakeIsLeftOut(t *testing.T) {
+	f := newFakeBridge(t, bridgeOne)
+	b := start(t, f, options{})
+	b.waitOnline()
+	for range 2 {
+		f.send("update", `{"id":"7e7e98d0-283d-4208-bbb4-c748367bce1e","type":"device_power","power_state":{"battery_level":150}}`)
+	}
+	f.send("update", `{"id":"863f199f-2725-4c4b-b0ab-ee59eedcdfe2","type":"temperature","temperature":{"temperature":19.5,"temperature_valid":true,"temperature_report":{"temperature":19.5}}}`)
+	// The last battery level stands, and the session goes on.
+	b.waitState(hallSensor, `{"battery":100,"occupied":false,"temperature":19.5}`)
+	if n := b.logs.count("Ignored Hue value"); n != 1 {
+		t.Errorf("logged %d ignored values, want 1: %s", n, b.logs)
+	}
+	if reads, streams := f.counts(); reads != 1 || streams != 1 {
+		t.Errorf("read %d times on %d streams, want once on one", reads, streams)
+	}
+}

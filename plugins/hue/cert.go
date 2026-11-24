@@ -10,9 +10,8 @@ import (
 	"time"
 )
 
-// hueRootCA is Philips Hue's root-bridge authority, which signs a bridge's certificate for its
-// bridge ID, valid until 2038-01-19, and Signify's Hue Root CA 01, valid until 2050-12-31, which
-// openHAB's Hue binding trusts beside it for newer bridges.
+// hueRootCA is the authorities that sign a bridge's certificate for its bridge ID: Philips Hue's
+// root-bridge, valid until 2038-01-19, and Signify's Hue Root CA 01, valid until 2050-12-31.
 //
 //go:embed hue-root-ca.crt
 var hueRootCA []byte

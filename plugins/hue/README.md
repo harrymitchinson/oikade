@@ -20,7 +20,7 @@ home.Device("hall-light").Hardware("hue", "0x7cc6b6fffecb1814").Room("hall").Is(
 |---|---|
 | `Address` | The bridge's IP address or host name, with its port if it isn't 443, for a bridge mDNS can't reach. Without it, the plugin finds the bridge over mDNS by its ID. |
 
-**The bridge's certificate is checked,** so nothing else on your network can pose as the bridge and take its key. Philips Hue signs each bridge's certificate for its bridge ID, and the plugin carries Philips Hue's root certificate and checks the ID against the bridge it has a key for. A certificate it refuses shows in `oikade status`, with what it's for.
+**The bridge's certificate is checked,** so nothing else on your network can pose as the bridge and take its key. Philips Hue signs each bridge's certificate for its bridge ID, and the plugin carries Philips Hue's root certificates and checks the ID against the bridge it has a key for. A certificate it refuses shows in `oikade status`, with what it's for.
 
 ## What it reports
 
@@ -34,7 +34,7 @@ A device's ID is its Zigbee MAC, as Zigbee2MQTT writes it, such as `0x7cc6b6fffe
 | A motion sensor | | `occupied`, `temperature`, `battery` |
 
 - **`brightness`** is in percent, from 0 to 100, as the bridge has it, such as `49.8`.
-- **A motion sensor** reports only what it has: one turned off in the Hue app has no `occupied`.
+- **A motion sensor** turned off in the Hue app isn't `occupied`. A value a sensor hasn't got yet, such as one just added, is left out.
 - **A device is offline while the bridge can't reach it over Zigbee,** as the Hue app shows it unreachable.
 
 ## Writes

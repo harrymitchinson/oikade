@@ -40,6 +40,7 @@ func newClient(address, key string, config *tls.Config, t timing) *client {
 	transport.DialContext = dialBridge
 	transport.ForceAttemptHTTP2 = true
 	// The bridge sends nothing while nothing changes, so a ping is how a connection that's gone shows.
+	// Over HTTP/1.1, which a bridge doesn't speak, only the dialer's TCP keepalives would, in minutes.
 	transport.HTTP2 = &http.HTTP2Config{SendPingTimeout: t.ping, PingTimeout: t.pong}
 	return &client{
 		base:   "https://" + address,

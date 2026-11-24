@@ -52,7 +52,8 @@ func TestASensorLeavesOutWhatItHasntGot(t *testing.T) {
 			t.Fatalf("apply(%s) = %v, %v, want the sensor", change, d, err)
 		}
 	}
-	if got, want := h.values(sensor), (contract.State{contract.Battery: 100.0}); !reflect.DeepEqual(got, want) {
+	// Turned off, it detects nothing.
+	if got, want := h.values(sensor), (contract.State{contract.Battery: 100.0, contract.Occupied: false}); !reflect.DeepEqual(got, want) {
 		t.Errorf("values %v, want %v", got, want)
 	}
 }

@@ -287,8 +287,9 @@ func (h *home) online(d *device) bool {
 	return c != nil && c.Status == "connected"
 }
 
-// values are the device's values, leaving out any its sensor doesn't have yet, such as a motion
-// sensor that's turned off.
+// values are the device's values, leaving out any its sensor hasn't got yet. The SDK keeps a
+// sensor's last value over one left out, so a motion sensor turned off in the Hue app, which
+// detects nothing, isn't occupied.
 func (h *home) values(d *device) contract.State {
 	s := contract.State{}
 	if l := h.resources[d.light]; l != nil {
@@ -299,7 +300,11 @@ func (h *home) values(d *device) contract.State {
 			s[contract.Brightness] = l.Dimming.Brightness
 		}
 	}
-	if m := h.resources[d.motion]; m != nil && m.Motion != nil && m.Motion.Valid && enabled(m) {
+	switch m := h.resources[d.motion]; {
+	case m == nil:
+	case !enabled(m):
+		s[contract.Occupied] = false
+	case m.Motion != nil && m.Motion.Valid:
 		s[contract.Occupied] = m.Motion.Motion
 		if m.Motion.Report != nil {
 			s[contract.Occupied] = m.Motion.Report.Motion

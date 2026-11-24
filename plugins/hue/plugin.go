@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"oikade.dev/contract/v1"
+	"oikade.dev/internal/capability"
 	"oikade.dev/internal/mdns"
 	"oikade.dev/sdk/plugin"
 )
@@ -55,7 +56,7 @@ var defaults = timing{
 	find: 10 * time.Second, request: 10 * time.Second, ping: 30 * time.Second, pong: 15 * time.Second,
 }
 
-// maxSkipped bounds the devices not reported that are logged.
+// maxSkipped bounds the devices not reported, and the values left out, that are logged.
 const maxSkipped = 64
 
 // New returns the plugin's Factory, for home.Plugin.
@@ -81,8 +82,10 @@ type bridge struct {
 	mu sync.Mutex
 	// home is the last read and the events since, nil while there's no session.
 	home *home
-	// skipped are the devices not reported that have been logged, up to maxSkipped.
+	// skipped are the devices not reported that have been logged, and ignored the values left out,
+	// by device and capability, each up to maxSkipped.
 	skipped map[skip]bool
+	ignored map[[2]string]bool
 }
 
 var _ plugin.Handler = (*bridge)(nil)
@@ -93,7 +96,8 @@ func newBridge(c Config, env plugin.Environment, declared []contract.DeclaredDev
 	for _, d := range declared {
 		ids = append(ids, d.ID)
 	}
-	return &bridge{config: c, env: env, declared: ids, timing: t, find: find, log: log, skipped: map[skip]bool{}}
+	return &bridge{config: c, env: env, declared: ids, timing: t, find: find, log: log,
+		skipped: map[skip]bool{}, ignored: map[[2]string]bool{}}
 }
 
 // Serve implements plugin.Handler. It reports the devices on record as not found until the bridge
@@ -150,8 +154,12 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 			b.backoff(ctx, wait)
 			wait = min(2*wait, b.timing.retryMax)
 		case errors.Is(err, mdns.ErrNotFound):
+			hint := "check it's on, or set hue.Config's Address"
+			if b.config.Address != "" {
+				hint = "check it's on, and hue.Config's Address"
+			}
 			b.log.Warn("Could not find Hue bridge", "err", err, "bridge", where, "retry", wait.String())
-			b.setProblem(ctx, fmt.Sprintf("could not find %s on the network over mDNS: check it's on, or set hue.Config's Address", where))
+			b.setProblem(ctx, fmt.Sprintf("could not find %s on the network over mDNS: %s", where, hint))
 			b.backoff(ctx, wait)
 			wait = min(2*wait, b.timing.retryMax)
 		default:
@@ -410,7 +418,7 @@ func (b *bridge) publishAll(ctx context.Context) error {
 func (b *bridge) publish(ctx context.Context, d *device) error {
 	b.mu.Lock()
 	h := b.home
-	online, values := h.online(d), h.values(d)
+	online, values := h.online(d), b.validLocked(d, h.values(d))
 	availability := !d.published || online != d.online
 	state := !d.published || !maps.Equal(values, d.values)
 	d.online, d.values, d.published = online, values, true
@@ -429,6 +437,22 @@ func (b *bridge) publish(ctx context.Context, d *device) error {
 		return b.plugin.ReportState(ctx, d.id, values)
 	}
 	return nil
+}
+
+// validLocked is values without any its capability doesn't take, such as a battery above 100%, which
+// the SDK would refuse, so one odd value can't end the session. Each is logged once. Call with mu
+// held.
+func (b *bridge) validLocked(d *device, values contract.State) contract.State {
+	for c, v := range values {
+		if _, err := capability.Validate(c, v); err != nil {
+			delete(values, c)
+			if key := [2]string{d.id, c}; !b.ignored[key] && len(b.ignored) < maxSkipped {
+				b.ignored[key] = true
+				b.log.Warn("Ignored Hue value", "err", err, "device", d.id, "capability", c)
+			}
+		}
+	}
+	return values
 }
 
 // reports are the devices the bridge has, and those on record that it doesn't, as not found.

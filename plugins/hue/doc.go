@@ -6,8 +6,8 @@
 //
 // The bridge's ID and the key it gave are one host secret, <plugin>.hue-bridge, as JSON. The plugin
 // finds the bridge over mDNS, as the _hue._tcp instance whose TXT bridgeid is that ID, or at
-// Config.Address. bridgeTLS checks the bridge's certificate against Philips Hue's root-bridge
-// authority, embedded, and its CN against the ID, since the certificate has no SANs.
+// Config.Address. bridgeTLS checks the bridge's certificate against Philips Hue's two roots,
+// embedded, and its CN against the ID, since the certificate has no SANs.
 //
 // A session opens the event stream, /eventstream/clip/v2, then reads /clip/v2/resource. A change
 // during the read waits in the stream, and applying every change in order over the read leaves each
@@ -21,8 +21,9 @@
 // 0x7cc6b6fffecb1814, so it survives a new bridge and a device that moves to Zigbee2MQTT. A device
 // is online while its zigbee_connectivity is connected. build skips a device with no MAC, or with
 // more than one light or motion sensor, and the log names it once. A light is on and, if it dims,
-// brightness, in percent as the bridge has it. A motion sensor is occupied, temperature and battery,
-// and a value its sensor hasn't got, such as while it's turned off in the Hue app, is left out.
+// brightness, in percent as the bridge has it. A motion sensor is occupied, temperature and battery.
+// A value its sensor hasn't got yet is left out, and one turned off in the Hue app isn't occupied.
+// A value its capability doesn't take is left out and logged once, rather than refused by the SDK.
 //
 // A session that lasted at least retryMax and whose stream then ends reads the bridge again at once,
 // with its devices online. Anything else makes every device offline, says why in the status, and
