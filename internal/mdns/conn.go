@@ -1,6 +1,7 @@
 // Package mdns is the home network's multicast DNS (RFC 6762): sockets on port 5353 that share it
-// with any responder on the host, a Listener for something that asks and listens, and LookupHost
-// and DialContext, which find a host in .local. It knows nothing of Matter, so oikade links it too.
+// with any responder on the host, a Listener for something that asks and listens, LookupHost and
+// DialContext, which find a host in .local, and Browse, which finds a service's instances. It knows
+// nothing of Matter, so oikade links it too.
 // The Matter responder is internal/matter/mdns, built on it.
 package mdns
 

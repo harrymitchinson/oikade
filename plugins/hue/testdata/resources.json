@@ -1,0 +1,249 @@
+{
+  "errors": [],
+  "data": [
+    {
+      "id": "0d5bb417-a52a-4b52-9fd4-501604df2322",
+      "type": "device",
+      "metadata": {"name": "Hall light", "archetype": "classic_bulb"},
+      "product_data": {
+        "model_id": "ZBMINIR2",
+        "manufacturer_name": "SONOFF",
+        "product_name": "On/Off light",
+        "product_archetype": "classic_bulb",
+        "certified": false,
+        "software_version": "1.0.4",
+        "hardware_platform_type": "1286-8"
+      },
+      "services": [
+        {"rid": "5cf5b597-313e-48e7-9136-f7d49d4e0971", "rtype": "zigbee_connectivity"},
+        {"rid": "d3afe652-b85c-4d64-ad5d-f8fd5469b415", "rtype": "light"}
+      ]
+    },
+    {
+      "id": "d3afe652-b85c-4d64-ad5d-f8fd5469b415",
+      "type": "light",
+      "owner": {"rid": "0d5bb417-a52a-4b52-9fd4-501604df2322", "rtype": "device"},
+      "on": {"on": false},
+      "mode": "normal"
+    },
+    {
+      "id": "5cf5b597-313e-48e7-9136-f7d49d4e0971",
+      "id_v1": "/lights/52",
+      "owner": {"rid": "0d5bb417-a52a-4b52-9fd4-501604df2322", "rtype": "device"},
+      "status": "connected",
+      "mac_address": "7c:c6:b6:ff:fe:cb:18:14",
+      "type": "zigbee_connectivity"
+    },
+    {
+      "id": "8c440e94-deb0-4864-98cb-cc8a1a45acae",
+      "type": "device",
+      "metadata": {"name": "Desk lamp", "archetype": "sultan_bulb"},
+      "product_data": {
+        "model_id": "LCA006",
+        "manufacturer_name": "Signify Netherlands B.V.",
+        "product_name": "Hue color lamp",
+        "product_archetype": "sultan_bulb",
+        "certified": true,
+        "software_version": "1.163.1",
+        "hardware_platform_type": "100b-114"
+      },
+      "services": [
+        {"rid": "a1e0c7a2-5b2f-4f0e-9d7e-0c2b9f4e1a01", "rtype": "zigbee_connectivity"},
+        {"rid": "027ae662-aaac-4595-acc6-03bb15e293cf", "rtype": "light"},
+        {"rid": "b7f3a1d4-2c6e-4a8b-9e0f-1d2c3b4a5e01", "rtype": "entertainment"}
+      ]
+    },
+    {
+      "id": "027ae662-aaac-4595-acc6-03bb15e293cf",
+      "type": "light",
+      "owner": {"rid": "8c440e94-deb0-4864-98cb-cc8a1a45acae", "rtype": "device"},
+      "on": {"on": true},
+      "dimming": {"brightness": 100.0, "min_dim_level": 2.0},
+      "color_temperature": {"mirek": 233, "mirek_valid": true, "mirek_schema": {"mirek_minimum": 153, "mirek_maximum": 447}},
+      "color": {"xy": {"x": 0.3691, "y": 0.3719}, "gamut_type": "C"}
+    },
+    {
+      "id": "a1e0c7a2-5b2f-4f0e-9d7e-0c2b9f4e1a01",
+      "owner": {"rid": "8c440e94-deb0-4864-98cb-cc8a1a45acae", "rtype": "device"},
+      "status": "connectivity_issue",
+      "mac_address": "00:17:88:01:0b:2c:3d:4e",
+      "type": "zigbee_connectivity"
+    },
+    {
+      "id": "c3d2e1f0-1111-4a4a-8b8b-0c0c0c0c0c01",
+      "type": "device",
+      "metadata": {"name": "Heater plug", "archetype": "plug"},
+      "product_data": {
+        "model_id": "LOM008",
+        "manufacturer_name": "Signify Netherlands B.V.",
+        "product_name": "Hue smart plug",
+        "product_archetype": "plug",
+        "certified": true,
+        "software_version": "1.122.2"
+      },
+      "services": [
+        {"rid": "c3d2e1f0-1111-4a4a-8b8b-0c0c0c0c0c02", "rtype": "zigbee_connectivity"},
+        {"rid": "c3d2e1f0-1111-4a4a-8b8b-0c0c0c0c0c03", "rtype": "light"}
+      ]
+    },
+    {
+      "id": "c3d2e1f0-1111-4a4a-8b8b-0c0c0c0c0c02",
+      "owner": {"rid": "c3d2e1f0-1111-4a4a-8b8b-0c0c0c0c0c01", "rtype": "device"},
+      "status": "connected",
+      "mac_address": "00:17:88:01:0a:aa:bb:cc",
+      "type": "zigbee_connectivity"
+    },
+    {
+      "id": "c3d2e1f0-1111-4a4a-8b8b-0c0c0c0c0c03",
+      "type": "light",
+      "owner": {"rid": "c3d2e1f0-1111-4a4a-8b8b-0c0c0c0c0c01", "rtype": "device"},
+      "on": {"on": true}
+    },
+    {
+      "id": "05ccb499-ef88-470e-8800-6daef2c4deea",
+      "type": "device",
+      "metadata": {"name": "Hall sensor", "archetype": "unknown_archetype"},
+      "product_data": {
+        "model_id": "SML004",
+        "manufacturer_name": "Signify Netherlands B.V.",
+        "product_name": "Hue motion sensor",
+        "product_archetype": "unknown_archetype",
+        "certified": true,
+        "software_version": "3.2.1"
+      },
+      "services": [
+        {"rid": "e9d8c7b6-2222-4b4b-9c9c-0d0d0d0d0d01", "rtype": "zigbee_connectivity"},
+        {"rid": "bf215aa3-7c36-46c6-bbd9-7e3eda524b86", "rtype": "motion"},
+        {"rid": "cc4a9369-511a-4ba5-b895-0d2d9465fe62", "rtype": "light_level"},
+        {"rid": "863f199f-2725-4c4b-b0ab-ee59eedcdfe2", "rtype": "temperature"},
+        {"rid": "7e7e98d0-283d-4208-bbb4-c748367bce1e", "rtype": "device_power"}
+      ]
+    },
+    {
+      "id": "e9d8c7b6-2222-4b4b-9c9c-0d0d0d0d0d01",
+      "owner": {"rid": "05ccb499-ef88-470e-8800-6daef2c4deea", "rtype": "device"},
+      "status": "connected",
+      "mac_address": "00:17:88:01:0c:11:22:33",
+      "type": "zigbee_connectivity"
+    },
+    {
+      "id": "7e7e98d0-283d-4208-bbb4-c748367bce1e",
+      "owner": {"rid": "05ccb499-ef88-470e-8800-6daef2c4deea", "rtype": "device"},
+      "power_state": {"battery_state": "normal", "battery_level": 100},
+      "type": "device_power"
+    },
+    {
+      "id": "cc4a9369-511a-4ba5-b895-0d2d9465fe62",
+      "owner": {"rid": "05ccb499-ef88-470e-8800-6daef2c4deea", "rtype": "device"},
+      "enabled": true,
+      "light": {
+        "light_level": 33968,
+        "light_level_valid": true,
+        "light_level_report": {"changed": "2026-11-24T10:04:24.992Z", "light_level": 33968}
+      },
+      "type": "light_level"
+    },
+    {
+      "id": "bf215aa3-7c36-46c6-bbd9-7e3eda524b86",
+      "owner": {"rid": "05ccb499-ef88-470e-8800-6daef2c4deea", "rtype": "device"},
+      "enabled": true,
+      "motion": {
+        "motion": false,
+        "motion_valid": true,
+        "motion_report": {"changed": "2026-11-24T06:00:47.880Z", "motion": false}
+      },
+      "sensitivity": {"status": "set", "sensitivity": 0, "sensitivity_max": 4},
+      "type": "motion"
+    },
+    {
+      "id": "863f199f-2725-4c4b-b0ab-ee59eedcdfe2",
+      "owner": {"rid": "05ccb499-ef88-470e-8800-6daef2c4deea", "rtype": "device"},
+      "enabled": true,
+      "temperature": {
+        "temperature": 8.68,
+        "temperature_valid": true,
+        "temperature_report": {"changed": "2026-11-24T10:06:15.759Z", "temperature": 8.68}
+      },
+      "type": "temperature"
+    },
+    {
+      "id": "f1f2f3f4-3333-4c4c-8d8d-0e0e0e0e0e01",
+      "type": "device",
+      "metadata": {"name": "Hall switch", "archetype": "unknown_archetype"},
+      "product_data": {
+        "model_id": "ROM001",
+        "manufacturer_name": "Signify Netherlands B.V.",
+        "product_name": "Hue Smart button",
+        "product_archetype": "unknown_archetype",
+        "certified": true,
+        "software_version": "2.47.8"
+      },
+      "services": [
+        {"rid": "f1f2f3f4-3333-4c4c-8d8d-0e0e0e0e0e02", "rtype": "zigbee_connectivity"},
+        {"rid": "f1f2f3f4-3333-4c4c-8d8d-0e0e0e0e0e03", "rtype": "button"},
+        {"rid": "f1f2f3f4-3333-4c4c-8d8d-0e0e0e0e0e04", "rtype": "device_power"}
+      ]
+    },
+    {
+      "id": "f1f2f3f4-3333-4c4c-8d8d-0e0e0e0e0e02",
+      "owner": {"rid": "f1f2f3f4-3333-4c4c-8d8d-0e0e0e0e0e01", "rtype": "device"},
+      "status": "connected",
+      "mac_address": "00:17:88:01:0d:44:55:66",
+      "type": "zigbee_connectivity"
+    },
+    {
+      "id": "f1f2f3f4-3333-4c4c-8d8d-0e0e0e0e0e04",
+      "owner": {"rid": "f1f2f3f4-3333-4c4c-8d8d-0e0e0e0e0e01", "rtype": "device"},
+      "power_state": {"battery_state": "low", "battery_level": 18},
+      "type": "device_power"
+    },
+    {
+      "id": "aaaabbbb-4444-4d4d-8e8e-0f0f0f0f0f01",
+      "type": "device",
+      "metadata": {"name": "Hue Bridge Pro", "archetype": "bridge_v3"},
+      "product_data": {
+        "model_id": "BSB003",
+        "manufacturer_name": "Signify Netherlands B.V.",
+        "product_name": "Hue Bridge Pro",
+        "product_archetype": "bridge_v3",
+        "certified": true,
+        "software_version": "2071602000"
+      },
+      "services": [
+        {"rid": "aaaabbbb-4444-4d4d-8e8e-0f0f0f0f0f02", "rtype": "bridge"},
+        {"rid": "aaaabbbb-4444-4d4d-8e8e-0f0f0f0f0f03", "rtype": "zigbee_connectivity"}
+      ]
+    },
+    {
+      "id": "aaaabbbb-4444-4d4d-8e8e-0f0f0f0f0f02",
+      "type": "bridge",
+      "owner": {"rid": "aaaabbbb-4444-4d4d-8e8e-0f0f0f0f0f01", "rtype": "device"},
+      "bridge_id": "c42996fffec84d62"
+    },
+    {
+      "id": "aaaabbbb-4444-4d4d-8e8e-0f0f0f0f0f03",
+      "owner": {"rid": "aaaabbbb-4444-4d4d-8e8e-0f0f0f0f0f01", "rtype": "device"},
+      "status": "connected",
+      "mac_address": "c4:29:96:ff:fe:c8:4d:62",
+      "type": "zigbee_connectivity"
+    },
+    {
+      "id": "d22c11e2-4876-4122-946f-6071177484b0",
+      "type": "room",
+      "metadata": {"name": "Hall", "archetype": "hallway"},
+      "children": [
+        {"rid": "0d5bb417-a52a-4b52-9fd4-501604df2322", "rtype": "device"},
+        {"rid": "05ccb499-ef88-470e-8800-6daef2c4deea", "rtype": "device"},
+        {"rid": "f1f2f3f4-3333-4c4c-8d8d-0e0e0e0e0e01", "rtype": "device"}
+      ],
+      "services": [{"rid": "d22c11e2-4876-4122-946f-6071177484b2", "rtype": "grouped_light"}]
+    },
+    {
+      "id": "9a9a9a9a-5555-4e4e-8f8f-010101010101",
+      "type": "scene",
+      "metadata": {"name": "Evening"},
+      "group": {"rid": "d22c11e2-4876-4122-946f-6071177484b0", "rtype": "room"},
+      "status": {"active": "inactive"}
+    }
+  ]
+}
