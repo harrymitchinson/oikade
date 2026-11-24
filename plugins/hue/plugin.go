@@ -123,6 +123,11 @@ func (b *bridge) Serve(ctx context.Context, p *plugin.Plugin) error {
 	}
 	wait := b.timing.retry
 	for ctx.Err() == nil {
+		// A wake from a setup while a session ran isn't for the next wait.
+		select {
+		case <-b.wake:
+		default:
+		}
 		var live time.Time
 		err := b.session(ctx, func() { live = time.Now() })
 		if ctx.Err() != nil {

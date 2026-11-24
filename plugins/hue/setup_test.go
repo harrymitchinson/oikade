@@ -107,7 +107,7 @@ func TestSetupWaitsForTheButtonKeepsTheKeyAndThePluginComesOnline(t *testing.T) 
 	}
 	f.pressAfter(3)
 	steps := b.setup(nil)
-	if got, want := said(steps), "Found Hue Bridge Pro "+bridgeOne+"\nPress the link button on the bridge"; got != want {
+	if got, want := said(steps), "Looking for Hue bridges over mDNS\nFound Hue Bridge Pro "+bridgeOne+"\nPress the link button on the bridge"; got != want {
 		t.Errorf("said %q, want %q", got, want)
 	}
 	if d := done(t, steps); d.Result != "hue is set up: 4 devices" || d.Error != "" {
@@ -179,7 +179,8 @@ func TestSetupWithTwoBridgesAsksWhich(t *testing.T) {
 	if want := []string{"Which bridge? Type its ID"}; strings.Join(asked, "|") != strings.Join(want, "|") {
 		t.Errorf("asked %q, want %q", asked, want)
 	}
-	if got, want := said(steps), "Found 2 Hue bridges: Hue Bridge "+bridgeTwo+", Hue Bridge Pro "+bridgeOne+"\nPress the link button on the bridge"; got != want {
+	if got, want := said(steps), "Looking for Hue bridges over mDNS\nFound 2 Hue bridges: Hue Bridge "+bridgeTwo+", Hue Bridge Pro "+bridgeOne+
+		"\nPress the link button on the bridge"; got != want {
 		t.Errorf("said %q, want %q", got, want)
 	}
 	if got, want := b.kept(), keptSecret(bridgeTwo, appKey); got != want {
@@ -189,6 +190,42 @@ func TestSetupWithTwoBridgesAsksWhich(t *testing.T) {
 		t.Errorf("asked the first bridge %q and the second %q, want the second once", one.asked(), two.asked())
 	}
 	b.waitOnline()
+}
+
+func TestSetupAsksBeforeTakingAnotherBridgeThanTheOneItKept(t *testing.T) {
+	f := newFakeBridge(t, bridgeOne)
+	b := start(t, f, options{secret: keptSecret(bridgeTwo, appKey)})
+	var asked int
+	steps := b.setup(func(string) string {
+		asked++
+		return bridgeOne
+	})
+	if got, want := said(steps), "Looking for Hue bridges over mDNS\nThe Hue bridge "+bridgeTwo+", which setup kept before, didn't answer\n"+
+		"Found Hue Bridge Pro "+bridgeOne+"\nPress the link button on the bridge"; got != want {
+		t.Errorf("said %q, want %q", got, want)
+	}
+	if asked != 1 {
+		t.Errorf("asked %d times, want once", asked)
+	}
+	if got, want := b.kept(), keptSecret(bridgeOne, appKey); got != want {
+		t.Errorf("kept %s, want %s", got, want)
+	}
+}
+
+func TestWithPort(t *testing.T) {
+	for address, want := range map[string]string{
+		"192.168.1.30":       "192.168.1.30:443",
+		"192.168.1.30:8443":  "192.168.1.30:8443",
+		"hue.local":          "hue.local:443",
+		"fe80::1":            "[fe80::1]:443",
+		"[fe80::1]":          "[fe80::1]:443",
+		"[fe80::1]:443":      "[fe80::1]:443",
+		"bridge.example:443": "bridge.example:443",
+	} {
+		if got := withPort(address); got != want {
+			t.Errorf("withPort(%q) = %q, want %q", address, got, want)
+		}
+	}
 }
 
 func TestSetupAtAnAddressReadsTheBridgesIDFromItsCertificate(t *testing.T) {
@@ -201,7 +238,7 @@ func TestSetupAtAnAddressReadsTheBridgesIDFromItsCertificate(t *testing.T) {
 		},
 	})
 	steps := b.setup(nil)
-	if !strings.HasPrefix(said(steps), "Found Hue Bridge Pro "+bridgeOne+"\n") {
+	if !strings.HasPrefix(said(steps), "Reaching the Hue bridge at "+f.address()+"\nFound Hue Bridge Pro "+bridgeOne+"\n") {
 		t.Errorf("said %q", said(steps))
 	}
 	if got, want := b.kept(), keptSecret(bridgeOne, appKey); got != want {
@@ -223,17 +260,21 @@ func TestSetupSaysWhatWentWrong(t *testing.T) {
 		options options
 		answer  string
 		unpress int
+		refusal string
 		want    string
 	}{
 		{name: "no bridge", options: options{bridges: none}, want: "found no Hue bridge on the network over mDNS: check it's on and on the host's network, or set hue.Config's Address"},
 		{name: "another ID", options: options{bridges: two}, answer: "C42996", want: `"C42996" isn't one of the bridges' IDs: run setup again`},
 		{name: "no press", options: options{timing: impatient}, unpress: 1 << 20, want: "the link button on Hue Bridge Pro " + bridgeOne + " wasn't pressed within 30ms: run setup again, and press it then"},
+		{name: "a refusal", refusal: "invalid value, oikade#hue, for parameter, devicetype",
+			want: "Hue Bridge Pro " + bridgeOne + " refused to give a key: invalid value, oikade#hue, for parameter, devicetype"},
 		{name: "another authority", options: options{config: Config{Address: f.address(), roots: newAuthority(t).pool}}, want: "the Hue bridge at " + f.address() + " has a certificate that for " + bridgeOne + " isn't signed by Philips Hue"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			c.options.secret = "none"
 			b := start(t, f, c.options)
 			f.pressAfter(c.unpress)
+			f.refuseLinks(c.refusal)
 			d := done(t, b.setup(func(string) string { return c.answer }))
 			if !strings.Contains(d.Error, c.want) {
 				t.Errorf("done %+v, want the error %q", d, c.want)

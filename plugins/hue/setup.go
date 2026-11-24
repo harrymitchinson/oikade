@@ -140,6 +140,9 @@ func (b *bridge) Setup(ctx context.Context, _ *plugin.Plugin, s *plugin.Session)
 func (b *bridge) choose(ctx context.Context, s *plugin.Session, had string) (found, error) {
 	var bridge found
 	if b.config.Address != "" {
+		if err := s.Say(ctx, "Reaching the Hue bridge at "+b.config.Address); err != nil {
+			return found{}, err
+		}
 		reach, cancel := context.WithTimeout(ctx, b.timing.request)
 		defer cancel()
 		var err error
@@ -147,6 +150,9 @@ func (b *bridge) choose(ctx context.Context, s *plugin.Session, had string) (fou
 			return found{}, b.unreachable(found{address: b.config.Address}, err)
 		}
 	} else {
+		if err := s.Say(ctx, "Looking for Hue bridges over mDNS"); err != nil {
+			return found{}, err
+		}
 		all, err := b.bridges(ctx, b.timing.browse, had)
 		if err != nil {
 			return found{}, fmt.Errorf("could not look for Hue bridges over mDNS: %w", err)
@@ -155,6 +161,12 @@ func (b *bridge) choose(ctx context.Context, s *plugin.Session, had string) (fou
 		switch {
 		case i >= 0:
 			bridge = all[i]
+		case had != "" && len(all) > 0:
+			// Its answer may be late: only the person knows whether to set up another.
+			if err := s.Say(ctx, "The Hue bridge "+had+", which setup kept before, didn't answer"); err != nil {
+				return found{}, err
+			}
+			return b.ask(ctx, s, all)
 		case len(all) == 0:
 			return found{}, errors.New("found no Hue bridge on the network over mDNS: check it's on and on the host's network, " +
 				"or set hue.Config's Address")
@@ -173,7 +185,11 @@ func (b *bridge) ask(ctx context.Context, s *plugin.Session, all []found) (found
 	for _, f := range all {
 		names = append(names, f.String())
 	}
-	if err := s.Say(ctx, fmt.Sprintf("Found %d Hue bridges: %s", len(all), strings.Join(names, ", "))); err != nil {
+	line := fmt.Sprintf("Found %d Hue bridges: %s", len(all), strings.Join(names, ", "))
+	if len(all) == 1 {
+		line = "Found " + names[0]
+	}
+	if err := s.Say(ctx, line); err != nil {
 		return found{}, err
 	}
 	answer, err := s.Ask(ctx, "Which bridge? Type its ID")
@@ -200,6 +216,8 @@ func (b *bridge) link(ctx context.Context, bridge found, roots *x509.CertPool) (
 		switch {
 		case err == nil:
 			return key, nil
+		case errors.Is(err, errNoLink):
+			return "", fmt.Errorf("%s %w", bridge, err)
 		case !errors.Is(err, errNotPressed):
 			return "", b.unreachable(bridge, err)
 		case time.Now().After(until):

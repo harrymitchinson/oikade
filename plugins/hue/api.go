@@ -153,8 +153,12 @@ func (c *client) events(ctx context.Context) (io.ReadCloser, error) {
 	return resp.Body, nil
 }
 
-// errNotPressed is the bridge refusing a key until its link button is pressed.
-var errNotPressed = errors.New("the bridge's link button isn't pressed")
+// errNotPressed is the bridge refusing a key until its link button is pressed, and errNoLink it
+// refusing one for any other reason.
+var (
+	errNotPressed = errors.New("the bridge's link button isn't pressed")
+	errNoLink     = errors.New("refused to give a key")
+)
 
 // link asks the bridge for a key for devicetype, app#instance, which it gives once its link button
 // is pressed.
@@ -197,7 +201,7 @@ func (c *client) link(ctx context.Context, devicetype string) (string, error) {
 		case a.Error != nil && a.Error.Type == 101:
 			return "", errNotPressed
 		case a.Error != nil:
-			return "", &apiError{status: resp.StatusCode, description: a.Error.Description}
+			return "", fmt.Errorf("%w: %s", errNoLink, a.Error.Description)
 		}
 	}
 	return "", errors.New("the bridge answered asking for a key with no key")

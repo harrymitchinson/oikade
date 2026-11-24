@@ -106,6 +106,8 @@ type fakeBridge struct {
 	// answered as the link button not pressed.
 	links     []string
 	unpressed int
+	// linkRefusal is what the bridge refuses a key with instead, "" for nothing.
+	linkRefusal string
 }
 
 // put is one write the bridge took.
@@ -269,9 +271,13 @@ func (f *fakeBridge) link(w http.ResponseWriter, r *http.Request) {
 	}
 	f.mu.Lock()
 	f.links = append(f.links, body.Devicetype)
-	pressed := len(f.links) > f.unpressed
+	pressed, refusal := len(f.links) > f.unpressed, f.linkRefusal
 	f.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
+	if refusal != "" {
+		_, _ = fmt.Fprintf(w, `[{"error":{"type":7,"address":"/devicetype","description":%q}}]`, refusal)
+		return
+	}
 	if !pressed {
 		_, _ = fmt.Fprint(w, `[{"error":{"type":101,"address":"","description":"link button not pressed"}}]`)
 		return
@@ -284,6 +290,12 @@ func (f *fakeBridge) pressAfter(n int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.unpressed = n
+}
+
+func (f *fakeBridge) refuseLinks(description string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.linkRefusal = description
 }
 
 func (f *fakeBridge) asked() []string {

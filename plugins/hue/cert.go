@@ -7,6 +7,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 )
@@ -75,7 +76,7 @@ func bridgeTLS(roots *x509.CertPool, bridge string) *tls.Config {
 // identify is the ID and model of the bridge at address, from the certificate Philips Hue signed for
 // it.
 func identify(ctx context.Context, address string, roots *x509.CertPool) (found, error) {
-	raw, err := dialBridge(ctx, "tcp", address)
+	raw, err := dialBridge(ctx, "tcp", withPort(address))
 	if err != nil {
 		return found{}, err
 	}
@@ -98,6 +99,14 @@ func certFailure(err error) *certError {
 		return e
 	}
 	return nil
+}
+
+// withPort is address with the HTTPS port if it has none, as an https URL would take it.
+func withPort(address string) string {
+	if _, _, err := net.SplitHostPort(address); err == nil {
+		return address
+	}
+	return net.JoinHostPort(strings.TrimSuffix(strings.TrimPrefix(address, "["), "]"), "443")
 }
 
 // now is the config's time, as the TLS handshake uses it.

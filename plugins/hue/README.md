@@ -19,14 +19,15 @@ Each device appears in `oikade list devices` as `hardware/<plugin>/<ID>`, where 
 
    ```sh
    $ oikade setup hue
+   Looking for Hue bridges over mDNS
    Found Hue Bridge Pro C42996FFFEC84D62
    Press the link button on the bridge
    ✓ hue is set up: 60 devices
    ```
 
-   Setup waits 2 minutes for the button. The Hue app lists the key under Settings → Apps as `oikade#hue`.
+   Setup waits 2 minutes for the button. The bridge names the key `oikade#hue`, after the plugin.
 
-**Setup finds the bridge over mDNS** on the host's network, or at `Address`. With more than one bridge and no `Address`, it lists them and asks which, by ID. Run again while its key works, it changes nothing. A key removed in the Hue app, or a new bridge, needs setup again, and the bridge's button pressed.
+**Setup finds the bridge over mDNS** on the host's network, or at `Address`. With more than one bridge and no `Address`, it lists them and asks which, by ID, as it does when the bridge it set up before doesn't answer. Run again while its key works, it changes nothing. A key removed in the Hue app, or a new bridge, needs setup again, and the bridge's button pressed.
 
 **A Hue bridge puts its devices in the Home app itself,** so on Oikade's Matter bridge too they'd show twice. `HideFromMatter()` keeps them off it ([Hiding a plugin's devices from Matter](../../docs/devices.md#hiding-a-plugins-devices-from-matter)).
 
