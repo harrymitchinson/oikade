@@ -174,9 +174,34 @@ func (h *Home) compileSignals() ([]engine.Signal, error) {
 		}
 		out = append(out, engine.Signal{
 			Name: s.name, When: toEngine(cond), OnDelay: s.delay, OffDelay: s.linger, MaxAge: s.maxAge,
+			Why: signalWhy(cond),
 		})
 	}
 	return out, errors.Join(errs...)
+}
+
+// signalWhy says what a signal's conditions say now, for oikade status, and never panics, since the
+// engine holds its lock.
+func signalWhy(c Condition) func(engine.Vars) string {
+	return func(vars engine.Vars) (why string) {
+		const unknown = "its conditions can't be worked out, so they count as false: "
+		defer func() {
+			if r := recover(); r != nil {
+				why = unknown + fmt.Sprint(r)
+			}
+		}()
+		err := evaluate(vars, func(s Snapshot) {
+			if c.holds(s) {
+				why = "its conditions are true: " + c.explain(s, false)
+			} else {
+				why = "its conditions are false: " + c.explain(s, true)
+			}
+		})
+		if err != nil {
+			return unknown + err.Error()
+		}
+		return why
+	}
 }
 
 // signalsRead are the signals c reads, apart from any inside a ConditionFunc, which can't be seen.

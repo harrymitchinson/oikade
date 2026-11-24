@@ -92,6 +92,7 @@ Only the closing boundary says it's all there. The host keeps the upload in `upl
 | `home` | Your home: `version`, `deploying`, `process`, and `since`, when your automations last connected or went down, or the host started |
 | `devices` | Each device, with its `room`, `online`, its `capabilities`, its `deviceTypes`, its `plugin` if a plugin reports it, its `problem` if its driver says one, `offlineSince` while it's offline (when the host first heard it was), `pluginNotImported`, and `declare`, the line that would declare it, if your code doesn't |
 | `rules` | Each rule: see below |
+| `signals` | Each [signal](automations.md#signals), in the order your home made them: see below |
 | `plugins` | Each plugin the running binary imports or that reports a device on record: its `name`, its `ref` (`plugin/NAME`), its `problem` if it says something's wrong with it as a whole (OIK-17), `needsSetup` if it says its [setup](#setup) needs running, and the `devices` it reports |
 | `matter` | The Matter bridge, as `GET /v1/matter` has it, or `null` when the host has Matter turned off |
 
@@ -110,6 +111,16 @@ Each rule has its `name`, its `ref`, which `pause` and `resume` take, its `kind`
 | `stopped` | Why its `When` can't be read, so it keeps its state, such as `no device in room hall has reported occupancy`, or why its budget couldn't be planned, which keeps its device off. Only a connected process says |
 | `whyNot` | Why an inactive case's conditions are false, such as `device/greenhouse/temperature is 5, not below 3`. Only a connected process says |
 | `budget` | A budget hold's day: `date`, `targetMinutes`, `plannedMinutes` and `runMinutes`, which is saved at most every 5 minutes. `date` may be a day that's over, if it hasn't planned since |
+
+Each signal has its `name`, its `ref` (`signal/NAME`), and its state, from what your process last saved. The host knows them from your process's `hello`, or with none connected, from the running version. A signal with no saved state yet, as just after a deploy adds one, has only its name and ref:
+
+| Field | Means |
+|---|---|
+| `value` | What it is |
+| `since` | When it took that value, or when it started |
+| `onAt`, `offAt` | When its `Delay` ends, and it turns true, or its `Linger` ends, and it turns false. Missing when none is running |
+| `why` | What its conditions say now, such as `its conditions are false: group/presence/occupied isn't true on any of them`. Only a connected process says |
+| `dead` | The devices it leaves out as [dead](automations.md#dead-sensors), by ref. Only a connected process says |
 
 ## Setup
 
@@ -169,6 +180,7 @@ Both take a filter in the query, and the host does the filtering, so a caller do
 | `device/porch-light/on` | The capability's, and what happened to the device as a whole: it went offline, or was forgotten or renamed |
 | `room/hall`, `room/hall/on` | The same, for each device in the room now, not those that were in it then |
 | `case/porch-light/on/dusk`, `flow/morning` | The rule's runs, pauses and outside calls, and the writes it made (`by`). A case's are found under each name its device had |
+| `signal/anyone-home` | The signal's changes |
 | `plugin/overkiz` | The plugin's own problems |
 | `matter` | The bridge's events, and each controller's writes, refused or not |
 
@@ -176,7 +188,7 @@ The home's own events, `process` and `deploy`, pass whatever the refs, because t
 
 ### Events
 
-An `Event` has its `time` and `type`. Every event but `process`, `deploy` and `end` has a `ref`, the ref of what it's about: a capability's, a device's, a rule's or a plugin's, or `matter` for the bridge.
+An `Event` has its `time` and `type`. Every event but `process`, `deploy` and `end` has a `ref`, the ref of what it's about: a capability's, a device's, a rule's, a signal's or a plugin's, or `matter` for the bridge.
 
 | `type` | What happened | Fields |
 |---|---|---|
@@ -189,6 +201,7 @@ An `Event` has its `time` and `type`. Every event but `process`, `deploy` and `e
 | `availability` | A device went offline, or came back. Not each report of the same, nor a device first heard of online. The host doesn't keep how a device was, so one that's offline when the host starts is said to have gone offline then | `device`; `message`, `offline` or `online`; `result`, its driver's problem with it as it went offline, such as a missing LAN key, if it has one |
 | `plugin` | A plugin's own problem started, changed or cleared, such as a refused login. A plugin that's down says nothing of its problem, so going down doesn't clear one, and coming back with the same one doesn't start it again. A host that starts again says a problem still there again | `ref`, the plugin's; `message`, the problem, or none once it has cleared |
 | `matter` | The Matter bridge's commissioning window opened or closed, or a controller paired or left. A window has opened once it's advertised, and one still open when the host stops closes then. The bridge says each once it has advertised the change, which can be a second or two after | `message`: `window opened`, `window closed`, `controller paired` or `controller left`; `value`, the controller's fabric |
+| `signal` | A [signal](automations.md#signals) changed, as the host saved it. A new or renamed signal's first value isn't a change. Your process saves the latest state only, so a change and its undoing before the first reaches the host can be neither | `ref`, the signal's; `value`, what it is now; `previous`, what it was |
 | `forget` | A device was forgotten, so its history stops here | `device` |
 | `rename` | A deploy renamed a device, or gave its hardware the name your home declares | `device`, its name from then on; `previous`, its name before |
 | `process` | Your process connected or disconnected | `message` |

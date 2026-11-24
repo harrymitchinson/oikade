@@ -1,0 +1,8 @@
+[1mNAME[0m                [1mVALUE[0m                                           [1mWHY[0m
+signal/anyone-home  true since 12:55, false at 2026-11-19 20:30:00  its conditions are false: group/presence/occupied i…
+signal/upstairs     false since 14:22
+--- stderr
+[2mHint: oikade status signal/NAME says why one is what it is, and what it leaves out[0m
+--- none
+--- stderr
+No signals. home.Signal in your home's code makes one, once oikade deploy runs it.

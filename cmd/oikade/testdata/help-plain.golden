@@ -38,7 +38,7 @@ Host access
 
 oikade help COMMAND, or oikade COMMAND --help, says more of one, and oikade help
 KIND, such as oikade help device, lists the commands that take one: device,
-capability, room, case, flow, plugin, client, context or matter.
+capability, room, case, flow, signal, plugin, client, context or matter.
 
 Every command that talks to a host takes --data-dir DIR, for the host on this
 machine, and --context NAME, which reaches a host you logged in to over its

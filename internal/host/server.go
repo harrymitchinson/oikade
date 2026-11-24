@@ -130,6 +130,16 @@ type session struct {
 	reads   map[string][]engine.RoomRead
 	stopped map[string]string
 	whyNot  map[string]string
+	// signals are the process's signals, by name, as its hello said, and said what each last said of
+	// itself, from SignalWhy, which the server's mu guards.
+	signals []string
+	said    map[string]signalSaid
+}
+
+// signalSaid is what a signal's conditions say, and the devices it leaves out as dead.
+type signalSaid struct {
+	why  string
+	dead []string
 }
 
 func (s *session) end() {
@@ -193,7 +203,7 @@ func (s *server) handle(conn *wire.Conn, generation uint64) {
 	}
 	sess := &session{
 		conn: conn, out: make(chan wire.Message, outgoing), gone: make(chan struct{}), finished: make(chan struct{}),
-		generation: generation, rules: hello.Info, ruleless: len(hello.Rules) == 0,
+		generation: generation, rules: hello.Info, ruleless: len(hello.Rules) == 0, signals: hello.Signals,
 	}
 	if refusal := s.open(sess, hello); refusal != "" {
 		_ = conn.Write(wire.Message{Type: wire.TypeRejected, Error: refusal})
@@ -263,6 +273,14 @@ func (s *server) handle(conn *wire.Conn, generation uint64) {
 			} else {
 				sess.stopped[m.Rule] = m.Stopped
 			}
+			s.mu.Unlock()
+			continue
+		case wire.TypeSignalWhy:
+			s.mu.Lock()
+			if sess.said == nil {
+				sess.said = map[string]signalSaid{}
+			}
+			sess.said[m.Rule] = signalSaid{why: m.Why, dead: m.Dead}
 			s.mu.Unlock()
 			continue
 		case wire.TypeWhyNot:
@@ -915,7 +933,18 @@ func (s *server) answer(m wire.Message) wire.Message {
 			err = errors.New("saving a signal needs its state")
 			break
 		}
-		err = s.signals.Put(s.ctx, key(m.Rule), *m.Signal)
+		was, saved := s.signals.Get(key(m.Rule))
+		if err = s.signals.Put(s.ctx, key(m.Rule), *m.Signal); err == nil && saved && was.Value != m.Signal.Value {
+			// When it changed, as a save can wait behind another.
+			at := m.Signal.Since
+			if at.IsZero() {
+				at = time.Now()
+			}
+			s.emit(api.Event{
+				Time: at, Type: api.EventSignal, Ref: ident.NewRef(ident.Signal, m.Rule).String(),
+				Value: m.Signal.Value, Previous: was.Value,
+			})
+		}
 	case wire.TypeJournal:
 		fault.Hit(fault.HostJournalBefore)
 		if !fault.Drop(fault.HostJournalAppend) {

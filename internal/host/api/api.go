@@ -399,6 +399,7 @@ type Status struct {
 	Home    Home     `json:"home"`
 	Devices []Device `json:"devices"`
 	Rules   []Rule   `json:"rules"`
+	Signals []Signal `json:"signals"`
 	Plugins []Plugin `json:"plugins"`
 	// Matter is the Matter bridge, or nil if the host has Matter turned off.
 	Matter *Matter `json:"matter"`
@@ -417,6 +418,28 @@ type Home struct {
 
 // Undeployed is a host that has never had a home deployed.
 func (h Home) Undeployed() bool { return h.Version == "" && !h.Process && !h.Deploying }
+
+// Signal is a fact about the home that your automations work out under a name of its own, such as
+// whether anyone's home.
+type Signal struct {
+	Name string `json:"name"`
+	// Ref is its ref, such as signal/anyone-home.
+	Ref string `json:"ref"`
+	// Value is what it is, as the host last saved it, and Since when it took that value. A signal the
+	// host has no saved state for yet has neither.
+	Value *bool      `json:"value,omitempty"`
+	Since *time.Time `json:"since,omitempty"`
+	// OnAt is when its Delay ends, and it turns true, and OffAt when its Linger ends, and it turns
+	// false, while one is running.
+	OnAt  *time.Time `json:"onAt,omitempty"`
+	OffAt *time.Time `json:"offAt,omitempty"`
+	// Why is what its conditions say now, such as "its conditions are false: group/presence/occupied
+	// isn't true on any of them", as your automations last said. It's empty while they aren't
+	// connected.
+	Why string `json:"why,omitempty"`
+	// Dead are the devices it leaves out, as offline or quiet past its MaxAge, by ref.
+	Dead []string `json:"dead,omitempty"`
+}
 
 // Plugin is a plugin the host knows of: one the running version imports, one that's running, or one
 // that reports a device on record.
@@ -562,6 +585,9 @@ const (
 	// EventRename is a device renamed by a deploy: Device is its name from then on, and Previous the
 	// one before.
 	EventRename = "rename"
+	// EventSignal is a signal changing, as the host saved it: Ref is the signal's, Value what it is
+	// now, and Previous what it was.
+	EventSignal = "signal"
 	// eventEnd closes the event log, so that a cut-off fetch isn't taken for a short one.
 	eventEnd = "end"
 )
@@ -586,8 +612,8 @@ type Event struct {
 	Time time.Time `json:"time,omitzero"`
 	Type string    `json:"type"`
 	// Device, Capability and Value are a change's, a write's or a refused write's, and Previous a
-	// change's. Device is also the device that went offline or came back, was forgotten, or was
-	// renamed, with Previous its name before.
+	// change's. Value and Previous are also a signal's. Device is also the device that went offline
+	// or came back, was forgotten, or was renamed, with Previous its name before.
 	Device     string `json:"device,omitempty"`
 	Capability string `json:"capability,omitempty"`
 	Value      any    `json:"value,omitempty"`
@@ -595,8 +621,8 @@ type Event struct {
 	// Rule is a rule run's or a pause's, and Result how the run ended, a call's error, or the problem
 	// of a device that went offline. Value is also a call's result, and a controller's fabric.
 	Rule string `json:"rule,omitempty"`
-	// Ref is the ref of what it's about: the capability's, the device's, the rule's or the plugin's,
-	// or matter for the bridge.
+	// Ref is the ref of what it's about: the capability's, the device's, the rule's, the signal's or
+	// the plugin's, or matter for the bridge.
 	Ref    string `json:"ref,omitempty"`
 	Result string `json:"result,omitempty"`
 	// By is whose write it is, as a ref: the rule whose claim won or whose step set it
@@ -616,7 +642,8 @@ type EventFilter struct {
 	Since, Until time.Time
 	// Refs are what the events are about: a device's ref for it and its capabilities, under each name
 	// it had while it had it, a capability's, a room's for the devices in it now, a case's or a flow's
-	// for its runs, pauses, calls and the writes it made, a plugin's for its own problems,
+	// for its runs, pauses, calls and the writes it made, a signal's for its changes, a plugin's for its
+	// own problems,
 	// and matter for the bridge's events and controllers' writes. The home's own events, a deploy and
 	// your automations connecting or disconnecting, pass whatever the refs. With no refs every event
 	// passes.

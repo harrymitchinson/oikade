@@ -58,6 +58,16 @@ var kinds = []kind{
 		{Name: "oikade pause flow/NAME", Summary: "Stop it, so it lets go of what it holds."},
 		{Name: "oikade resume flow/NAME", Summary: "Start it again."},
 	}},
+	{"signal", "A signal is signal/NAME, a fact your home's code works out under a name, such as whether " +
+		"anyone's home.", []cli.Command{
+		{Name: "oikade list signals", Summary: "Each, with its value and why."},
+		{
+			Name:    "oikade status signal/NAME",
+			Summary: "Its value, why, when its Delay or Linger ends, and its last 10 events.",
+		},
+		{Name: "oikade history signal/NAME", Summary: "When it changed."},
+		{Name: "oikade tail signal/NAME", Summary: happening},
+	}},
 	{"plugin", "A plugin is plugin/NAME, or its name alone for setup, which takes a plugin first.", []cli.Command{
 		{Name: "oikade list plugins", Summary: "Each with its problem, and whether it needs setup."},
 		{Name: "oikade status plugin/NAME", Summary: "Its problem, whether it needs setup, and its devices."},

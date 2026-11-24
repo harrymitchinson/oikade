@@ -55,6 +55,9 @@ func listings(now time.Time) []listing {
 		{kindRules, func(out, stderr *cli.Printer, empty, asJSON bool) error {
 			return printRules(out, stderr, st(empty), listOptions{json: asJSON})
 		}},
+		{kindSignals, func(out, stderr *cli.Printer, empty, asJSON bool) error {
+			return printSignals(out, stderr, st(empty), listOptions{json: asJSON}, now)
+		}},
 		{kindPlugins, func(out, stderr *cli.Printer, empty, asJSON bool) error {
 			return printPlugins(out, stderr, st(empty), listOptions{json: asJSON})
 		}},

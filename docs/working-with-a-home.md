@@ -13,7 +13,7 @@ On the host's machine, these talk to the host through a Unix socket in its data 
 ## At a glance
 
 ```sh
-oikade list devices                         # what's on record, and how each is set up: rules, plugins, clients and contexts too
+oikade list devices                         # what's on record, and how each is set up: rules, signals, plugins, clients and contexts too
 oikade status                               # the running version, a device a line, and your rules
 oikade status bathroom-fan                  # one device, why each value is what it is, and its last 10 events
 oikade status room/utility plugin/overkiz   # a room's devices, a plugin and its devices
@@ -82,6 +82,7 @@ A ref, and `--json`, leave them out.
 | `device/office-ac/on` | Only that capability |
 | `room/utility` | The room's devices, a line each |
 | `case/office-ac/on/too-warm`, `flow/morning` | The rule's line, and for a case the capability it decides |
+| `signal/anyone-home` | The [signal](#signals)'s value, why, when its `Delay` or `Linger` ends, the dead devices it leaves out, and its last 10 events |
 | `plugin/overkiz` | The plugin's problem, whether it needs setup, and its devices |
 | `matter` | The Matter bridge: whether it's serving, its pairing codes, and its controllers |
 
@@ -124,6 +125,18 @@ case/hall-heater/on/occupied  case  inactive  stopped: no device in room hall ha
 ```
 
 A time that isn't today has its date, and an on or off time that has gone by says `(passed)`. A `ConditionFunc` shows only its label. A case whose conditions can't be read keeps its state until they can, and a budget that can't be planned keeps its device off.
+
+### Signals
+
+A [signal](automations.md#signals)'s line says what it is, since when, and when a `Delay` or `Linger` that's running ends. `oikade status` lists them after the rules, and `oikade status signal/NAME` adds why, as its conditions say now, and the devices it leaves out as [dead](automations.md#dead-sensors):
+
+```text
+signal/anyone-home  true since 08:45, false at 2026-11-26 20:45:00
+Its conditions are false: group/presence/occupied isn't true on any of them
+It leaves out device/landing-sensor: offline, or quiet past its MaxAge.
+```
+
+`oikade list signals` lists them, in the order your code made them. A signal the host has no saved state for yet, as just after a deploy adds one, is `not worked out yet`.
 
 ### In CI
 
@@ -173,6 +186,7 @@ A history with nothing in it says so, and whether the host has such a thing on r
 | `device/porch-light/on` | One capability, and what happened to the device as a whole |
 | `room/hall` | The devices in the room now |
 | `case/porch-light/on/dusk`, `flow/morning` | The rule's runs, pauses and outside calls, and the writes it made |
+| `signal/anyone-home` | The signal's changes, as the host saved them. A new or renamed signal's first value isn't one |
 | `plugin/overkiz` | The plugin's own problems, such as a refused login |
 | `matter` | The Matter bridge: its pairing window, controllers pairing and leaving, and what controllers wrote. A device called `matter` is `device/matter` |
 

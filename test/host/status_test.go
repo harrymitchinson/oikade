@@ -25,7 +25,7 @@ func TestStatusNarrowsAndChecks(t *testing.T) {
 		return strings.Join(slices.Sorted(maps.Keys(st)), " ")
 	}
 	whole := keys()
-	if whole != "devices home matter plugins rules" {
+	if whole != "devices home matter plugins rules signals" {
 		t.Errorf("status --json has %s", whole)
 	}
 	for _, refs := range [][]string{{"fan"}, {"device/fan/on"}, {"case/fan/on/fan"}, {"fan", "bathroom-sensor"}} {

@@ -32,6 +32,7 @@ var refShape = map[Kind][][]string{
 	Group:    {{"GROUP"}, {"GROUP", partCapability}},
 	Case:     {{partDevice, partCapability, "CASE"}},
 	Flow:     {{"FLOW"}},
+	Signal:   {{"SIGNAL"}},
 	Plugin:   {{"PLUGIN"}},
 	Client:   {{"CLIENT"}},
 	Matter:   {{}},
@@ -46,7 +47,7 @@ const (
 )
 
 // kinds lists the kinds in the order an error gives them.
-var kinds = []Kind{Device, Hardware, Room, Group, Case, Flow, Plugin, Client, Matter, Command}
+var kinds = []Kind{Device, Hardware, Room, Group, Case, Flow, Signal, Plugin, Client, Matter, Command}
 
 // NewRef is the ref of kind k with these parts. A part that isn't a name, as a driver's ID may not
 // be, is percent-encoded.

@@ -45,11 +45,11 @@ const (
 
 type Type = pluginwire.Type
 
-// Message types. Hello and Welcome, or Rejected, open a session, and Ping, Pong, Change, Discovered
-// and Seen flow for as long as it lasts, as do Pause and Resume from the host, and RuleRun,
-// RoomReads, Stopped, WhyNot and Metrics from your process. The rest are requests, each answered by
-// a Reply with its ID. A plugin's session has only Hello, Welcome or Rejected, Ping, Pong and
-// Publish, which flows both ways.
+// Message types. Hello and Welcome, or Rejected, open a session, and Ping, Pong, Change, Discovered,
+// Seen and Availability flow for as long as it lasts, as do Pause and Resume from the host, and
+// RuleRun, RoomReads, Stopped, WhyNot, SignalWhy and Metrics from your process. The rest are
+// requests, each answered by a Reply with its ID. A plugin's session has only Hello, Welcome or
+// Rejected, Ping, Pong and Publish, which flows both ways.
 const (
 	TypeHello           = pluginwire.TypeHello
 	TypeWelcome         = pluginwire.TypeWelcome
@@ -81,6 +81,7 @@ const (
 	TypeRoomReads    Type = "roomReads"
 	TypeStopped      Type = "stopped"
 	TypeWhyNot       Type = "whyNot"
+	TypeSignalWhy    Type = "signalWhy"
 	TypeMetrics      Type = "metrics"
 	TypePublish           = pluginwire.TypePublish
 )
@@ -91,6 +92,8 @@ type Manifest struct {
 	// Protocol is the Version the binary was built against.
 	Protocol int        `json:"protocol"`
 	Rules    []RuleInfo `json:"rules"`
+	// Signals names the home's signals.
+	Signals []string `json:"signals,omitempty"`
 	// Plugins names the plugins the binary imports.
 	Plugins []string `json:"plugins,omitempty"`
 	// Control is every device setting the home declares.
@@ -328,6 +331,10 @@ type Message struct {
 	// WhyNot is a WhyNot's: why its Rule's case is inactive, as its conditions say. Empty means it
 	// isn't, or can't tell.
 	WhyNot string `json:"whyNot,omitempty"`
+	// Why and Dead are a SignalWhy's: what its Rule's signal's conditions say now, and the devices it
+	// leaves out as dead, by name.
+	Why  string   `json:"why,omitempty"`
+	Dead []string `json:"dead,omitempty"`
 	// Result is a RuleRun's, with Rule and Time.
 	Result string `json:"result,omitempty"`
 	// Metrics is a Metrics message's: the process's rule metrics in Prometheus's text format.

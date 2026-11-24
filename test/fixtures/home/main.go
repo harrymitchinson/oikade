@@ -404,9 +404,13 @@ func home() *oikade.Home {
 	if variant == "renamed-signal" {
 		signalName = "someone-home"
 	}
-	presence := oikade.Bool{Device: "presence-sensor", Capability: oikade.Occupied}
-	anyoneHome := h.Signal(signalName, presence).Linger(time.Hour)
-	h.Decide(on("away-mode")).Case("away", true, oikade.Not(anyoneHome)).Default(false)
+	if variant != "nosignals" {
+		presence := oikade.Bool{Device: "presence-sensor", Capability: oikade.Occupied}
+		anyoneHome := h.Signal(signalName, presence).Linger(time.Hour)
+		h.Decide(on("away-mode")).Case("away", true, oikade.Not(anyoneHome)).Default(false)
+		// One that changes as the sensor does, for its history.
+		h.Signal("seen-now", presence)
+	}
 	h.Decide(on("pool-pump")).
 		Limits(oikade.Limits{MinimumOn: 30 * time.Minute, MinimumOff: 15 * time.Minute}).
 		Case("frost", true, poolWater.Below(3)).Linger(30 * time.Minute).

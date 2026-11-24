@@ -112,6 +112,7 @@ home.Flow("everyone-left", closeShutters).When(anyoneHome.Becomes(false))
 - **`Delay` and `Linger`** work as a case's: its conditions must stay true for the `Delay` before it's true, and it stays true for the `Linger` once they're false. Every rule that reads it shares that one timer.
 - **It never waits.** Conditions that can't be worked out, as before a sensor has reported, count as false, so its `Linger` runs out and the rules that read it carry on. Without a `Linger`, it's false for the moment its sensors haven't reported after the host starts, so give one that rides that out.
 - **It survives a restart and a deploy.** The host keeps its value, and when its `Delay` or `Linger` ends, under its name. A new signal, or a renamed one, starts at what its conditions say, which triggers nothing.
+- **`oikade status signal/NAME` says what it is and why,** and `oikade history signal/NAME` when it changed. See [Signals](working-with-a-home.md#signals).
 - **It reads the signals made before it.** The signals are worked out in the order they were made, before any case or flow looks. A `ConditionFunc` in a signal that reads itself or a later one is a mistake: the log says so, and that signal's conditions count as false.
 
 A name used twice, or one that isn't lowercase letters, digits and dashes, fails `oikade check`.

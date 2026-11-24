@@ -22,7 +22,7 @@ type eventMatcher struct {
 	// rules are the rules named, by the key their runs, pauses and calls have, and writers by the ref
 	// their writes are by.
 	rules, writers map[string]bool
-	// refs are the refs events are matched by as they stand: a plugin's.
+	// refs are the refs events are matched by as they stand: a plugin's or a signal's.
 	refs map[string]bool
 	// matter is the bridge: its own events, and what controllers wrote or were refused.
 	matter bool
@@ -152,13 +152,13 @@ func newEventMatcher(f api.EventFilter, h home) (*eventMatcher, error) {
 			for _, n := range had {
 				m.rule(control.CaseKey(n.name, parts[1], parts[2]))
 			}
-		case kind == ident.Plugin:
+		case kind == ident.Plugin, kind == ident.Signal:
 			m.refs[ident.NewRef(kind, parts...).String()] = true
 		case kind == ident.Matter:
 			m.matter = true
 		default:
-			err = fmt.Errorf("%s has no events: they're a device's, a capability's, a room's, a case's, a flow's or a "+
-				"plugin's, or %s's", ref, ident.Matter)
+			err = fmt.Errorf("%s has no events: they're a device's, a capability's, a room's, a case's, a flow's, a "+
+				"signal's or a plugin's, or %s's", ref, ident.Matter)
 		}
 		if err != nil {
 			return nil, err

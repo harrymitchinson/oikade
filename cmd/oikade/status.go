@@ -75,7 +75,7 @@ func status(ctx context.Context, t api.Transport, refs []named, o statusOptions)
 }
 
 // statusRefs is what oikade status is asked about, by ref: a device, a capability, a room, a case, a
-// flow, a plugin or matter. Any other kind is a command typed wrong.
+// flow, a signal, a plugin or matter. Any other kind is a command typed wrong.
 func statusRefs(args []string) ([]named, error) {
 	refs, err := refsOf(args)
 	if err != nil {
@@ -84,10 +84,11 @@ func statusRefs(args []string) ([]named, error) {
 	for _, n := range refs {
 		switch {
 		case n.kind == ident.Device && len(n.parts) > 0, n.kind == ident.Room,
-			n.kind == ident.Case, n.kind == ident.Flow, n.kind == ident.Plugin, n.kind == ident.Matter:
+			n.kind == ident.Case, n.kind == ident.Flow, n.kind == ident.Signal, n.kind == ident.Plugin,
+			n.kind == ident.Matter:
 		default:
 			return nil, cli.UsageErrorf("oikade status doesn't take %s", n.ref).
-				WithHint("oikade status takes a device, a capability, a room, a case, a flow, a plugin or matter")
+				WithHint("oikade status takes a device, a capability, a room, a case, a flow, a signal, a plugin or matter")
 		}
 	}
 	return refs, nil
@@ -154,6 +155,11 @@ func missingFrom(st *api.Status, n named) (what, hint string) {
 		if known && !slices.ContainsFunc(st.Rules, func(r api.Rule) bool { return r.Ref == n.ref }) {
 			return fmt.Sprintf("There's no %s in the running version", n.ref), "oikade status lists its rules"
 		}
+	case ident.Signal:
+		known := st.Home.Process || len(st.Signals) > 0
+		if known && !slices.ContainsFunc(st.Signals, func(s api.Signal) bool { return s.Ref == n.ref }) {
+			return fmt.Sprintf("There's no %s in the running version", n.ref), "oikade list signals lists them"
+		}
 	case ident.Plugin:
 		if !slices.ContainsFunc(st.Plugins, func(p api.Plugin) bool { return p.Name == n.parts[0] }) {
 			return fmt.Sprintf("There's no %s: your home doesn't import it, and it reports no device on record", n.ref),
@@ -204,9 +210,11 @@ func narrowed(st *api.Status, refs []named) *api.Status {
 	if len(refs) == 0 {
 		return st
 	}
-	out := &api.Status{Home: st.Home, Devices: []api.Device{}, Rules: []api.Rule{}, Plugins: []api.Plugin{}}
+	out := &api.Status{
+		Home: st.Home, Devices: []api.Device{}, Rules: []api.Rule{}, Signals: []api.Signal{}, Plugins: []api.Plugin{},
+	}
 	whole, only := map[string]bool{}, map[string][]string{}
-	rules, plugins := map[string]bool{}, map[string]bool{}
+	rules, signals, plugins := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, n := range refs {
 		switch n.kind {
 		case ident.Device:
@@ -225,6 +233,8 @@ func narrowed(st *api.Status, refs []named) *api.Status {
 			}
 		case ident.Case, ident.Flow:
 			rules[n.ref] = true
+		case ident.Signal:
+			signals[n.ref] = true
 		case ident.Plugin:
 			plugins[n.parts[0]] = true
 		case ident.Matter:
@@ -253,6 +263,11 @@ func narrowed(st *api.Status, refs []named) *api.Status {
 	for _, r := range st.Rules {
 		if rules[r.Ref] {
 			out.Rules = append(out.Rules, r)
+		}
+	}
+	for _, s := range st.Signals {
+		if signals[s.Ref] {
+			out.Signals = append(out.Signals, s)
 		}
 	}
 	return out
@@ -313,7 +328,7 @@ func trouble(st *api.Status, refs []named) []string {
 			for _, d := range inRoom(st, n.parts) {
 				named[d.Name] = true
 			}
-		case ident.Case, ident.Flow:
+		case ident.Case, ident.Flow, ident.Signal:
 			if down {
 				add("%s: automations down", n.ref)
 			}
@@ -391,6 +406,12 @@ func printStatus(out, stderr *cli.Printer, st *api.Status, wide bool, now time.T
 	for _, r := range st.Rules {
 		out.Println(ruleLine(r, now))
 	}
+	if len(st.Signals) > 0 {
+		out.Println()
+	}
+	for _, s := range st.Signals {
+		out.Println(signalLine(s, now))
+	}
 }
 
 // printNamed prints what each ref names, in the order given, with a blank line between: a device in
@@ -425,6 +446,10 @@ func printNamed(out, stderr *cli.Printer, st *api.Status, refs []named, events f
 			dropped = append(dropped, more...)
 		case ident.Case, ident.Flow:
 			printRule(out, st, n.ref, now)
+		case ident.Signal:
+			if printSignal(out, st, n.ref, now) {
+				printLastEvents(out, stderr, n.ref, events, now)
+			}
 		case ident.Plugin:
 			more := printPlugin(out, st, n.parts[0], wide, now)
 			dropped = append(dropped, more...)
@@ -485,6 +510,64 @@ func printRule(out *cli.Printer, st *api.Status, ref string, now time.Time) {
 			}
 		}
 	}
+}
+
+// printSignal prints a signal's line, as status does, what its conditions say and the devices it
+// leaves out as dead, and says whether the host has it. One the host can't say it has, as your
+// automations aren't connected, says so.
+func printSignal(out *cli.Printer, st *api.Status, ref string, now time.Time) bool {
+	i := slices.IndexFunc(st.Signals, func(s api.Signal) bool { return s.Ref == ref })
+	if i < 0 {
+		out.Println(ref + "  " +
+			out.Dim("unknown: the host can't say what the signals are while your automations aren't connected"))
+		return false
+	}
+	s := st.Signals[i]
+	out.Println(signalLine(s, now))
+	switch {
+	case automationsDown(st.Home):
+		out.Println("Your automations are down: the host's log says why, and oikade tail shows when they come back.")
+	case s.Why != "":
+		out.Println(upperFirst(s.Why))
+	}
+	if len(s.Dead) > 0 {
+		out.Println("It leaves out " + andList(s.Dead) + ": offline, or quiet past its MaxAge.")
+	}
+	return true
+}
+
+// signalLine is a signal as status lists it: its ref, its value and since when, and when a Delay or
+// Linger running ends.
+func signalLine(s api.Signal, now time.Time) string {
+	if s.Value == nil {
+		return s.Ref + "  not worked out yet"
+	}
+	state := []string{fmt.Sprint(*s.Value)}
+	if s.Since != nil {
+		state[0] += " since " + clock(*s.Since, now)
+	}
+	if s.OnAt != nil {
+		state = append(state, "true at "+upcoming(*s.OnAt, now))
+	}
+	if s.OffAt != nil {
+		state = append(state, "false at "+upcoming(*s.OffAt, now))
+	}
+	return s.Ref + "  " + strings.Join(state, ", ")
+}
+
+// upcoming says when something to come is, and that it has gone by, as when the host is behind.
+func upcoming(t, now time.Time) string {
+	if t.Before(now) {
+		return clock(t, now) + " (passed)"
+	}
+	return clock(t, now)
+}
+
+func upperFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 // printPlugin prints a plugin's ref and what's wrong with it, then its devices a line each, and
@@ -774,12 +857,7 @@ func holdState(r api.Rule, now time.Time) []string {
 	if r.Active == nil {
 		return nil
 	}
-	next := func(t time.Time) string {
-		if t.Before(now) {
-			return clock(t, now) + " (passed)"
-		}
-		return clock(t, now)
-	}
+	next := func(t time.Time) string { return upcoming(t, now) }
 	var state []string
 	switch {
 	case *r.Active && !r.Since.IsZero():

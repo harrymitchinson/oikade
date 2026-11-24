@@ -19,13 +19,14 @@ const verbList = "list"
 const (
 	kindDevices  = "devices"
 	kindRules    = "rules"
+	kindSignals  = "signals"
 	kindPlugins  = "plugins"
 	kindClients  = "clients"
 	kindContexts = "contexts"
 )
 
 // listKinds are the kinds oikade list takes, in the order help gives them.
-var listKinds = []string{kindDevices, kindRules, kindPlugins, kindClients, kindContexts}
+var listKinds = []string{kindDevices, kindRules, kindSignals, kindPlugins, kindClients, kindContexts}
 
 // listKind is the kind a word names, singular or plural.
 func listKind(word string) (string, bool) {
@@ -99,8 +100,11 @@ func runList(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if kind == kindRules {
+	switch kind {
+	case kindRules:
 		return printRules(std.out, std.err, st, o)
+	case kindSignals:
+		return printSignals(std.out, std.err, st, o, now)
 	}
 	return printPlugins(std.out, std.err, st, o)
 }
@@ -214,6 +218,31 @@ func printRules(out, stderr *cli.Printer, st *api.Status, o listOptions) error {
 	}
 	out.Table(table)
 	stderr.Hint("oikade status REF shows what one is doing now")
+	return nil
+}
+
+// printSignals prints the running version's signals, a line each, in the order your home made them,
+// with each one's value and why, or as JSON, the same as oikade status --json has them.
+func printSignals(out, stderr *cli.Printer, st *api.Status, o listOptions, now time.Time) error {
+	if o.json {
+		return printJSON(out, append([]api.Signal{}, st.Signals...))
+	}
+	if len(st.Signals) == 0 {
+		stderr.Println("No signals. home.Signal in your home's code makes one, once oikade deploy runs it.")
+		return nil
+	}
+	table := cli.Table{
+		Columns: []cli.Column{{Header: nameHeader}, {Header: "VALUE"}, {Header: "WHY", Shrink: true}},
+		Wide:    o.wide,
+	}
+	for _, s := range st.Signals {
+		value := strings.TrimPrefix(signalLine(s, now), s.Ref+"  ")
+		table.Rows = append(table.Rows, []string{s.Ref, value, s.Why})
+	}
+	if dropped := out.Table(table); len(dropped) > 0 {
+		stderr.Hint("--wide shows %s", andList(dropped))
+	}
+	stderr.Hint("oikade status signal/NAME says why one is what it is, and what it leaves out")
 	return nil
 }
 

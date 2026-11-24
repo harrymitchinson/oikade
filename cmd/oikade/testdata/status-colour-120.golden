@@ -8,6 +8,9 @@ study-blind  study  position 40%, target-position 40, moving false            we
 
 case/office-ac/on/too-warm  case  active since 13:52
 flow/morning  flow
+
+signal/anyone-home  true since 12:25, false at 2026-11-19 20:00:00
+signal/upstairs  false since 13:52
 --- stderr
 Plugin overkiz: login refused: check overkiz.Local's Token
 Devices with a problem: porch-light. Their STATE says what's wrong.

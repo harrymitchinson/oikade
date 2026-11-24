@@ -29,6 +29,8 @@ type Signal struct {
 	When              Condition
 	OnDelay, OffDelay time.Duration
 	MaxAge            time.Duration
+	// Why, if set, says what When says now, for oikade status. It reads the same Vars.
+	Why func(Vars) string
 }
 
 // SignalState is what a signal needs across a restart.
@@ -55,8 +57,10 @@ type signalState struct {
 	// stopped is why the signal's When couldn't be evaluated at its last look, so each stretch is
 	// logged once. Empty means it could.
 	stopped string
-	// left are the devices with values that its last look left out as dead, by name.
+	// left are the devices with values that its last look left out as dead, by name, and why what
+	// Why said then.
 	left []string
+	why  string
 }
 
 // signals are the engine's signals, in the order they're worked out. Use them with e.mu held.
@@ -122,13 +126,13 @@ func (e *Engine) lookAtSignals(now time.Time, devices *home) (changed []string) 
 	next := now.Truncate(whenEvery).Add(whenEvery)
 	for _, s := range e.signals.list {
 		view, left, aged := devices.forSignal(s.MaxAge, now)
-		e.signalLeftOut(s, left)
 		next = soonest(next, aged)
 		vars := e.conditionVars(now, view)
 		vars[VarSignals] = read
 		on, err := s.When(vars)
 		e.signalStopped(s, err)
 		on = on && err == nil
+		e.signalWhy(s, vars, left)
 		st := e.stepSignal(s, on, now)
 		if st.Value != s.saved.Value && !s.fresh {
 			changed = append(changed, s.Name)
@@ -193,17 +197,27 @@ func (h *home) forSignal(maxAge time.Duration, now time.Time) (view *home, left 
 	return view, left, aged
 }
 
-// signalLeftOut logs a change in the devices a signal leaves out as dead. Call with e.mu held.
-func (e *Engine) signalLeftOut(s *signalState, left []string) {
-	if slices.Equal(left, s.left) {
-		return
+// signalWhy logs a change in the devices a signal leaves out as dead, and tells OnSignalWhy when that
+// or what its conditions say changed. Call with e.mu held.
+func (e *Engine) signalWhy(s *signalState, vars Vars, left []string) {
+	why := ""
+	if s.Why != nil && e.OnSignalWhy != nil {
+		why = s.Why(vars)
 	}
-	if len(left) == 0 {
+	moved := !slices.Equal(left, s.left)
+	switch {
+	case moved && len(left) == 0:
 		e.Log.Info("Counted every Device in Signal again", "signal", signalRef(s.Name))
-	} else {
+	case moved:
 		e.Log.Info("Left dead Devices out of Signal", "signal", signalRef(s.Name), "devices", left)
 	}
-	s.left = left
+	if !moved && why == s.why {
+		return
+	}
+	s.left, s.why = left, why
+	if e.OnSignalWhy != nil {
+		e.OnSignalWhy(s.Name, why, slices.Clone(left))
+	}
 }
 
 // Availability implements driver.Sink: a device going offline has the signals look at once, as

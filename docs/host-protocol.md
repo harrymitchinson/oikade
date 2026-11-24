@@ -107,6 +107,7 @@ Each request has an `id`, and gets a `reply` with the same one. Requests are car
 | `roomReads` | `rule`, `reads` | Every room a hold's `When` has read since the process started, each `room` with its `types`, sent when that grows. The host keeps them for the session, so `oikade forget`, and a deploy's declared rooms and types, can warn when they empty one |
 | `stopped` | `rule`, `stopped` | Why a hold can't tell whether it should be active: its `When` failed, so it keeps its state, or its budget couldn't be planned, so its device stays off. Sent when that changes, with no `stopped` once it can tell again. The host keeps them for the session, for `oikade status` |
 | `whyNot` | `rule`, `whyNot` | Why a case is inactive, as its conditions say, sent when that changes, with none once it's active or can't tell. The host keeps them for the session, for `oikade status` |
+| `signalWhy` | `rule` (the signal's name), `why`, `dead` | What a signal's conditions say now, and the devices it leaves out as dead, by name, sent when either changes. The host keeps them for the session, for `oikade status` |
 | `metrics` | `metrics` | The process's rule metrics in Prometheus's text format, for the host to serve |
 
 ## Plugins
@@ -166,6 +167,7 @@ The host runs a binary as `<binary> check` before it stops anything. That loads 
 |---|---|
 | `protocol` | The protocol version it was built against. One other than the host's rejects the version |
 | `rules` | Each rule, as a `hello`'s `info` has it |
+| `signals` | Its signals, by name, which `oikade status` lists while no process is connected |
 | `plugins` | The plugins the home imports |
 | `control` | Its device settings, as a `hello` has them |
 | `inventory` | The devices it declares, as a `hello` has them |

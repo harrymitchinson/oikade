@@ -44,7 +44,7 @@ func (s *apiServer) unknownRules() string {
 }
 
 func (s *apiServer) status() api.Response {
-	st := &api.Status{Devices: []api.Device{}, Rules: []api.Rule{}, Plugins: []api.Plugin{}}
+	st := &api.Status{Devices: []api.Device{}, Rules: []api.Rule{}, Signals: []api.Signal{}, Plugins: []api.Plugin{}}
 	v, ok, busy := s.deploys.state()
 	if ok {
 		st.Home.Version = v.ID
@@ -132,6 +132,7 @@ func (s *apiServer) status() api.Response {
 		return api.Response{Error: fmt.Sprintf("reading paused rules: %v", err)}
 	}
 	rules, _ := s.rulesInfo()
+	st.Signals = s.signalsStatus()
 	s.srv.mu.Lock()
 	var stopped, whyNot map[string]string
 	if sess := s.srv.session; sess != nil {
@@ -159,6 +160,47 @@ func (s *apiServer) status() api.Response {
 	}
 	slices.SortFunc(st.Rules, func(a, b api.Rule) int { return strings.Compare(a.Name, b.Name) })
 	return api.Response{Status: st}
+}
+
+// signalsStatus are the running version's signals, from its process, or with none connected, from
+// its manifest.
+func (s *apiServer) signalsStatus() []api.Signal {
+	s.srv.mu.Lock()
+	var said map[string]signalSaid
+	signals, connected := []string(nil), false
+	if sess := s.srv.session; sess != nil {
+		said, signals, connected = maps.Clone(sess.said), sess.signals, true
+	}
+	s.srv.mu.Unlock()
+	if !connected {
+		signals = s.deploys.signals()
+	}
+	out := make([]api.Signal, 0, len(signals))
+	for _, name := range signals {
+		out = append(out, s.signalStatus(name, said[name]))
+	}
+	return out
+}
+
+// signalStatus is a signal's state, as the host last saved it, and what it last said of itself.
+func (s *apiServer) signalStatus(name string, said signalSaid) api.Signal {
+	sig := api.Signal{Name: name, Ref: ident.NewRef(ident.Signal, name).String(), Why: said.why}
+	if saved, ok := s.srv.signals.Get(key(name)); ok {
+		value := saved.Value
+		sig.Value = &value
+		sig.Since, sig.OnAt, sig.OffAt = timeOrNil(saved.Since), timeOrNil(saved.OnAt), timeOrNil(saved.OffAt)
+	}
+	for _, d := range said.dead {
+		sig.Dead = append(sig.Dead, ident.DeviceRef(d).String())
+	}
+	return sig
+}
+
+func timeOrNil(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	return &t
 }
 
 // withHold adds a hold's state, as it last saved it, and why it stopped, if it did.

@@ -89,6 +89,7 @@ func aStatus(now time.Time) *api.Status {
 	since := now.Add(-8 * time.Minute)
 	until := now.Add(4 * time.Minute)
 	gone := now.Add(-95 * time.Minute)
+	lingers := now.Add(30 * time.Hour)
 	on, off := true, false
 	return &api.Status{
 		Home: api.Home{Version: "f113018fb81c06e4d5fa3500102bfbc4", Process: true, Since: &since},
@@ -126,6 +127,14 @@ func aStatus(now time.Time) *api.Status {
 				Capability: "on", Case: "too-warm", Active: &on, Since: since,
 			},
 			{Name: "morning", Ref: "flow/morning", Kind: "flow"},
+		},
+		Signals: []api.Signal{
+			{
+				Name: "anyone-home", Ref: "signal/anyone-home", Value: &on, Since: &gone, OffAt: &lingers,
+				Why:  "its conditions are false: group/presence/occupied isn't true on any of them",
+				Dead: []string{"device/landing-sensor"},
+			},
+			{Name: "upstairs", Ref: "signal/upstairs", Value: &off, Since: &since},
 		},
 		Plugins: []api.Plugin{
 			{Name: "ewelink-lan", Ref: "plugin/ewelink-lan", Devices: []string{"porch-light"}},
@@ -181,20 +190,27 @@ func TestStatusFitsTheTerminal(t *testing.T) {
 
 // Each kind of ref status takes has its own view, in the order they're given: a device in full, with
 // its last events, a capability the same, a room's devices, a case and the capability it decides, a
-// flow, a plugin and its devices, and the Matter bridge. A device's view is in full, so its WHY and
-// the bridge's sentences may run past the terminal's width, but the tables fit it.
+// flow, a signal with why and its last events, a plugin and its devices, and the Matter bridge. A
+// device's view is in full, so its WHY and the bridge's sentences may run past the terminal's width,
+// but the tables fit it.
 func TestStatusOfEachKindFitsTheTerminal(t *testing.T) {
 	now := time.Date(2026, 11, 18, 14, 0, 0, 0, time.Local)
 	refs, err := statusRefs([]string{
 		"office-ac", "device/study-blind/position", "room/hall", "case/office-ac/on/too-warm", "flow/morning",
-		"plugin/overkiz", "matter",
+		"signal/anyone-home", "plugin/overkiz", "matter",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	events := func(ref string) ([]api.Event, error) {
-		if ref == "device/office-ac" {
+		switch ref {
+		case "device/office-ac":
 			return officeACEvents(now), nil
+		case "signal/anyone-home":
+			return []api.Event{
+				{Type: api.EventSignal, Ref: ref, Time: now.Add(-50 * time.Hour), Value: false, Previous: true},
+				{Type: api.EventSignal, Ref: ref, Time: now.Add(-95 * time.Minute), Value: true, Previous: false},
+			}, nil
 		}
 		return nil, nil
 	}
