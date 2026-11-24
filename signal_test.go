@@ -40,6 +40,20 @@ func TestCheckRefusesASignalsMistakes(t *testing.T) {
 		"a zero Signal in When": {
 			func(h *Home) { h.Flow("arrived", nothing).When(Signal{}.Becomes(true)) }, "the change at When[0]: a zero Signal",
 		},
+		"another home's Signal in a case": {
+			func(h *Home) {
+				other := NewHome(Options{}).Signal("anyone-home", occupied)
+				h.Decide(towelRail).Case("away", false, Not(other)).Default(true)
+			},
+			"decision towel-rail on reads signal/anyone-home, which is another home's",
+		},
+		"another home's Signal in a flow's If": {
+			func(h *Home) {
+				other := NewHome(Options{}).Signal("anyone-home", occupied)
+				h.Flow("arrived", nothing).When(occupied).If(All(occupied, other))
+			},
+			"flow arrived reads signal/anyone-home, which is another home's",
+		},
 		"another home's Signal in When": {
 			func(h *Home) {
 				other := NewHome(Options{}).Signal("anyone-home", occupied)

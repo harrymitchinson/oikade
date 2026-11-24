@@ -109,7 +109,8 @@ func (e *Engine) lookAtSignals(now time.Time, devices *home) (changed []string) 
 		}
 		return false, fmt.Errorf("no signal %s", name)
 	}
-	next := now.Add(whenEvery)
+	// On the minute, so a signal of a time of day changes on its edge.
+	next := now.Truncate(whenEvery).Add(whenEvery)
 	for _, s := range e.signals.list {
 		vars := e.conditionVars(now, devices)
 		vars[VarSignals] = read

@@ -801,7 +801,8 @@ func (h *Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 	}
 	decided, err := h.compileDecisions()
 	_, signalled := h.compileSignals()
-	errs = append(errs, err, signalled, h.options.check(), h.checkGroups(decided), h.checkInventory())
+	errs = append(errs, err, signalled, h.checkSignalReads(), h.options.check(), h.checkGroups(decided),
+		h.checkInventory())
 	errs = append(errs, h.mistakes...)
 	for _, d := range decided {
 		for _, f := range d.own {

@@ -42,7 +42,8 @@ func (h *Home) Signal(name string, when ...Condition) Signal {
 	return s
 }
 
-// Delay is how long the signal's conditions must stay true before it turns true.
+// Delay is how long the signal's conditions must stay true before it turns true. A new signal, or a
+// renamed one, has no past to wait through, so it starts at what its conditions say.
 func (s Signal) Delay(d time.Duration) Signal {
 	return s.option("Delay", func(sg *madeSignal) { sg.delay = d })
 }
@@ -163,6 +164,54 @@ func (h *Home) compileSignals() ([]engine.Signal, error) {
 		out = append(out, engine.Signal{Name: s.name, When: toEngine(cond), OnDelay: s.delay, OffDelay: s.linger})
 	}
 	return out, errors.Join(errs...)
+}
+
+// signalsRead are the signals c reads, apart from any inside a ConditionFunc, which can't be seen.
+func signalsRead(c Condition) []Signal {
+	switch c := c.(type) {
+	case Signal:
+		return []Signal{c}
+	case anyOf:
+		return signalsReadAll(c)
+	case allOf:
+		return signalsReadAll(c)
+	case not:
+		return signalsRead(c.c)
+	}
+	return nil
+}
+
+func signalsReadAll(cs []Condition) []Signal {
+	out := make([]Signal, 0, len(cs))
+	for _, c := range cs {
+		out = append(out, signalsRead(c)...)
+	}
+	return out
+}
+
+// checkSignalReads refuses a condition that reads a signal this home didn't make, which would fail
+// at every look.
+func (h *Home) checkSignalReads() error {
+	var errs []error
+	refuse := func(what string, cs []Condition) {
+		for _, s := range signalsReadAll(cs) {
+			if s.s != nil && !slices.Contains(h.signals, s.s) {
+				errs = append(errs, fmt.Errorf("%s reads %s, which is another home's", what, s))
+			}
+		}
+	}
+	for _, d := range h.decisions {
+		refuse(d.conditions())
+	}
+	for _, f := range h.flows {
+		if f.cond != nil {
+			refuse("flow "+f.name, []Condition{f.cond})
+		}
+	}
+	for _, s := range h.signals {
+		refuse("signal "+s.name, s.when)
+	}
+	return errors.Join(errs...)
 }
 
 // checkSignalChanges refuses a flow's change of a signal this home didn't make, which would never

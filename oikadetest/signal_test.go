@@ -183,3 +183,17 @@ func TestASignalCantReadItselfOrALaterOne(t *testing.T) {
 	h := oikadetest.New(t, home, oikadetest.Options{Devices: awayDevices(true, nil)})
 	h.ExpectValue(TowelRail, 7)
 }
+
+// A signal is looked at on the minute, so one of a time of day changes on its edge, however far
+// into a minute the home started.
+func TestASignalOfATimeOfDayChangesOnItsEdge(t *testing.T) {
+	home := oikade.NewHome(oikade.Options{})
+	night := home.Signal("night", oikade.Daily("22:00", "06:00"))
+	home.Flow("dusk", setting(LoungeShutter.To(100))).When(night.Becomes(true))
+	start := time.Date(2030, time.January, 7, 21, 0, 30, 0, time.UTC)
+	h := oikadetest.New(t, home, oikadetest.Options{Start: start, Devices: awayDevices(nil, nil)})
+	h.Advance(59*time.Minute + 29*time.Second)
+	h.ExpectValue(LoungeShutter, 0)
+	h.Advance(time.Second)
+	h.ExpectValue(LoungeShutter, 100)
+}
