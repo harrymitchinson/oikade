@@ -221,9 +221,7 @@ func (b *bridge) session(ctx context.Context, connected func()) error {
 		return err
 	}
 	defer func() { _ = stream.Close() }()
-	if err := b.read(ctx, c); err != nil {
-		return err
-	}
+	// Writing starts first, so a write that comes as soon as the devices are reported can go.
 	w := newWriter(b.timing.pace, b.log)
 	var writing sync.WaitGroup
 	writing.Go(func() { w.run(ctx, c) })
@@ -238,6 +236,9 @@ func (b *bridge) session(ctx context.Context, connected func()) error {
 		writing.Wait()
 		w.close()
 	}()
+	if err := b.read(ctx, c); err != nil {
+		return err
+	}
 	b.setProblem(ctx, "")
 	connected()
 	events := newEventReader(stream)
