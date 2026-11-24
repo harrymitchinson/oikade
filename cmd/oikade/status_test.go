@@ -177,7 +177,7 @@ func TestStatusJSONKeepsItsShape(t *testing.T) {
 		return got, strings.Join(slices.Sorted(maps.Keys(got)), " ")
 	}
 	_, whole := keys()
-	if whole != "devices home matter plugins rules" {
+	if whole != "devices home matter plugins rules signals" {
 		t.Errorf("status --json has %s", whole)
 	}
 	got, narrowed := keys("room/hall")

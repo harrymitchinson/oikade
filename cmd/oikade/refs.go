@@ -68,10 +68,11 @@ func eventRefs(command string, args []string) ([]named, error) {
 	for _, n := range refs {
 		switch {
 		case n.kind == ident.Device && len(n.parts) > 0, n.kind == ident.Room, n.kind == ident.Case, n.kind == ident.Flow,
-			n.kind == ident.Plugin, n.kind == ident.Matter:
+			n.kind == ident.Signal, n.kind == ident.Plugin, n.kind == ident.Matter:
 		default:
 			return nil, cli.UsageErrorf("%s has no events", n.ref).
-				WithHint("oikade %s takes a device, a capability, a room, a case, a flow, a plugin or matter", command)
+				WithHint("oikade %s takes a device, a capability, a room, a case, a flow, a signal, a plugin or matter",
+					command)
 		}
 	}
 	return refs, nil

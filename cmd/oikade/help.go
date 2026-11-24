@@ -116,10 +116,10 @@ var groups = []group{
 			Name:    "oikade list",
 			Summary: "What's on record, and how is each set up?",
 			Usage:   []string{"oikade list KIND [--wide] [--all] [--json]"},
-			About: "KIND is devices, rules, plugins, clients or contexts, singular or plural. devices are each " +
+			About: "KIND is devices, rules, signals, plugins, clients or contexts, singular or plural. devices are each " +
 				"device's record: its room, whether it's paired, reserved, forgotten, hidden from Matter or not in your " +
 				"code, what it is, and its plugin, with its hardware and Matter endpoint under --wide, and the forgotten " +
-				"ones under --all. contexts " +
+				"ones under --all. signals are each signal's value and why. contexts " +
 				"are the hosts this machine has logged in to, with the current one marked. --json prints an array, each " +
 				"with its ref. oikade status says what each is doing now.",
 			Example: []string{"oikade list devices --wide", "oikade list clients"},
@@ -131,7 +131,8 @@ var groups = []group{
 			About: "With no REF, it shows your home's version, what's left to set up, each device's values and the " +
 				"rules. REF shows one thing in full: a device (device/office-ac, or its name alone), with why each value " +
 				"is what it is and its last 10 events, a capability (device/office-ac/on), a room's devices (room/hall), " +
-				"a case or a flow (flow/morning), a plugin and its devices (plugin/overkiz), or matter, the Matter bridge. " +
+				"a case or a flow (flow/morning), a signal's value, why, and when its Delay or Linger ends " +
+				"(signal/anyone-home), a plugin and its devices (plugin/overkiz), or matter, the Matter bridge. " +
 				"--check exits 1 if something a command fixes is wrong: no home deployed, the Matter bridge down, a plugin " +
 				"with a problem or that needs setup, a device with a problem or whose plugin isn't " +
 				"imported, or automations down. A device that's only offline counts if you name it or its room.",
@@ -142,7 +143,8 @@ var groups = []group{
 			Summary: "What did your home do, and why?",
 			Usage:   []string{"oikade history [REF...] [--since WHEN] [--until WHEN] [--json]"},
 			About: "REF narrows it to a device (device/porch-light, or its name alone), a capability " +
-				"(device/porch-light/on), a room (room/hall), a case or a flow (flow/morning), a plugin (plugin/overkiz) or " +
+				"(device/porch-light/on), a room (room/hall), a case or a flow (flow/morning), a signal's changes " +
+				"(signal/anyone-home), a plugin (plugin/overkiz) or " +
 				"matter, the Matter bridge. A write says who made it: a rule, matter for a controller, or command for " +
 				"oikade set. WHEN is how long ago (24h, 90m, 3d), a time of day (03:00, the last one), or a date and time " +
 				"(\"2026-11-18 03:00\"). The host keeps 14 days, unless its --event-log-age says otherwise.",

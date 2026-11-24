@@ -1,0 +1,8 @@
+NAME                VALUE                                           WHY
+signal/anyone-home  true since 12:55, false at 2026-11-19 20:30:00  its conditi…
+signal/upstairs     false since 14:22
+--- stderr
+Hint: oikade status signal/NAME says why one is what it is, and what it leaves out
+--- none
+--- stderr
+No signals. home.Signal in your home's code makes one, once oikade deploy runs it.

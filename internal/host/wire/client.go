@@ -186,6 +186,13 @@ func (c *Client) Stopped(rule, why string) {
 	}
 }
 
+// SignalWhy tells the host what a signal's conditions say now, and the devices it leaves out as dead.
+func (c *Client) SignalWhy(name, why string, dead []string) {
+	if err := c.conn.Write(Message{Type: TypeSignalWhy, Rule: name, Why: why, Dead: dead}); err != nil {
+		c.fail(err)
+	}
+}
+
 // WhyNot tells the host why a case is inactive, or "" once it isn't, or can't tell.
 func (c *Client) WhyNot(rule, why string) {
 	if err := c.conn.Write(Message{Type: TypeWhyNot, Rule: rule, WhyNot: why}); err != nil {

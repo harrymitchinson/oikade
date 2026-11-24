@@ -91,6 +91,9 @@ type Engine struct {
 	// OnSignal, if set, is called with e.mu held when a signal's value changes, with its new state. It
 	// must not block.
 	OnSignal func(name string, st SignalState)
+	// OnSignalWhy, if set, is called with e.mu held when what a signal's conditions say changed, as its
+	// Why says, or the devices it leaves out as dead did, by name. It must not block.
+	OnSignalWhy func(name, why string, dead []string)
 	// Arbitration, if set, takes this engine's claims, and it runs no arbiters itself.
 	Arbitration Arbitration
 	// ControlMetrics, if set, gets the winning level of each arbitrated capability.

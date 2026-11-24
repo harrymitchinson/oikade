@@ -29,6 +29,15 @@ device/office-ac/on is true: case/office-ac/on/too-warm wants true, on for its M
 
 flow/morning  flow
 
+signal/anyone-home  true since 12:25, false at 2026-11-19 20:00:00
+Its conditions are false: group/presence/occupied isn't true on any of them
+It leaves out device/landing-sensor: offline, or quiet past its MaxAge.
+
+Mon 16 Nov
+12:00:00  signal/anyone-home  false  was true
+Wed 18 Nov, today
+12:25:00  signal/anyone-home  true  was false
+
 plugin/overkiz: login refused: check overkiz.Local's Token
 NAME         ROOM   VALUES                                          STATE
 study-blind  study  position 40%, target-position 40, moving false  went offline today 12:25

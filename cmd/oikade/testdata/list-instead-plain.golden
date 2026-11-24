@@ -40,7 +40,7 @@ exit 2
 
 $ oikade ls
 Error: oikade has no ls command
-Hint: oikade list KIND lists devices, rules, plugins, clients or contexts
+Hint: oikade list KIND lists devices, rules, signals, plugins, clients or contexts
 exit 2
 
 $ oikade get

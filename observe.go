@@ -79,6 +79,17 @@ func observe(ctx context.Context, eng *engine.Engine, client *wire.Client) func(
 		default:
 		}
 	}
+	// signalWhy keeps what each signal last said until it's sent, as whyNot does.
+	signalWhy := map[string]wire.Message{}
+	eng.OnSignalWhy = func(name, why string, dead []string) {
+		readsMu.Lock()
+		signalWhy[name] = wire.Message{Why: why, Dead: dead}
+		readsMu.Unlock()
+		select {
+		case readsWaiting <- struct{}{}:
+		default:
+		}
+	}
 	return func() {
 		tick := time.NewTicker(metricsEvery)
 		defer tick.Stop()
@@ -92,8 +103,9 @@ func observe(ctx context.Context, eng *engine.Engine, client *wire.Client) func(
 				client.RuleRun(r.rule, r.result, r.at)
 			case <-readsWaiting:
 				readsMu.Lock()
-				waiting, why, not := reads, stopped, whyNot
+				waiting, why, not, said := reads, stopped, whyNot, signalWhy
 				reads, stopped, whyNot = map[string][]engine.RoomRead{}, map[string]string{}, map[string]string{}
+				signalWhy = map[string]wire.Message{}
 				readsMu.Unlock()
 				for _, rule := range slices.Sorted(maps.Keys(waiting)) {
 					client.RoomReads(rule, waiting[rule])
@@ -103,6 +115,9 @@ func observe(ctx context.Context, eng *engine.Engine, client *wire.Client) func(
 				}
 				for _, rule := range slices.Sorted(maps.Keys(not)) {
 					client.WhyNot(rule, not[rule])
+				}
+				for _, name := range slices.Sorted(maps.Keys(said)) {
+					client.SignalWhy(name, said[name].Why, said[name].Dead)
 				}
 			case <-tick.C:
 				var text bytes.Buffer

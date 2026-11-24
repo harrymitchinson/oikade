@@ -878,6 +878,9 @@ func (h *Home) manifest() wire.Manifest {
 	for _, r := range h.flows {
 		m.Rules = append(m.Rules, wire.RuleInfo{Name: r.name, Kind: wire.KindFlow, Safety: flowSafety(decided, r.name)})
 	}
+	for _, s := range h.signals {
+		m.Signals = append(m.Signals, s.name)
+	}
 	for _, p := range h.plugins {
 		m.Plugins = append(m.Plugins, p.name)
 	}

@@ -553,6 +553,20 @@ func (d *deployer) rules() (rules []wire.RuleInfo, known, none bool) {
 	return v.Manifest.Rules, true, false
 }
 
+// signals returns the running version's signals, by name, unless a deploy or a rollback has it in
+// flux.
+func (d *deployer) signals() []string {
+	if !d.mu.TryLock() {
+		return nil
+	}
+	defer d.mu.Unlock()
+	v, ok := d.versions.current()
+	if !ok {
+		return nil
+	}
+	return v.Manifest.Signals
+}
+
 // state returns the running version, unless a deploy or a rollback has it in flux, and whether one
 // is under way, from the one look at the lock so that the two agree.
 func (d *deployer) state() (v version, ok, busy bool) {

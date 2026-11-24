@@ -230,6 +230,11 @@ func describe(e api.Event) (what, cause string) {
 			cause = "fabric " + valueText("", e.Value)
 		}
 		return e.Message, cause
+	case api.EventSignal:
+		if e.Previous != nil {
+			cause = "was " + value(e.Previous)
+		}
+		return value(e.Value), cause
 	case api.EventForget:
 		return "forgotten", ""
 	case api.EventRename:
