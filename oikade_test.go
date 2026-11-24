@@ -834,6 +834,24 @@ func TestHomeChecksDecisionsAndBudgets(t *testing.T) {
 			pumped(func(d *Decision[bool]) { d.Case("a", true, when).Linger(0).Linger(time.Minute).Default(false) }),
 			`Case "a": Linger is given twice`,
 		},
+		"LingerUntil with no case": {
+			pumped(func(d *Decision[bool]) { d.Flows().LingerUntil("00:00").Default(false) }),
+			"LingerUntil needs a Case before it",
+		},
+		"LingerUntil twice": {
+			pumped(func(d *Decision[bool]) {
+				d.Case("a", true, when).LingerUntil("00:00").LingerUntil("06:00").Default(false)
+			}),
+			`Case "a": LingerUntil is given twice`,
+		},
+		"a LingerUntil that isn't a time": {
+			pumped(func(d *Decision[bool]) { d.Case("a", true, when).LingerUntil("25:00").Default(false) }),
+			`Case "a": LingerUntil: time "25:00" is not HH:MM`,
+		},
+		"a LingerUntil sunset with no location": {
+			pumped(func(d *Decision[bool]) { d.Case("a", true, when).LingerUntil(Sunset(0)).Default(false) }),
+			`Case "a": LingerUntil: a sunrise or sunset needs the home's location`,
+		},
 		"a negative Delay": {
 			pumped(func(d *Decision[bool]) { d.Case("a", true, when).Delay(-time.Minute).Default(false) }),
 			"Delay -1m0s must not be negative",

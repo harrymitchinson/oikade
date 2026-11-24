@@ -26,7 +26,9 @@ type hold struct {
 	// when is nil when the hold has no when.
 	when              Condition
 	onDelay, offDelay time.Duration
-	latch             bool
+	// offUntil is nil when an off delay ends as it runs out.
+	offUntil *timeTrigger
+	latch    bool
 	// until is nil when the latch ends only with a release.
 	until Condition
 	// whyNot is nil when the hold can't say why it's inactive.
@@ -82,6 +84,27 @@ func (w *window) endAfter(start time.Time, loc *time.Location, suns *sunCache) (
 		}
 	}
 	return time.Time{}, false
+}
+
+// untilSlack is how long before an off delay's end an offUntil counts as come, since a look at a
+// window's end runs a moment after it: a window that ends at the offUntil ends the hold there, not
+// a day later.
+const untilSlack = time.Second
+
+// lingers reports whether an off delay runs once the hold's condition is false.
+func (h *hold) lingers() bool { return h.offDelay > 0 || h.offUntil != nil }
+
+// offAt is when an off delay that starts at now ends: after offDelay, and then at the next
+// offUntil, if there's one within a week.
+func (h *hold) offAt(now time.Time, loc *time.Location, suns *sunCache) time.Time {
+	end := now.Add(h.offDelay)
+	if h.offUntil == nil {
+		return end
+	}
+	if at, ok := h.offUntil.after(end.Add(-untilSlack), loc, suns); ok {
+		return at
+	}
+	return end
 }
 
 // writableValue validates a value for a writable capability. It's encoded first, so a Go int and
