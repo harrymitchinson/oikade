@@ -47,7 +47,7 @@ const (
 // Vars are what a condition sees: "devices", each device's capability values by name; "members",
 // each device's hub.Member by name, for reading a room; "now", a time.Time; "tz", the household's
 // IANA timezone, and "location", the same as a *time.Location; "site", the *sun.Site sun times are
-// for, or nil; and for a flow's trigger, "trigger".
+// for, or nil; VarSignals, what it reads a signal by; and for a flow's trigger, "trigger".
 type Vars = map[string]any
 
 // Condition is a rule's condition. An error means it can't be evaluated yet, as before a device it
@@ -103,7 +103,8 @@ func checkDays(days []time.Weekday) error {
 	return nil
 }
 
-// Change fires when a capability changes on a device, or on any device in a room.
+// Change fires when a capability changes on a device, or on any device in a room, or when a signal
+// changes.
 type Change struct {
 	Device string
 	Room   string
@@ -111,11 +112,16 @@ type Change struct {
 	// device in the room.
 	DeviceTypes []devicetype.Type
 	Capability  string
+	// Signal names a signal, in place of a device's or a room's capability.
+	Signal string
 	// To, if set, fires only on a change to this value.
 	To any
 }
 
 func (c Change) check() []error {
+	if c.Signal != "" {
+		return c.checkSignal()
+	}
 	var errs []error
 	if (c.Device == "") == (c.Room == "") {
 		errs = append(errs, errors.New("exactly one of device or room is required"))
@@ -129,6 +135,17 @@ func (c Change) check() []error {
 		if _, err := capability.Validate(c.Capability, c.To); err != nil {
 			errs = append(errs, fmt.Errorf("a change to %v: %w", c.To, err))
 		}
+	}
+	return errs
+}
+
+func (c Change) checkSignal() []error {
+	var errs []error
+	if c.Device != "" || c.Room != "" || c.Capability != "" || len(c.DeviceTypes) > 0 {
+		errs = append(errs, errors.New("a signal's change names no device, room or capability"))
+	}
+	if _, ok := c.To.(bool); c.To != nil && !ok {
+		errs = append(errs, fmt.Errorf("a signal's change to %v: a signal is true or false", c.To))
 	}
 	return errs
 }

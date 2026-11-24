@@ -44,6 +44,7 @@ type Client struct {
 	pending  map[uint64]chan Message
 	holds    map[string]engine.HoldState
 	averages map[string]engine.AverageState
+	signals  map[string]engine.SignalState
 
 	done chan struct{}
 	once sync.Once
@@ -103,6 +104,10 @@ func DialHello(ctx context.Context, socket string, hello Message) (*Client, Mess
 	c.averages = welcome.AverageStates
 	if c.averages == nil {
 		c.averages = map[string]engine.AverageState{}
+	}
+	c.signals = welcome.SignalStates
+	if c.signals == nil {
+		c.signals = map[string]engine.SignalState{}
 	}
 	if c.holds == nil {
 		c.holds = map[string]engine.HoldState{}
@@ -365,5 +370,38 @@ func (a clientAverages) Delete(_ context.Context, key ident.ID) error {
 	a.c.mu.Lock()
 	defer a.c.mu.Unlock()
 	delete(a.c.averages, key.Name)
+	return nil
+}
+
+// Signals is the engine's SignalStates, kept on the host as holds are.
+func (c *Client) Signals() engine.SignalStates { return clientSignals{c} }
+
+type clientSignals struct{ c *Client }
+
+// Get implements engine.SignalStates from what the Welcome returned and what's been saved since.
+func (s clientSignals) Get(key ident.ID) (engine.SignalState, bool) {
+	s.c.mu.Lock()
+	defer s.c.mu.Unlock()
+	st, ok := s.c.signals[key.Name]
+	return st, ok
+}
+
+// Put implements engine.SignalStates. It returns once the state is on the host's disk.
+func (s clientSignals) Put(ctx context.Context, key ident.ID, st engine.SignalState) error {
+	if _, err := s.c.request(ctx, Message{Type: TypeSaveSignal, Rule: key.Name, Signal: &st}); err != nil {
+		return err
+	}
+	s.c.mu.Lock()
+	defer s.c.mu.Unlock()
+	s.c.signals[key.Name] = st
+	return nil
+}
+
+// Delete implements engine.SignalStates. A signal the home no longer makes is left on the host, as
+// an average is.
+func (s clientSignals) Delete(_ context.Context, key ident.ID) error {
+	s.c.mu.Lock()
+	defer s.c.mu.Unlock()
+	delete(s.c.signals, key.Name)
 	return nil
 }

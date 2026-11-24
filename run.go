@@ -83,8 +83,15 @@ func runAutomations(ctx context.Context, h *Home, rules []*engine.Compiled, flow
 	for _, a := range averaged {
 		averageNames = append(averageNames, a.Key().Name)
 	}
+	// compile has checked them.
+	signals, _ := h.compileSignals()
+	signalNames := make([]string, 0, len(signals))
+	for _, s := range signals {
+		signalNames = append(signalNames, s.Name)
+	}
 	client, welcome, err := wire.DialHello(dial, socket, wire.Message{
-		Rules: names, Averages: averageNames, Info: h.manifest().Rules, Control: settings, MatterName: h.options.MatterName,
+		Rules: names, Averages: averageNames, Signals: signalNames, Info: h.manifest().Rules, Control: settings,
+		MatterName:       h.options.MatterName,
 		HiddenFromMatter: h.hiddenFromMatter(),
 		Inventory:        h.inventory(),
 	})
@@ -106,7 +113,7 @@ func runAutomations(ctx context.Context, h *Home, rules []*engine.Compiled, flow
 	}
 	eng := &engine.Engine{
 		Store: mirror, Setter: driver.SetterFunc(client.Set), States: client, Arbitration: client,
-		Averages: averaged, AverageStates: client.Averages(),
+		Averages: averaged, AverageStates: client.Averages(), Signals: signals, SignalStates: client.Signals(),
 		Site: h.options.site(), Log: log.With("logger", "automations"),
 		// A budget has no Rule to show this on, so the log is where you find it.
 		OnBudget: func(key ident.ID, r engine.BudgetReport) {
@@ -260,8 +267,10 @@ func (h *Home) simulated() (simhome.Home, error) {
 	if err != nil {
 		return simhome.Home{}, err
 	}
+	signals, _ := h.compileSignals()
 	return simhome.Home{
-		Compile: h.compile, Control: settings, Site: h.options.site(), Averages: averagesUsed, Inventory: h.inventory(),
+		Compile: h.compile, Control: settings, Site: h.options.site(), Averages: averagesUsed, Signals: signals,
+		Inventory: h.inventory(),
 	}, nil
 }
 

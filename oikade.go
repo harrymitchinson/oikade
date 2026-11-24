@@ -51,6 +51,8 @@ type Snapshot struct {
 	site     *sun.Site
 	// reads collects the rooms a condition reads, for the engine. Nil means nobody asked.
 	reads *[]engine.RoomRead
+	// signal reads a signal's value, and is nil where there are none.
+	signal func(name string) (bool, error)
 }
 
 // notReported ends a condition that read a value nobody has reported yet.
@@ -204,6 +206,7 @@ func evaluate(v engine.Vars, f func(Snapshot)) (err error) {
 	}
 	site, _ := v["site"].(*sun.Site)
 	reads, _ := v[engine.VarRoomReads].(*[]engine.RoomRead)
+	readSignal, _ := v[engine.VarSignals].(func(string) (bool, error))
 	defer func() {
 		r := recover()
 		if r == nil {
@@ -230,7 +233,9 @@ func evaluate(v engine.Vars, f func(Snapshot)) (err error) {
 		}
 		panic(r)
 	}()
-	f(Snapshot{devices: devices, members: members, now: now, location: location, site: site, reads: reads})
+	f(Snapshot{
+		devices: devices, members: members, now: now, location: location, site: site, reads: reads, signal: readSignal,
+	})
 	return nil
 }
 
@@ -687,7 +692,8 @@ func (l Location) site() *sun.Site {
 	return &sun.Site{Latitude: l.latitude, Longitude: l.longitude}
 }
 
-// Home is a home's automations. NewHome makes one, and Decide, Flow, Plugin and Device add to it.
+// Home is a home's automations. NewHome makes one, and Decide, Flow, Signal, Plugin and Device add to
+// it.
 type Home struct {
 	options   Options
 	decisions []decider
@@ -695,6 +701,7 @@ type Home struct {
 	// mistakes are those made adding a group or room, which oikade check reports.
 	mistakes []error
 	flows    []*Flow
+	signals  []*madeSignal
 	plugins  []*Plugin
 	// declared are the devices the home declares, from Device.
 	declared []*Declaration
@@ -793,7 +800,8 @@ func (h *Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 		rules = append(rules, c)
 	}
 	decided, err := h.compileDecisions()
-	errs = append(errs, err, h.options.check(), h.checkGroups(decided), h.checkInventory())
+	_, signalled := h.compileSignals()
+	errs = append(errs, err, signalled, h.options.check(), h.checkGroups(decided), h.checkInventory())
 	errs = append(errs, h.mistakes...)
 	for _, d := range decided {
 		for _, f := range d.own {
@@ -820,8 +828,8 @@ func (h *Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 		f := r.toFlow(name(r.name), h.options, decided)
 		flows[r.name] = f
 		c, err := engine.NewFlow(f.Key, r.toEngine(f))
-		add(r.name, c, errors.Join(err, r.once.err(), nilChange(r.on), needsLocation(h.options, r.at...),
-			checkCondition(r.cond, h.options)))
+		add(r.name, c, errors.Join(err, r.once.err(), nilChange(r.on), h.checkSignalChanges(r.on),
+			needsLocation(h.options, r.at...), checkCondition(r.cond, h.options)))
 	}
 	plugins := map[string]bool{}
 	for _, p := range h.plugins {
@@ -918,7 +926,7 @@ func nilChange(on []Change) error {
 			errs = append(errs, fmt.Errorf("the change at When[%d] is an average, "+
 				"which never changes as a reading does: give the reading", i))
 		}
-		if err := checkGroup(c.handle()); err != nil {
+		if err := c.checkChange(); err != nil {
 			errs = append(errs, fmt.Errorf("the change at When[%d]: %w", i, err))
 		}
 	}

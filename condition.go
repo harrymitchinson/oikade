@@ -15,7 +15,7 @@ import (
 )
 
 // Condition is something true or false about the home now. A Bool is one, as are a Number's Above,
-// Below and Within, Daily, Yearly, Any, All and Not of others, and a ConditionFunc. A condition that
+// Below and Within, Daily, Yearly, Any, All and Not of others, a Signal and a ConditionFunc. A condition that
 // reads a value nobody has reported yet stops there: a case keeps its state, and a flow's If doesn't
 // let it run.
 //
@@ -506,6 +506,8 @@ func label(c Condition) string {
 		return "not(" + label(c.c) + ")"
 	case funcCondition:
 		return c.label
+	case Signal:
+		return c.String()
 	}
 	return fmt.Sprintf("%T", c)
 }

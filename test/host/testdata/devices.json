@@ -10,6 +10,8 @@
   {"name": "siren", "capabilities": ["on"], "values": {"on": false}},
   {"name": "entry-sensor", "capabilities": ["occupied"], "values": {"occupied": false}},
   {"name": "entry-light", "capabilities": ["on"], "values": {"on": false}},
+  {"name": "presence-sensor", "capabilities": ["occupied"], "values": {"occupied": true}},
+  {"name": "away-mode", "capabilities": ["on"], "values": {"on": false}},
   {"name": "pool-water", "capabilities": ["temperature"], "values": {"temperature": 12}},
   {"name": "pool-pump", "capabilities": ["on"], "values": {"on": false}},
   {"name": "garage-sensor", "capabilities": ["temperature"], "values": {"temperature": 20}},
