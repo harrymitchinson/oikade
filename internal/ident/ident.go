@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 // ID names a Device, rule or plugin. The host's store keeps saved state under its String form, so
@@ -70,8 +72,9 @@ func CheckName(k Kind, name string) error {
 }
 
 // Slug makes a name of kind k that follows the rule from what an app calls something, such as
-// "living-room" from "Living Room". It starts with the kind if what's left doesn't start with a
-// letter, and is empty if s has no letters or digits.
+// "living-room" from "Living Room" or "entree" from "Entrée". It starts with the kind if what's left
+// doesn't start with a letter, and is empty if s has no digits and no letters it can spell in a to z,
+// such as a name in Cyrillic.
 func Slug(k Kind, s string) string {
 	slug := dashed(s)
 	if slug == "" {
@@ -83,14 +86,22 @@ func Slug(k Kind, s string) string {
 	return strings.TrimRight(slug[:min(len(slug), MaxName)], "-")
 }
 
-// dashed is s in lowercase letters and digits, with a dash for each run of anything else between
-// them.
+// unsplit spells the letters that Unicode doesn't split into a letter and an accent.
+var unsplit = map[rune]string{
+	'œ': "oe", 'æ': "ae", 'ß': "ss", 'ø': "o", 'ł': "l", 'đ': "d", 'ð': "d", 'þ': "th", 'ı': "i", 'ħ': "h", 'ŧ': "t",
+}
+
+// dashed is s in lowercase letters and digits, each letter without its accent, with a dash for each
+// run of anything else between them.
 func dashed(s string) string {
 	var b strings.Builder
-	for _, c := range strings.ToLower(s) {
+	for _, c := range strings.ToLower(norm.NFKD.String(s)) {
 		switch {
 		case c >= 'a' && c <= 'z', c >= '0' && c <= '9':
 			b.WriteRune(c)
+		case unsplit[c] != "":
+			b.WriteString(unsplit[c])
+		case unicode.Is(unicode.Mn, c):
 		case b.Len() > 0 && !strings.HasSuffix(b.String(), "-"):
 			b.WriteByte('-')
 		}

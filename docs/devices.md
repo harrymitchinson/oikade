@@ -89,7 +89,7 @@ Every name Oikade owns follows one rule: lowercase letters, digits and single da
 
 `oikade check` refuses a name in your code that doesn't follow the rule, and `oikade-host add` and `--outside-plugins` refuse one on the command line. Each suggests a name that would do: `"Living Room" isn't a room name: use lowercase letters, digits and single dashes, starting with a letter, such as "living-room"`.
 
-Nothing rewrites a name you wrote. A name copied from an app is made into one instead, and `oikade list devices --json` keeps the app's own as `appName` and `appRoom`.
+Nothing rewrites a name you wrote. A name copied from an app is made into one instead: a letter with an accent becomes its letter, and each run of anything that's still not `a` to `z` or `0` to `9` a dash, so the app's `Entrée détecteur` is `entree-detecteur`. `oikade list devices --json` keeps the app's own as `appName` and `appRoom`.
 
 ## Refs
 
