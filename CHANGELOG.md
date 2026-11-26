@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.2.0-alpha.5](https://github.com/harrymitchinson/oikade/compare/v0.2.0-alpha.4...v0.2.0-alpha.5) (2026-11-26)
+
+
+### Features
+
+* **cli:** signals in oikade status, list, history and tail ([#440](https://github.com/harrymitchinson/oikade/issues/440)) ([381ce51](https://github.com/harrymitchinson/oikade/commit/381ce51a76da05a5210fe92e8847f29d4cd982f4))
+* **engine:** a budget counts the minutes it misses ([#443](https://github.com/harrymitchinson/oikade/issues/443)) ([2e315df](https://github.com/harrymitchinson/oikade/commit/2e315df25d69e1ae8b03e445fbbe31080fb7a616))
+* **engine:** a budget makes up what it missed, the same day ([#444](https://github.com/harrymitchinson/oikade/issues/444)) ([4c2b3e5](https://github.com/harrymitchinson/oikade/commit/4c2b3e5fa501110460738f5109ad7d93d846dcaf))
+* **hue:** oikade setup hue asks for a key once the link button is pressed ([#437](https://github.com/harrymitchinson/oikade/issues/437)) ([3b8bb5a](https://github.com/harrymitchinson/oikade/commit/3b8bb5ac8941bbcf1e35cb3b687139ec9e22a076))
+* **hue:** read a Hue bridge's lights and motion sensors ([#434](https://github.com/harrymitchinson/oikade/issues/434)) ([128df09](https://github.com/harrymitchinson/oikade/commit/128df09c592202bcac4b12f6d926ace1e8b6074a))
+* **hue:** turn a light on and off, and set its brightness ([#436](https://github.com/harrymitchinson/oikade/issues/436)) ([4761585](https://github.com/harrymitchinson/oikade/commit/47615854d6ebad4bf3990f7d32815fc224428f5e))
+* LingerUntil keeps a signal or a case true until a time of day ([#441](https://github.com/harrymitchinson/oikade/issues/441)) ([9cda292](https://github.com/harrymitchinson/oikade/commit/9cda292f731836a73f78f531ba34320eab7e7c67))
+* **oikade:** a signal leaves out dead sensors, offline or past its MaxAge ([#439](https://github.com/harrymitchinson/oikade/issues/439)) ([6af1a77](https://github.com/harrymitchinson/oikade/commit/6af1a772d6344cd4d6bc907d27d9376c98ef2e3e))
+* **oikade:** signals, a Bool worked out once from conditions that every rule reads ([#438](https://github.com/harrymitchinson/oikade/issues/438)) ([ea116e9](https://github.com/harrymitchinson/oikade/commit/ea116e96b58163d0684b6df8763164e674eeab3d))
+
+
+### Bug Fixes
+
+* **engine:** hold a write for a device that's offline, and make it when it's back ([#442](https://github.com/harrymitchinson/oikade/issues/442)) ([5da88e1](https://github.com/harrymitchinson/oikade/commit/5da88e1659de9b68df44b2d1fc08f60930d99102))
+
 ## [0.2.0-alpha.4](https://github.com/harrymitchinson/oikade/compare/v0.2.0-alpha.3...v0.2.0-alpha.4) (2026-11-21)
 
 
