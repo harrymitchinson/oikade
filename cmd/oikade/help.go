@@ -61,7 +61,7 @@ var groups = []group{
 		{
 			Name:    "oikade dev",
 			Summary: "Run your home against simulated devices.",
-			Usage:   []string{"oikade dev [--module DIR] [--types FILE] [--env-file FILE]"},
+			Usage:   []string{"oikade dev [--module DIR] [--env-file FILE]"},
 			About: "Your code gets your values, from the .env beside your go.mod and the environment, which " +
 				"wins, as it gets them on the host.",
 			Example: []string{"oikade dev", "oikade dev --env-file test-host.env"},
@@ -69,17 +69,18 @@ var groups = []group{
 		{
 			Name:    "oikade replay",
 			Summary: "Compare what your code would have done with what the host did.",
-			Usage:   []string{"oikade replay [--module DIR] [--types FILE] [--since DURATION] [--json]"},
+			Usage:   []string{"oikade replay [--module DIR] [--since DURATION] [--json]"},
 			About: "It fetches the host's event log, runs your local code against it on a fake clock, and " +
 				"compares. It asks the host only for its status and its log.",
 			Example: []string{"oikade replay --since 24h"},
 		},
 		{
 			Name:    "oikade types",
-			Summary: "Write devices.go, with a Go handle for each of the host's devices.",
+			Summary: "Add the devices your code doesn't have yet to devices.go.",
 			Usage:   []string{"oikade types [--out FILE] [--package NAME] [--module DIR]"},
-			About: "Devices are named as your home declares them once it's deployed, so a name you've just " +
-				"declared has its handle at once. Commit the file: a home builds without a host.",
+			About: "Each is named from its app's name, in its app's room, and it never changes a line " +
+				"that's there, so rename, move and retype your devices in the file. Commit it: a home " +
+				"builds without a host.",
 			Example: []string{"oikade types --out - | less"},
 		},
 	}},

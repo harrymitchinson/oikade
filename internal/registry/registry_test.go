@@ -2,8 +2,6 @@ package registry
 
 import (
 	"bytes"
-	"go/parser"
-	"go/token"
 	"slices"
 	"strings"
 	"testing"
@@ -189,109 +187,6 @@ func TestAFailedSaveChangesNothing(t *testing.T) {
 	}
 	if list := r.List(); list.Next != FirstEndpoint+1 || len(list.Devices) != 1 {
 		t.Errorf("took up a change it couldn't save: %+v", list)
-	}
-}
-
-func TestRenderIsDeterministicAndValidGo(t *testing.T) {
-	r, _ := open(t)
-	report(t, r, "z", "zebra-lamp")
-	report(t, r, "a", "apple-lamp")
-	if _, _, err := r.Report(Report{ID: "p", Driver: "sim", Name: "Side\nconst Evil = 1\n", Room: "Front\nconst Evil = 1\n"}); err != nil {
-		t.Fatal(err)
-	}
-	declareOK(t, r, Declaration{Name: "porch", Room: new("front")})
-	first, err := Render(r.List(), "home")
-	if err != nil {
-		t.Fatal(err)
-	}
-	shuffled := r.List()
-	slices.Reverse(shuffled.Devices)
-	second, err := Render(shuffled, "home")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(first, second) {
-		t.Errorf("two renders differ:\n%s\n%s", first, second)
-	}
-	f, err := parser.ParseFile(token.NewFileSet(), "devices.go", first, parser.ParseComments)
-	if err != nil {
-		t.Fatalf("%v\n%s", err, first)
-	}
-	if f.Name.Name != "home" {
-		t.Errorf("package %s", f.Name.Name)
-	}
-	if strings.Contains(string(first), "\nconst Evil") {
-		t.Errorf("a room wrote code:\n%s", first)
-	}
-	// Each handle has its device's key: a simulated device's ID, here.
-	for _, want := range []string{
-		"var AppleLamp = struct", "AppleLamp is apple-lamp", `Key: "a"`, "var ZebraLamp = struct",
-		`On:       oikade.Bool{Device: "z", Capability: oikade.On}`,
-		"var Porch = struct {\n\toikade.Hardware\n}{\n\tHardware: oikade.Hardware{Key: \"porch\"},\n}", "reserved",
-	} {
-		if !strings.Contains(string(first), want) {
-			t.Errorf("no %q in:\n%s", want, first)
-		}
-	}
-}
-
-func TestRenderCleansWhatAnAppReports(t *testing.T) {
-	file, err := Render(Snapshot{Next: 3, Devices: []Device{{
-		Name: "lamp", Room: "Hall\nconst Evil = 1", Capabilities: []string{"a\nvar X = 2"}, Endpoint: 2,
-	}}}, "main")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(file), "\nconst Evil") || strings.Contains(string(file), "\nvar X") {
-		t.Errorf("wrote code:\n%s", file)
-	}
-}
-
-func TestRenderLeavesOutRemovedDevices(t *testing.T) {
-	r, _ := open(t)
-	report(t, r, "a", "lamp")
-	if err := r.Remove("lamp"); err != nil {
-		t.Fatal(err)
-	}
-	file, err := Render(r.List(), "main")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(file), "var Lamp") || strings.Contains(string(file), "import") {
-		t.Errorf("the device stayed:\n%s", file)
-	}
-}
-
-func TestHandlesReadsBackWhatRenderWrote(t *testing.T) {
-	r, _ := open(t)
-	if _, _, err := r.Report(Report{ID: "0x1", Driver: "plugin/hue", Name: "lamp", Capabilities: []string{"on"}}); err != nil {
-		t.Fatal(err)
-	}
-	declareOK(t, r, Declaration{Name: "shed-fan"})
-	file, err := Render(r.List(), "home")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(file), "//oikade:") {
-		t.Errorf("registry lines stayed:\n%s", file)
-	}
-	got, err := Handles(file)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(got["hue/0x1"], []string{"on"}) || got["shed-fan"] == nil || len(got) != 2 {
-		t.Errorf("read back %v, want the lamp by its hardware and the reserved name by itself", got)
-	}
-	if _, err := Handles([]byte("not go")); err == nil {
-		t.Error("read a file that isn't Go")
-	}
-}
-
-func TestRenderRefusesNamesThatMeetInGo(t *testing.T) {
-	r, _ := open(t)
-	declareOK(t, r, Declaration{Name: "a-1"}, Declaration{Name: "a1"})
-	if _, err := Render(r.List(), "main"); err == nil || !strings.Contains(err.Error(), "A1") {
-		t.Errorf("got %v", err)
 	}
 }
 

@@ -1,4 +1,4 @@
-package registry
+package main
 
 import (
 	"encoding/json"
@@ -7,16 +7,18 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"oikade.dev/internal/devicetype"
 )
 
-// homeDevices are a home's devices, one of them reserved.
-var homeDevices = Snapshot{Next: 7, Devices: []Device{
-	{Name: "porch-light", Room: "porch", Capabilities: []string{"on"}, Endpoint: 2},
-	{Name: "porch-sensor", Room: "porch", Capabilities: []string{"occupied"}, Endpoint: 3},
-	{Name: "hallway", Capabilities: []string{"on", "brightness"}, Endpoint: 4},
-	{Name: "garden-light", Endpoint: 5},
-	{Name: "bedroom-ac", Room: "bedroom", Capabilities: []string{"on", "mode"}, Endpoint: 6},
-}}
+// homeDevices are a home's devices, as oikade types adds them.
+var homeDevices = []newDevice{
+	{name: "porch-light", key: "hue/0x2", room: "porch", typ: devicetype.OnOffLight},
+	{name: "porch-sensor", key: "hue/0x3", room: "porch", typ: devicetype.OccupancySensor},
+	{name: "hallway", key: "hue/0x4", typ: devicetype.DimmableLight},
+	{name: "garden-door", key: "hue/0x5", typ: devicetype.ContactSensor, more: []string{"battery"}},
+	{name: "bedroom-ac", key: "toshibaac/ac1", room: "bedroom", typ: devicetype.RoomAirConditioner},
+}
 
 // homeWith is a home whose rules are body, which adds them to home.
 func homeWith(body string) string {
@@ -29,7 +31,7 @@ import (
 )
 
 func main() {
-	_ = GardenLight.Key
+	_ = GardenDoor.Key
 	home := oikade.NewHome(oikade.Options{})
 	` + body + `
 	home.Run()
@@ -39,10 +41,10 @@ var _ = time.Minute
 `
 }
 
-// The compiler is what checks a home's capabilities, so these homes are built against the file
-// oikade types writes.
+// The compiler is what checks a home's capabilities, so these homes are built against the lines
+// oikade types adds.
 func TestAHomeCompilesOnlyWithItsDevicesCapabilities(t *testing.T) {
-	devices, err := Render(homeDevices, "main")
+	devices, _, err := addDevices(nil, "main", nil, homeDevices)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +63,7 @@ func TestAHomeCompilesOnlyWithItsDevicesCapabilities(t *testing.T) {
 		}).
 			At(oikade.Clock("23:30")).
 			When(PorchSensor.Occupied, home.Room(oikade.Room("porch")).Occupied)
-		porch := home.Group("porch", PorchLight, PorchSensor, GardenLight)
+		porch := home.Group("porch", PorchLight, PorchSensor, GardenDoor)
 		home.Decide(porch.On).Case("dusk", true, oikade.Daily("18:00", "23:00")).Default(false)
 		home.Decide(BedroomAc.Mode).Case("humid", oikade.ModeDry, PorchSensor.Occupied).Default(oikade.ModeCool)
 		home.Flow("cool-down", func(r *oikade.FlowRun) {
@@ -86,10 +88,11 @@ func TestAHomeCompilesOnlyWithItsDevicesCapabilities(t *testing.T) {
 			body: `home.Decide(PorchLight.Occupied).Default(false)`,
 			want: "PorchLight.Occupied undefined",
 		},
-		"a reserved device's capability": {
-			body: `home.Decide(GardenLight.On).Default(false)`,
-			want: "GardenLight.On undefined",
+		"a capability beyond its type's that it hasn't": {
+			body: `home.Decide(GardenDoor.Temperature).Default(0)`,
+			want: "GardenDoor.Temperature undefined",
 		},
+		"one it has": {body: `home.Decide(Porch.On).Case("low", true, GardenDoor.Battery.Below(20)).Default(false)`},
 		"a number set to a bool": {
 			body: `home.Flow("a", func(r *oikade.FlowRun) { r.Set(Hallway.Brightness.To(true)) })`,
 			want: "cannot use true",
@@ -117,7 +120,7 @@ func TestAHomeCompilesOnlyWithItsDevicesCapabilities(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			out, err := buildHome(t, devices, homeWith(tc.body))
+			out, err := buildOverlaid(t, devices, homeWith(tc.body))
 			switch {
 			case tc.want == "" && err != nil:
 				t.Fatalf("%v\n%s", err, out)
@@ -130,9 +133,9 @@ func TestAHomeCompilesOnlyWithItsDevicesCapabilities(t *testing.T) {
 	}
 }
 
-// buildHome builds a home inside this module, from files that exist only in an overlay, so that it
+// buildOverlaid builds a home inside this module, from files that exist only in an overlay, so that it
 // needs no module of its own.
-func buildHome(t *testing.T, devices []byte, main string) (string, error) {
+func buildOverlaid(t *testing.T, devices []byte, main string) (string, error) {
 	t.Helper()
 	dir := t.TempDir()
 	wd, err := os.Getwd()

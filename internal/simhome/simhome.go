@@ -51,7 +51,7 @@ type Home struct {
 	Averages func() []engine.Average
 	// Signals are the home's signals, whose states are kept across a restart.
 	Signals []engine.Signal
-	// Inventory is the devices the home declares, whose rooms and types ReadTypes gives them.
+	// Inventory is the devices the home declares, which Declared simulates.
 	Inventory []wire.DeviceDeclaration
 }
 

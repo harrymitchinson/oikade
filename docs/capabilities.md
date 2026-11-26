@@ -2,7 +2,7 @@
 
 # Capabilities
 
-Every capability Oikade knows, named as a person would say them rather than as a protocol does. A home names them through `oikade`'s constants and the handles `oikade types` writes, and a plugin through `contract/v1`'s. Any other name is unknown. [Devices](devices.md#capabilities) says what each one means, and how the Matter bridge shows it.
+Every capability Oikade knows, named as a person would say them rather than as a protocol does. A home names them through `oikade`'s constants and its devices' handles, and a plugin through `contract/v1`'s. Any other name is unknown. [Devices](devices.md#capabilities) says what each one means, and how the Matter bridge shows it.
 
 A `name` capability's value is one of its names. The number in brackets after each is what claims hold and the `oikade_capability_value` gauge exports, and names are only ever added, so a number keeps its name.
 

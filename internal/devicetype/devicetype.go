@@ -45,6 +45,20 @@ const Thermostat Type = "Thermostat"
 // are. One with no on is a Thermostat.
 const RoomAirConditioner Type = "RoomAirConditioner"
 
+// has are the capabilities a device of each type always has.
+var has = map[Type][]string{
+	OnOffLight: {capability.On}, DimmableLight: {capability.On, capability.Brightness},
+	OnOffPlugInUnit: {capability.On}, DimmablePlugInUnit: {capability.On, capability.Brightness},
+	MountedOnOffControl: {capability.On}, MountedDimmableLoadControl: {capability.On, capability.Brightness},
+	OccupancySensor: {capability.Occupied}, ContactSensor: {capability.Open},
+	TemperatureSensor: {capability.Temperature}, HumiditySensor: {capability.Humidity},
+	DoorLock: {capability.Locked}, WindowCovering: {capability.Position}, Thermostat: {capability.Setpoint},
+	RoomAirConditioner: {capability.On, capability.Setpoint, capability.Mode},
+}
+
+// Has are the capabilities a device of type t always has, which its Go type has a field for.
+func Has(t Type) []string { return slices.Clone(has[t]) }
+
 // OnOff are the types a device that's on or off can be, in the order an error lists them.
 var OnOff = []Type{OnOffLight, DimmableLight, OnOffPlugInUnit, DimmablePlugInUnit, MountedOnOffControl, MountedDimmableLoadControl}
 

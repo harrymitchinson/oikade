@@ -202,6 +202,16 @@ func TestEveryDeviceTypeIsInGo(t *testing.T) {
 		if name := reflect.TypeOf(typ).Name(); name != string(typ.deviceType()) {
 			t.Errorf("oikade.%s is a %s", name, typ.deviceType())
 		}
+		var fields []string
+		for field := range reflect.TypeOf(typ).Fields() {
+			if c, err := capabilityOfField(field); err == nil {
+				fields = append(fields, c)
+			}
+		}
+		has := devicetype.Has(typ.deviceType())
+		if !slices.Equal(slices.Sorted(slices.Values(fields)), slices.Sorted(slices.Values(has))) {
+			t.Errorf("oikade.%s has %v, and devicetype says %v", typ.deviceType(), fields, has)
+		}
 		got = append(got, typ.deviceType())
 	}
 	all := slices.Clone(devicetype.All)

@@ -51,7 +51,7 @@ oikade init home && cd home
 oikade deploy
 ```
 
-What your plugins need, such as where Zigbee2MQTT's broker is and its password, goes in your home's code and its [values](running-a-home.md#your-values), which `oikade deploy` brings. Once your devices are on record, `oikade types` writes `devices.go` from them. [Deploying from CI](running-a-home.md#deploying-from-ci) says how to deploy what reaches `main` from GitHub.
+What your plugins need, such as where Zigbee2MQTT's broker is and its password, goes in your home's code and its [values](running-a-home.md#your-values), which `oikade deploy` brings. Once your devices are on record, `oikade types` adds them to `devices.go`. [Deploying from CI](running-a-home.md#deploying-from-ci) says how to deploy what reaches `main` from GitHub.
 
 ## Pair the Home app
 

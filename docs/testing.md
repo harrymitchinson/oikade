@@ -6,7 +6,7 @@ Four ways to find out what your home will do before it does it. `oikade check` f
 
 `oikade check` finds what's wrong before anything runs, in three passes:
 
-1. **The compiler.** A misspelt device, a capability the device doesn't have, or a value of the wrong type doesn't build, because [`devices.go`](devices.md#devices-in-your-code) has a typed handle for each.
+1. **The compiler.** A misspelt device, a capability the device doesn't have, or a value of the wrong type doesn't build, because each [device in your code](devices.md#devices-in-your-code) has a typed handle for each of its capabilities.
 2. **The source checks.** These find a flow that [wouldn't replay](writing-flows.md#what-a-crash-does) after a crash, and an `oikade` value that's built and thrown away: a `Set`, a condition, or a chained method whose result isn't used, such as `HallLamp.On.To(true)` without `r.Set`.
 3. **Your home's own checks,** which a deploy makes too. These are the mistakes [Automations](automations.md) and [Devices](devices.md) say it refuses, such as a capability decided twice, a time that isn't one, or a name a device can't have.
 
@@ -91,14 +91,13 @@ h.ExpectValue(HallFan.On, true)
 | Option | |
 |---|---|
 | `Start` | When the test starts. Zero is midnight UTC on Monday 7 January 2030 |
-| `Types` | The file `oikade types` wrote, beside the test. Empty is `devices.go` |
-| `Devices` | The devices, as `oikadetest.Device`s. Empty is the ones in `Types`, in the rooms and of the types your home declares, and the ones it declares with `oikade.Device` |
+| `Devices` | The devices, as `oikadetest.Device`s. Empty is the ones your home declares with `oikade.Device` |
 
 Under `go test` and `oikadetest`, an `oikade.Var` is empty.
 
 ## Trying it by hand
 
-`oikade dev` runs your automations against a simulated home built from `devices.go`, on a clock that starts now and moves when you say:
+`oikade dev` runs your automations against a simulated home of the devices your code declares, on a clock that starts now and moves when you say:
 
 ```text
 $ oikade dev
@@ -121,7 +120,7 @@ Sat 11:05 Wrote porch-light on = false
 | `restart` | Crashes your automations, and starts them again |
 | `help`, `quit` | |
 
-- **The devices** are the ones `devices.go` has handles for, in the rooms and of the types your home declares, so a device you don't declare a room for is in none, and the ones it [declares with `oikade.Device`](devices.md#declaring-devices-in-code), with the capabilities their lines give them. None has a value until you set it. `--types FILE` reads another file, and a home that declares every device with `oikade.Device` needs none.
+- **The devices** are the ones your home [declares with `oikade.Device`](devices.md#declaring-devices-in-code), in their rooms, of their types and with the capabilities their lines give them. A device in no room is in none. None has a value until you set it.
 - **Your values** come from `.env` and the environment, or the file `--env-file` names, as on the host. `oikade dev` doesn't run plugins, so nothing logs in.
 - **Your automations' log** goes to standard error, beside the conversation on standard output, so `oikade dev 2>dev.log` keeps it apart.
 

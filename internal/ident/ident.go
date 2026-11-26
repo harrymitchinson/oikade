@@ -86,6 +86,22 @@ func Slug(k Kind, s string) string {
 	return strings.TrimRight(slug[:min(len(slug), MaxName)], "-")
 }
 
+// GoName is s as a name in Go, in plain letters: "Salon - Lampe d'appoint" is SalonLampeDAppoint.
+// One that can't start with a letter starts with its kind, as Device1002a9b9e2 does.
+func GoName(k Kind, s string) string {
+	var b strings.Builder
+	for word := range strings.SplitSeq(dashed(s), "-") {
+		if word != "" {
+			b.WriteString(strings.ToUpper(word[:1]) + word[1:])
+		}
+	}
+	name := b.String()
+	if name == "" || !unicode.IsLetter(rune(name[0])) {
+		name = strings.ToUpper(string(k)[:1]) + string(k)[1:] + name
+	}
+	return name
+}
+
 // unsplit spells the letters that Unicode doesn't split into a letter and an accent.
 var unsplit = map[rune]string{
 	'œ': "oe", 'æ': "ae", 'ß': "ss", 'ø': "o", 'ł': "l", 'đ': "d", 'ð': "d", 'þ': "th", 'ı': "i", 'ħ': "h", 'ŧ': "t",

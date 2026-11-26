@@ -209,20 +209,17 @@ func runAutomations(ctx context.Context, h *Home, rules []*engine.Compiled, flow
 	}
 }
 
-// runDev is oikade dev: the home on a simulated one, driven from standard input. The devices are the
-// ones in the file oikade types wrote, whose path is the argument after the role.
+// runDev is oikade dev: the home on a simulated one, driven from standard input, with the devices
+// it declares.
 func runDev(h *Home) error {
-	if len(os.Args) != 3 {
+	if len(os.Args) != 2 {
 		return errors.New("run this with oikade dev")
 	}
 	home, err := h.simulated()
 	if err != nil {
 		return err
 	}
-	devices, err := simhome.ReadTypes(os.Args[2], home.Inventory)
-	if err != nil {
-		return err
-	}
+	devices := simhome.Declared(home.Inventory)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	// Standard output is the conversation with you, so the log goes beside it.
@@ -233,20 +230,17 @@ func runDev(h *Home) error {
 }
 
 // runReplay is oikade replay's half that needs your code: the home against an event log, with no
-// socket, no plugin and no device. The role is followed by the log, the types file and where the
-// report goes: a file, because your code is free to print.
+// socket, no plugin and no device but the ones it declares. The role is followed by the log and
+// where the report goes: a file, because your code is free to print.
 func runReplay(h *Home) error {
-	if len(os.Args) != 5 {
+	if len(os.Args) != 4 {
 		return errors.New("run this with oikade replay")
 	}
 	home, err := h.simulated()
 	if err != nil {
 		return err
 	}
-	devices, err := simhome.ReadTypes(os.Args[3], home.Inventory)
-	if err != nil {
-		return err
-	}
+	devices := simhome.Declared(home.Inventory)
 	// Errors only: a mistake in a condition is what explains a missing write, and a week of the rest
 	// would bury it.
 	log := logging.Text(os.Stderr, slog.LevelError)
@@ -258,7 +252,7 @@ func runReplay(h *Home) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(os.Args[4], raw, 0o600)
+	return os.WriteFile(os.Args[3], raw, 0o600)
 }
 
 // simulated is the home for a simulated one to run.

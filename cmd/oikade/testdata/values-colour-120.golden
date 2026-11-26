@@ -22,11 +22,10 @@ Your code gets your values, from the .env beside your go.mod and the environment
 host.
 
 [1mUsage:[0m
-  oikade dev [--module DIR] [--types FILE] [--env-file FILE]
+  oikade dev [--module DIR] [--env-file FILE]
 
 [1mFlags:[0m
   --module DIR     Your home's module. (default .)
-  --types FILE     The file oikade types wrote, in your module. (default devices.go)
   --env-file FILE  Your values, from this file rather than the .env beside your go.mod.
 
 [1mExample:[0m

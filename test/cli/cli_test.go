@@ -139,6 +139,75 @@ func TestInitThenTestAndCheckPass(t *testing.T) {
 	}
 }
 
+// oikade types adds a host's devices to a new home's devices.go, each once, and the home still
+// tests.
+func TestTypesAddsEachDeviceOnce(t *testing.T) {
+	t.Parallel()
+	bin := oikade(t)
+	dir := newHome(t, bin)
+	data := startHost(t, `[
+		{"name": "porch-light", "capabilities": ["on"]},
+		{"name": "Kitchen ceiling", "room": "Kitchen", "capabilities": ["on", "brightness"]}
+	]`)
+	out, err := run(t, bin, dir, "", "types", "--data-dir", data)
+	if err != nil || !strings.Contains(out, "Added 1 device and 1 room to devices.go: KitchenCeiling") {
+		t.Fatalf("oikade types: %v\n%s", err, out)
+	}
+	first, err := os.ReadFile(filepath.Join(dir, "devices.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := `KitchenCeiling = oikade.Device[oikade.DimmableLight]("Kitchen%20ceiling", Kitchen)`
+	if !strings.Contains(string(first), line) {
+		t.Errorf("devices.go is:\n%s", first)
+	}
+	out, err = run(t, bin, dir, "", "types", "--data-dir", data)
+	if err != nil || !strings.Contains(out, "devices.go has every device on record") {
+		t.Errorf("oikade types again: %v\n%s", err, out)
+	}
+	if again, _ := os.ReadFile(filepath.Join(dir, "devices.go")); !bytes.Equal(again, first) {
+		t.Errorf("a second run changed devices.go:\n%s", again)
+	}
+	if out, err := run(t, bin, dir, "", "test"); err != nil {
+		t.Fatalf("oikade test: %v\n%s", err, out)
+	}
+}
+
+// startHost starts oikade-host with the simulated devices in devices, the JSON --simulate takes, and
+// returns its data directory once it answers.
+func startHost(t *testing.T, devices string) string {
+	t.Helper()
+	data, err := os.MkdirTemp("", "oik") //nolint:usetesting // a Unix socket's path has to fit in about 100 bytes
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(data) })
+	file := filepath.Join(t.TempDir(), "devices.json")
+	if err := os.WriteFile(file, []byte(devices), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	host := exec.Command(binary(t, "oikade-host"), "--data-dir", data, "--simulate", file, "--matter-port=0",
+		"--metrics-addr=127.0.0.1:0")
+	log, err := os.Create(filepath.Join(t.TempDir(), "host.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	host.Stdout, host.Stderr = log, log
+	if err := host.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = host.Process.Kill(); _ = host.Wait() })
+	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		if _, err := run(t, oikade(t), data, "", "list", "devices", "--data-dir", data); err == nil {
+			return data
+		}
+		if time.Now().After(deadline) {
+			raw, _ := os.ReadFile(log.Name())
+			t.Fatalf("the host didn't answer:\n%s", raw)
+		}
+	}
+}
+
 func replaceIn(t *testing.T, path, from, to string) {
 	t.Helper()
 	raw, err := os.ReadFile(path)

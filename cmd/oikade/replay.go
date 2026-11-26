@@ -28,7 +28,6 @@ func runReplay(ctx context.Context, args []string) error {
 	fs := newFlags("replay")
 	target := addTarget(fs)
 	module := fs.String("module", ".", "Your home's module.")
-	types := fs.String("types", "devices.go", "The file oikade types wrote, in your module.")
 	since := fs.Duration("since", defaultReplay, "How far back to compare.")
 	asJSON := fs.Bool("json", false, "Print JSON, whose fields stay stable for scripts.")
 	if extra := cli.Parse(fs, args); len(extra) > 0 {
@@ -36,10 +35,6 @@ func runReplay(ctx context.Context, args []string) error {
 	}
 	if *since <= 0 {
 		return cli.UsageErrorf("--since is how far back to look, so more than zero, not %s", *since)
-	}
-	file, err := filepath.Abs(filepath.Join(*module, *types))
-	if err != nil {
-		return err
 	}
 	path, done, err := buildHome(ctx, *module)
 	if err != nil {
@@ -57,7 +52,7 @@ func runReplay(ctx context.Context, args []string) error {
 		return err
 	}
 	result := filepath.Join(dir, "report")
-	cmd := exec.CommandContext(ctx, path, wire.RoleReplay, log, file, result)
+	cmd := exec.CommandContext(ctx, path, wire.RoleReplay, log, result)
 	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
 	if err := cmd.Run(); err != nil {
 		if !ranAndFailed(err) {

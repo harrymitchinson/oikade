@@ -11,7 +11,7 @@ Use a decision when something should stay true, and a flow when something should
 
 ## Devices in your code
 
-Each device is a value: one your home [declares with `oikade.Device`](devices.md#declaring-devices-in-code), or one in `devices.go`, which [`oikade types`](devices.md#devices-in-your-code) writes from your real devices. `PorchLight.Key` is the device's hardware, and each of its capabilities is a field: `PorchLight.On` is an `oikade.Bool`, `Bathroom.Humidity` an `oikade.Number`, and an air conditioner's `BedroomAC.Mode` an `oikade.Choice`. Your editor lists what each device can do, and a capability the device doesn't have, or a value of the wrong type, doesn't compile.
+Each device is a value your home [declares with `oikade.Device`](devices.md#declaring-devices-in-code), in `devices.go`, which [`oikade types`](devices.md#devices-in-your-code) adds your real devices to. `PorchLight.Key` is the device's hardware, and each of its capabilities is a field: `PorchLight.On` is an `oikade.Bool`, `Bathroom.Humidity` an `oikade.Number`, and an air conditioner's `BedroomAC.Mode` an `oikade.Choice`. Your editor lists what each device can do, and a capability the device doesn't have, or a value of the wrong type, doesn't compile.
 
 - **A `Bool` is a [condition](#conditions),** true while the capability is, and a `Number` makes one, as `Bathroom.Humidity.Above(70)` does.
 - **`To` makes a write,** such as `BedroomAC.Mode.To(oikade.ModeDry)`, which a flow's `r.Set` takes.
