@@ -186,6 +186,24 @@ func TestTypesNamesDevicesAsYourHomeDeclaresThem(t *testing.T) {
 		!strings.Contains(stderr.String(), "its 1 device declarations are read from its source") {
 		t.Errorf("got %+v, and said %q", got.Devices, stderr.String())
 	}
+	// Hardware your code declares with oikade.Device it names itself, so it has no handle.
+	byHardware := func(context.Context) (wire.Manifest, error) {
+		return wire.Manifest{Inventory: []wire.DeviceDeclaration{{Hardware: "zigbee/0x2", Room: new("porch")}}}, nil
+	}
+	if got := declaredIn(t.Context(), &stderr, dir, list, byHardware); len(got.Devices) != 0 {
+		t.Errorf("got %+v", got.Devices)
+	}
+	// Even when the host would refuse the declarations.
+	refused := func(context.Context) (wire.Manifest, error) {
+		return wire.Manifest{Inventory: []wire.DeviceDeclaration{
+			{Hardware: "zigbee/0x2"}, {Name: "attic-fan", Plugin: "zigbee", ID: "0x2"},
+		}}, nil
+	}
+	stderr.Reset()
+	if got := declaredIn(t.Context(), &stderr, dir, list, refused); len(got.Devices) != 0 || len(list.Devices) != 1 ||
+		!strings.Contains(stderr.String(), "would refuse") {
+		t.Errorf("got %+v, and said %q", got.Devices, stderr.String())
+	}
 	// Outside a module there's nothing to build, and it says so.
 	stderr.Reset()
 	outside := declaredIn(t.Context(), &stderr, t.TempDir(), list, broken)
@@ -201,10 +219,19 @@ func TestDeclarationsAreReadFromTheSource(t *testing.T) {
 import "oikade.dev"
 
 func declare(home *oikade.Home, name string) {
-	home.Device("study-blind").Hardware("overkiz", "io://1").Room("study").Is(oikade.WindowCovering)
+	home.Device("study-blind").Hardware("overkiz", "io://1").Room("study").Is(oikade.WindowCovering{})
 	home.Device("shed-fan")
 	home.Device(name).Room("hall") // not a literal, so not read
 }
+
+var (
+	Salon   = oikade.Room("salon")
+	SalonTV = oikade.Device[oikade.OnOffLight]("hue/0x2", Salon)
+	Capteur = oikade.Device[struct {
+		oikade.OccupancySensor
+		Temperature oikade.Number
+	}]("hue/0x3")
+)
 `
 	if err := os.WriteFile(filepath.Join(dir, "inventory.go"), []byte(code), 0o644); err != nil {
 		t.Fatal(err)
@@ -216,6 +243,8 @@ func declare(home *oikade.Home, name string) {
 	want := []wire.DeviceDeclaration{
 		{Name: "study-blind", Plugin: "overkiz", ID: "io://1", Room: new("study"), DeviceType: "WindowCovering"},
 		{Name: "shed-fan"},
+		{Hardware: "hue/0x2"},
+		{Hardware: "hue/0x3"},
 	}
 	g, _ := json.Marshal(got)
 	if w, _ := json.Marshal(want); string(g) != string(w) {

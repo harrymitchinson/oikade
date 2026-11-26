@@ -15,7 +15,7 @@ import (
 	"oikade.dev/internal/capability"
 )
 
-// Render writes the Go file oikade types commits: a value for each device, with its Key and an
+// Render writes the Go file oikade types commits: a value for each device, with its Hardware and an
 // oikade.Bool, Number or Choice for each of its capabilities, so that code naming a device that's
 // gone, or a capability it doesn't have, stops compiling. A device your home declares is under its
 // declared name, and the rest under their app's. The same devices always give the same bytes.
@@ -44,12 +44,12 @@ func Render(s Snapshot, pkg string) ([]byte, error) {
 			return nil, fmt.Errorf("%s and %s are both %s in Go: rename one", other, d.Name, ident)
 		}
 		seen[ident] = d.Name
-		fmt.Fprintf(&b, "// %s is %s.\nvar %s = struct {\n\toikade.Device\n", ident, describe(d), ident)
+		fmt.Fprintf(&b, "// %s is %s.\nvar %s = struct {\n\toikade.Hardware\n", ident, describe(d), ident)
 		hs := handles(d)
 		for _, h := range hs {
 			fmt.Fprintf(&b, "\t%s oikade.%s\n", h.field, h.typ)
 		}
-		fmt.Fprintf(&b, "}{\n\tDevice: oikade.Device{Name: %q},\n", d.Key())
+		fmt.Fprintf(&b, "}{\n\tHardware: oikade.Hardware{Key: %q},\n", d.Key())
 		for _, h := range hs {
 			fmt.Fprintf(&b, "\t%s: oikade.%s{Device: %q, Capability: oikade.%s},\n", h.field, h.typ, d.Key(), h.field)
 		}
@@ -95,7 +95,7 @@ func Handles(file []byte) (map[string][]string, error) {
 	return out, nil
 }
 
-// handlesOf reads one device's value: its Device's key, and a capability for each other field.
+// handlesOf reads one device's value: its Hardware's key, and a capability for each other field.
 func handlesOf(lit *ast.CompositeLit, byGo map[string]string) (string, []string, bool) {
 	name, caps := "", []string{}
 	for _, e := range lit.Elts {
@@ -107,8 +107,8 @@ func handlesOf(lit *ast.CompositeLit, byGo map[string]string) (string, []string,
 		if !ok {
 			continue
 		}
-		if field.Name == "Device" {
-			name = stringField(kv.Value, "Name")
+		if field.Name == "Hardware" {
+			name = stringField(kv.Value, "Key")
 			continue
 		}
 		if c, ok := byGo[field.Name]; ok {

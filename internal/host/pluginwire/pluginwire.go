@@ -21,7 +21,7 @@ const (
 	// Version is the protocol's version. A process sends it first, and the host refuses any other.
 	// Raise it with any change to what a message means: a host outlives a deploy, so it can meet a
 	// binary built against something else.
-	Version = 8
+	Version = 9
 	// RolePlugin is a plugin your home imports. The host starts one process for each.
 	RolePlugin = "plugin"
 

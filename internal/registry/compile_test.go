@@ -29,7 +29,7 @@ import (
 )
 
 func main() {
-	_ = GardenLight.Name
+	_ = GardenLight.Key
 	home := oikade.NewHome(oikade.Options{})
 	` + body + `
 	home.Run()
@@ -56,11 +56,11 @@ func TestAHomeCompilesOnlyWithItsDevicesCapabilities(t *testing.T) {
 			Default(false)
 		home.Decide(Hallway.Brightness).Case("evening", 40, oikade.Daily("18:00", "23:00")).Flows().Default(0)
 		home.Flow("goodnight", func(r *oikade.FlowRun) {
-			r.Set(home.Room("living-room", oikade.Lights).On.To(false))
+			r.Set(home.Room(oikade.Room("living-room"), oikade.Lights).On.To(false))
 			r.Set(Hallway.Brightness.To(10).For(time.Hour))
 		}).
 			At(oikade.Clock("23:30")).
-			When(PorchSensor.Occupied, home.Room("porch").Occupied)
+			When(PorchSensor.Occupied, home.Room(oikade.Room("porch")).Occupied)
 		porch := home.Group("porch", PorchLight, PorchSensor, GardenLight)
 		home.Decide(porch.On).Case("dusk", true, oikade.Daily("18:00", "23:00")).Default(false)
 		home.Decide(BedroomAc.Mode).Case("humid", oikade.ModeDry, PorchSensor.Occupied).Default(oikade.ModeCool)
@@ -68,7 +68,7 @@ func TestAHomeCompilesOnlyWithItsDevicesCapabilities(t *testing.T) {
 			if r.Get(BedroomAc.Mode) != oikade.ModeCool {
 				r.Set(BedroomAc.Mode.To(oikade.ModeCool))
 			}
-			r.Set(home.Room("bedroom").Mode.To(oikade.ModeFan))
+			r.Set(home.Room(oikade.Room("bedroom")).Mode.To(oikade.ModeFan))
 		}).At(oikade.Clock("14:00"))`},
 		"a misspelt mode": {
 			body: `home.Decide(BedroomAc.Mode).Default(oikade.ModeDyr)`,
@@ -103,11 +103,11 @@ func TestAHomeCompilesOnlyWithItsDevicesCapabilities(t *testing.T) {
 			want: "Hallway.On.Above undefined",
 		},
 		"a room's capability set to the wrong type": {
-			body: `home.Flow("a", func(r *oikade.FlowRun) { r.Set(home.Room("hall", oikade.Lights).On.To(10)) })`,
+			body: `home.Flow("a", func(r *oikade.FlowRun) { r.Set(home.Room(oikade.Room("hall"), oikade.Lights).On.To(10)) })`,
 			want: "cannot use 10",
 		},
 		"a group as a member": {
-			body: `home.Group("g", home.Room("hall"))`,
+			body: `home.Group("g", home.Room(oikade.Room("hall")))`,
 			want: "does not implement",
 		},
 		"a capability as a member": {

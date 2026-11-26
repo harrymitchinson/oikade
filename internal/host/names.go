@@ -164,7 +164,9 @@ func (n *namer) text(text string) string {
 func declaredNames(decls []wire.DeviceDeclaration, names control.Names) control.Names {
 	declared, taken := map[string]string{}, map[string]bool{}
 	for _, d := range wire.Declarations(decls) {
-		declared[registry.KeyOf(d.Driver, d.ID, d.Name)], taken[d.Name] = d.Name, true
+		if d.Name != "" {
+			declared[d.Key()], taken[d.Name] = d.Name, true
+		}
 	}
 	return func(key string) (string, bool) {
 		if name, ok := declared[key]; ok {

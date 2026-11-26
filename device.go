@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"slices"
 
-	"oikade.dev/internal/devicetype"
 	"oikade.dev/internal/host/wire"
 	"oikade.dev/internal/registry"
 )
@@ -14,7 +13,7 @@ import (
 // hardware, room and type you give it. A deploy applies it, so a rename, a move or a swap of
 // hardware is a change to your code, reviewed and deployed with the code that uses it.
 //
-//	home.Device("porch-light").Hardware("zigbee", "0x00178801049a2b3c").Room("porch").Is(oikade.OnOffLight)
+//	home.Device("porch-light").Hardware("zigbee", "0x00178801049a2b3c").Room("porch").Is(oikade.OnOffLight{})
 //	home.Device("greenhouse-fan").Room("greenhouse") // no hardware yet: the name is reserved
 //
 // Declaring is optional. A device you've paired and not declared works under its app's name.
@@ -48,7 +47,8 @@ func (d *Declaration) Room(room string) *Declaration {
 	return d
 }
 
-// Is says what a device that's on or off is, which wins over what its plugin says.
+// Is says what a device that's on or off is, which wins over what its plugin says, such as
+// Is(oikade.OnOffLight{}).
 func (d *Declaration) Is(t DeviceType) *Declaration {
 	d.deviceType = t
 	return d
@@ -59,15 +59,18 @@ func (h *Home) inventory() []wire.DeviceDeclaration {
 	out := make([]wire.DeviceDeclaration, 0, len(h.declared))
 	for _, d := range h.declared {
 		out = append(out, wire.DeviceDeclaration{
-			Name: d.name, Plugin: d.plugin, ID: d.id, Room: d.room, DeviceType: devicetype.Type(d.deviceType),
+			Name: d.name, Plugin: d.plugin, ID: d.id, Room: d.room, DeviceType: typeOf(d.deviceType),
 		})
 	}
-	return out
+	return append(out, hardwareInventory()...)
 }
 
 // checkInventory refuses declarations that disagree among themselves, or name a plugin the home
 // doesn't import.
 func (h *Home) checkInventory() error {
+	if err := h.checkHardwareInventory(); err != nil {
+		return err
+	}
 	errs := []error{registry.CheckDeclarations(wire.Declarations(h.inventory()))}
 	for _, d := range h.declared {
 		if d.plugin != "" && !slices.ContainsFunc(h.plugins, func(p *Plugin) bool { return p.name == d.plugin }) {

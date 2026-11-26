@@ -48,15 +48,6 @@ func TestTheConstantsAreTheRegistrys(t *testing.T) {
 	}
 }
 
-func TestThermostatIsTheDeviceTypes(t *testing.T) {
-	if devicetype.Type(Thermostat) != devicetype.Thermostat {
-		t.Errorf("oikade.Thermostat is %q, and devicetype's is %q", Thermostat, devicetype.Thermostat)
-	}
-	if devicetype.Type(RoomAirConditioner) != devicetype.RoomAirConditioner {
-		t.Errorf("oikade.RoomAirConditioner is %q, and devicetype's is %q", RoomAirConditioner, devicetype.RoomAirConditioner)
-	}
-}
-
 func TestASetReachesTheEngineWhole(t *testing.T) {
 	heater := Bool{Device: "heater", Capability: On}
 	for name, tc := range map[string]struct {
@@ -258,7 +249,7 @@ func TestAHandlePrintsItsRef(t *testing.T) {
 		porch: "device/porch-light/on",
 		Number{Device: "study", Capability: Setpoint}:  "device/study/setpoint",
 		Choice{Device: "bedroom-ac", Capability: Mode}: "device/bedroom-ac/mode",
-		NewHome(Options{}).Room("hall").Temperature:    "room/hall/temperature",
+		Room("hall").Temperature:                       "room/hall/temperature",
 		NewHome(Options{}).Group("lamps", hallLamp).On: "group/lamps/on",
 	} {
 		if got.String() != want {

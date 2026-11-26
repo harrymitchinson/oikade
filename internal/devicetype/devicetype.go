@@ -82,6 +82,10 @@ func Any(have, want []Type) bool {
 	return len(want) == 0 || slices.ContainsFunc(have, func(t Type) bool { return slices.Contains(want, t) })
 }
 
+// All are every type there is.
+var All = append(slices.Clone(OnOff), DoorLock, WindowCovering, OccupancySensor, ContactSensor, TemperatureSensor,
+	HumiditySensor, Thermostat, RoomAirConditioner)
+
 // Rooms are the types a room rule can be limited to: the on/off types, Thermostat and
 // RoomAirConditioner.
 var Rooms = append(slices.Clone(OnOff), Thermostat, RoomAirConditioner)

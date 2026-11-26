@@ -22,7 +22,7 @@ var (
 )
 
 type sensor struct {
-	oikade.Device
+	oikade.Hardware
 	Occupied oikade.Bool
 }
 
@@ -32,8 +32,8 @@ type sensor struct {
 func awaySim(t *testing.T, signal func(oikade.Signal) oikade.Signal, decide func(*oikade.Home)) (*simhome.Sim, *testkit.Log) {
 	t.Helper()
 	home := oikade.NewHome(oikade.Options{})
-	presence := home.Group("presence", sensor{oikade.Device{Name: "hall-sensor"}, hallSensor},
-		sensor{oikade.Device{Name: "bathroom-sensor"}, bathroomSensor})
+	presence := home.Group("presence", sensor{oikade.Hardware{Key: "hall-sensor"}, hallSensor},
+		sensor{oikade.Hardware{Key: "bathroom-sensor"}, bathroomSensor})
 	anyoneHome := signal(home.Signal("anyone-home", presence.Occupied.Any()))
 	home.Decide(towelRail).Case("away", 7, oikade.Not(anyoneHome)).Default(19)
 	decide(home)

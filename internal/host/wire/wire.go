@@ -4,7 +4,9 @@ package wire
 
 import (
 	"net"
+	"net/url"
 	"slices"
+	"strings"
 	"time"
 
 	"oikade.dev/contract/v1"
@@ -126,24 +128,40 @@ func Hidden(hidden []HiddenPlugin, plugin, device string) bool {
 }
 
 // DeviceDeclaration is a device a home declares: its name, and the hardware, room and type it gives
-// it. One with no ID reserves the name.
+// it, or, from oikade.Device, its hardware and no name. One with neither an ID nor its hardware
+// reserves the name.
 type DeviceDeclaration struct {
-	Name string `json:"name"`
+	Name string `json:"name,omitempty"`
+	// Hardware is the key of hardware declared by itself, with oikade.Device, as hue/0x1.
+	Hardware string `json:"hardware,omitempty"`
 	// Plugin is the name the home imports the hardware's plugin by.
 	Plugin string `json:"plugin,omitempty"`
 	ID     string `json:"id,omitempty"`
 	// Room is nil for a device in its app's room, and empty for one in none.
 	Room       *string         `json:"room,omitempty"`
 	DeviceType devicetype.Type `json:"deviceType,omitempty"`
+	// Capabilities are those the line gives the hardware, which it must have.
+	Capabilities []string `json:"capabilities,omitempty"`
+	// Label is the name Matter controllers show for it.
+	Label string `json:"label,omitempty"`
 }
 
 // Declarations are a home's declarations as the registry takes them.
 func Declarations(decls []DeviceDeclaration) []registry.Declaration {
 	out := make([]registry.Declaration, 0, len(decls))
 	for _, d := range decls {
-		r := registry.Declaration{Name: d.Name, ID: d.ID, Room: d.Room, DeviceType: d.DeviceType}
+		r := registry.Declaration{
+			Name: d.Name, Hardware: d.Hardware, ID: d.ID, Room: d.Room, DeviceType: d.DeviceType,
+			Capabilities: d.Capabilities, Label: d.Label,
+		}
 		if d.Plugin != "" {
 			r.Driver = driver.Plugin + "/" + d.Plugin
+		}
+		if plugin, id, ok := strings.Cut(d.Hardware, "/"); ok {
+			r.Driver, r.ID = driver.Plugin+"/"+plugin, id
+			if raw, err := url.PathUnescape(id); err == nil {
+				r.ID = raw
+			}
 		}
 		out = append(out, r)
 	}

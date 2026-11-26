@@ -277,7 +277,7 @@ func TestARoomWriteLimitedToLightsLeavesThePlugOn(t *testing.T) {
 	ceiling := oikade.Bool{Device: "ceiling-light", Capability: oikade.On}
 	fridge := oikade.Bool{Device: "fridge-plug", Capability: oikade.On}
 	home := oikade.NewHome(oikade.Options{})
-	lights := home.Room("living-room", oikade.Lights).On
+	lights := home.Room(oikade.Room("living-room"), oikade.Lights).On
 	home.Flow("living-room-off", setting(lights.To(false))).At(oikade.Clock("23:00"))
 	h := oikadetest.New(t, home, oikadetest.Options{Devices: []oikadetest.Device{
 		{
@@ -285,7 +285,7 @@ func TestARoomWriteLimitedToLightsLeavesThePlugOn(t *testing.T) {
 			Values: map[string]any{on: true, brightness: 80.0},
 		},
 		{
-			Name: "ceiling-light", Room: "living-room", Capabilities: []string{on}, DeviceType: oikade.OnOffLight,
+			Name: "ceiling-light", Room: "living-room", Capabilities: []string{on}, DeviceType: oikade.OnOffLight{},
 			Values: map[string]any{on: true},
 		},
 		{Name: "fridge-plug", Room: "living-room", Capabilities: []string{on}, Values: map[string]any{on: true}},
@@ -300,7 +300,7 @@ func TestARoomWriteLimitedToLightsLeavesThePlugOn(t *testing.T) {
 func studyHome(t *testing.T, k oikade.Kind) *oikadetest.Home {
 	t.Helper()
 	home := oikade.NewHome(oikade.Options{})
-	off := home.Room("study", k).On.To(false)
+	off := home.Room(oikade.Room("study"), k).On.To(false)
 	home.Flow("study-off", setting(off)).At(oikade.Clock("23:00"))
 	setpoint := string(oikade.Setpoint)
 	return oikadetest.New(t, home, oikadetest.Options{Devices: []oikadetest.Device{
@@ -309,7 +309,7 @@ func studyHome(t *testing.T, k oikade.Kind) *oikadetest.Home {
 			Values: map[string]any{on: true, setpoint: 20.0},
 		},
 		{
-			Name: "desk-lamp", Room: "study", Capabilities: []string{on}, DeviceType: oikade.OnOffLight,
+			Name: "desk-lamp", Room: "study", Capabilities: []string{on}, DeviceType: oikade.OnOffLight{},
 			Values: map[string]any{on: true},
 		},
 	}})
@@ -345,7 +345,7 @@ func TestARoomsLightsLeavesTheHeaterOn(t *testing.T) {
 func TestATriggerOnARoomsHeatersIgnoresItsLights(t *testing.T) {
 	fan := oikade.Bool{Device: "study-fan", Capability: oikade.On}
 	home := oikade.NewHome(oikade.Options{})
-	home.Flow("fan-with-heat", setting(fan.To(true))).When(home.Room("study", oikade.Heaters).On)
+	home.Flow("fan-with-heat", setting(fan.To(true))).When(home.Room(oikade.Room("study"), oikade.Heaters).On)
 	setpoint := string(oikade.Setpoint)
 	h := oikadetest.New(t, home, oikadetest.Options{Devices: []oikadetest.Device{
 		{
@@ -353,7 +353,7 @@ func TestATriggerOnARoomsHeatersIgnoresItsLights(t *testing.T) {
 			Values: map[string]any{on: false, setpoint: 20.0},
 		},
 		{
-			Name: "desk-lamp", Room: "study", Capabilities: []string{on}, DeviceType: oikade.OnOffLight,
+			Name: "desk-lamp", Room: "study", Capabilities: []string{on}, DeviceType: oikade.OnOffLight{},
 			Values: map[string]any{on: false},
 		},
 		{Name: "study-fan", Room: "hall", Capabilities: []string{on}, Values: map[string]any{on: false}},
@@ -422,7 +422,7 @@ func TestAHoldOverARoomRunsOnTheSensorsThatHaveReported(t *testing.T) {
 	}
 	dehumidifier := oikade.Bool{Device: "dehumidifier", Capability: oikade.On}
 	home := oikade.NewHome(oikade.Options{})
-	room := home.Room("cellar")
+	room := home.Room(oikade.Room("cellar"))
 	home.Decide(dehumidifier).Case("damp", true, oikade.ConditionFunc("cellar damp", func(s oikade.Snapshot) bool {
 		return slices.Max(s.Readings(room.Humidity)) > 65
 	})).Default(false)

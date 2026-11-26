@@ -8,47 +8,47 @@ import "oikade.dev"
 
 // Hall is hall, reserved, and not paired yet, in hall, with humidity, occupied.
 var Hall = struct {
-	oikade.Device
+	oikade.Hardware
 	Humidity oikade.Number
 	Occupied oikade.Bool
 }{
-	Device:   oikade.Device{Name: "hall"},
+	Hardware: oikade.Hardware{Key: "hall"},
 	Humidity: oikade.Number{Device: "hall", Capability: oikade.Humidity},
 	Occupied: oikade.Bool{Device: "hall", Capability: oikade.Occupied},
 }
 
 // HallFan is hall-fan, reserved, and not paired yet, in hall, with on.
 var HallFan = struct {
-	oikade.Device
+	oikade.Hardware
 	On oikade.Bool
 }{
-	Device: oikade.Device{Name: "hall-fan"},
-	On:     oikade.Bool{Device: "hall-fan", Capability: oikade.On},
+	Hardware: oikade.Hardware{Key: "hall-fan"},
+	On:       oikade.Bool{Device: "hall-fan", Capability: oikade.On},
 }
 
 // Lounge is lounge, reserved, and not paired yet, in lounge, with on.
 var Lounge = struct {
-	oikade.Device
+	oikade.Hardware
 	On oikade.Bool
 }{
-	Device: oikade.Device{Name: "lounge"},
-	On:     oikade.Bool{Device: "lounge", Capability: oikade.On},
+	Hardware: oikade.Hardware{Key: "lounge"},
+	On:       oikade.Bool{Device: "lounge", Capability: oikade.On},
 }
 
 // PorchLight is porch-light, reserved, and not paired yet, in porch, with on.
 var PorchLight = struct {
-	oikade.Device
+	oikade.Hardware
 	On oikade.Bool
 }{
-	Device: oikade.Device{Name: "porch-light"},
-	On:     oikade.Bool{Device: "porch-light", Capability: oikade.On},
+	Hardware: oikade.Hardware{Key: "porch-light"},
+	On:       oikade.Bool{Device: "porch-light", Capability: oikade.On},
 }
 
 // PorchSensor is porch-sensor, reserved, and not paired yet, in porch, with occupied.
 var PorchSensor = struct {
-	oikade.Device
+	oikade.Hardware
 	Occupied oikade.Bool
 }{
-	Device:   oikade.Device{Name: "porch-sensor"},
+	Hardware: oikade.Hardware{Key: "porch-sensor"},
 	Occupied: oikade.Bool{Device: "porch-sensor", Capability: oikade.Occupied},
 }

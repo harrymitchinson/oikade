@@ -92,7 +92,7 @@ h.ExpectValue(HallFan.On, true)
 |---|---|
 | `Start` | When the test starts. Zero is midnight UTC on Monday 7 January 2030 |
 | `Types` | The file `oikade types` wrote, beside the test. Empty is `devices.go` |
-| `Devices` | The devices, as `oikadetest.Device`s. Empty is the ones in `Types`, in the rooms and of the types your home declares |
+| `Devices` | The devices, as `oikadetest.Device`s. Empty is the ones in `Types`, in the rooms and of the types your home declares, and the ones it declares with `oikade.Device` |
 
 Under `go test` and `oikadetest`, an `oikade.Var` is empty.
 
@@ -121,7 +121,7 @@ Sat 11:05 Wrote porch-light on = false
 | `restart` | Crashes your automations, and starts them again |
 | `help`, `quit` | |
 
-- **The devices** are the ones `devices.go` has handles for, in the rooms and of the types your home declares, so a device you don't declare a room for is in none. None has a value until you set it. `--types FILE` reads another file.
+- **The devices** are the ones `devices.go` has handles for, in the rooms and of the types your home declares, so a device you don't declare a room for is in none, and the ones it [declares with `oikade.Device`](devices.md#declaring-devices-in-code), with the capabilities their lines give them. None has a value until you set it. `--types FILE` reads another file, and a home that declares every device with `oikade.Device` needs none.
 - **Your values** come from `.env` and the environment, or the file `--env-file` names, as on the host. `oikade dev` doesn't run plugins, so nothing logs in.
 - **Your automations' log** goes to standard error, beside the conversation on standard output, so `oikade dev 2>dev.log` keeps it apart.
 

@@ -57,12 +57,12 @@ oikade types                  # write devices.go from the host's devices
 oikade types --out - | less   # or read it first
 ```
 
-- **Names come from your declarations.** `oikade types` builds your home (`--module`, `.` by default) and names the devices as its [declarations](#declaring-devices-in-code) will once you deploy, so a name you declare has its handle straight away. The rest are under their app's names.
+- **Names come from your declarations.** `oikade types` builds your home (`--module`, `.` by default) and names the devices as its [declarations](#declaring-devices-in-code) will once you deploy, so a name you declare has its handle straight away. The rest are under their app's names, and hardware your code declares with `oikade.Device` has none, as your code names it.
 - **A home that doesn't build,** as when it already uses the handle of a device you've just declared, has its declarations read from its source instead. So write each one out with literal arguments, as below.
 - **Two names that come out the same in Go,** such as `a-1` and `a1`, fail until you rename one.
 - **`--out FILE` and `--package NAME`** say where it goes, `devices.go` in package `main` by default.
 
-`oikade dev` and `oikadetest` simulate the devices `devices.go` has handles for, in the rooms and of the types your home declares: see [Testing a home](testing.md).
+`oikade dev` and `oikadetest` simulate the devices `devices.go` has handles for, in the rooms and of the types your home declares, and the devices it declares with `oikade.Device`: see [Testing a home](testing.md).
 
 ## Forgetting a device
 
@@ -115,18 +115,46 @@ Only a hardware ID is the plugin's and not Oikade's, so it's percent-encoded whe
 
 ## Declaring devices in code
 
-Your home's code can say what a device is called, which room it's in and what it is. A rename, a move or a swap of hardware is then a change you review and deploy with the code that uses it:
+Your home's code can say which hardware a device is, what it is and which room it's in, with `oikade.Device` and `oikade.Room`. A move, a change of type or a swap of hardware is then a change you review and deploy with the code that uses it:
 
 ```go
-home.Device("porch-light").Hardware("zigbee", "0x00178801049a2b3c").Room("porch").Is(oikade.OnOffLight)
+var (
+	Cuisine = oikade.Room("cuisine")
+	Salon   = oikade.Room("salon")
+)
+
+var (
+	CuisinePlafond = oikade.Device[oikade.DimmableLight]("hue/0x001788010f9c0392", Cuisine)
+	CuisineCapteur = oikade.Device[struct {
+		oikade.OccupancySensor
+		Temperature, Battery oikade.Number
+	}]("hue/0x00178801091863f2", Cuisine)
+	SalonClim   = oikade.Device[oikade.RoomAirConditioner]("toshibaac/ac1", Salon, oikade.Label("Clim salon"))
+	BureauPrise = oikade.Device[oikade.OnOffPlugInUnit]("ewelink/1000a1b2c3") // in no room
+)
+```
+
+```go
+home.Decide(CuisinePlafond.On).Case("someone-in", true, Cuisine.Occupied.Any()).Default(false)
+```
+
+- **`oikade.Device[T](hardware, ...)` is a device.** Its hardware is its ref without `hardware/`, as `oikade list devices --wide` shows it, and a device no plugin reports, such as a simulated one, is its ID. `T` is [what it is](#what-a-device-is), a struct with the capabilities a device of that type always has, or a struct of one and the device's other capabilities, named as in [Capabilities](#capabilities). Each is the hardware's, so `CuisinePlafond.On` is that lamp's, and a typo doesn't compile.
+- **Declare devices at package level.** Every device the program declares is its home's. Its name is its variable's, which only your code sees: the host knows it by its hardware, and keeps the name its app gives it.
+- **`oikade.Room(name)` is a room,** and the devices in it as a [group](automations.md#groups-and-rooms), so `Cuisine.Occupied.Any()` is true while anything in it senses someone. A device placed in it is there, and one with no room is in none, whatever its app says. `home.Room(Salon, oikade.Lights)` is some kinds of a room's devices.
+- **`oikade.Label(name)`** is the name Matter controllers, such as the Home app, show for it, in place of the one the host has.
+
+`home.Device` declares a device by a name of your choosing, as the host keeps it, and can reserve a name for hardware that isn't paired yet:
+
+```go
+home.Device("porch-light").Hardware("zigbee", "0x00178801049a2b3c").Room("porch").Is(oikade.OnOffLight{})
 home.Device("greenhouse-fan").Room("greenhouse") // no hardware yet: the name is reserved
 ```
 
-`Hardware` takes the name your home imports the device's plugin by, with `home.Plugin`, and the ID `oikade list devices --json` shows. Without `Room`, a declared device stays in its app's room, and `Room("")` puts it in none. `Is` takes one of the [six on/off types](#what-a-device-is). Declaring is optional: a device you don't declare works under its app's name.
+`Hardware` takes the name your home imports the device's plugin by, with `home.Plugin`, and the ID `oikade list devices --json` shows. Without `Room`, a declared device stays in its app's room, and `Room("")` puts it in none. `Is` takes one of the [six on/off types](#what-a-device-is). A piece of hardware is declared one way or the other, not both. Declaring is optional: a device you don't declare works under its app's name.
 
 ### What a deploy does with them
 
-A deploy applies the declarations, matched by hardware, and lists what it changed: `Renamed lamp to porch-light`, `Moved porch-light to porch`. The host keeps the declarations before applying them, so a host that stops in between applies them when it starts.
+A deploy applies the declarations, matched by hardware, and lists what it changed: `Renamed lamp to porch-light`, `Moved porch-light to porch`, `Labelled salon-clim "Clim salon" on Matter`. The host keeps the declarations before applying them, so a host that stops in between applies them when it starts.
 
 - **A declared name keeps its Matter endpoint,** so the Home app keeps its room and scenes.
 - **A rename moves nothing.** The host keeps a device's claims, latches, pauses and averages by its hardware, not its name, so a Safety hold keeping `water-valve` closed holds it as `mains-valve`, with no `--allow-safety`, and the handles `oikade types` writes don't change.
@@ -140,19 +168,19 @@ Change a declaration's ID to swap a failed device for new hardware, and run `oik
 
 A declaration with no hardware, or hardware that hasn't reported, reserves its name until it does, and `oikade check` and the deploy say so. So you can write code for something that isn't paired yet, which does nothing until the hardware arrives.
 
-A reserved device has no capabilities yet, so `oikade types` gives it only its `Name`. Until it reports, name a capability yourself, such as `oikade.Bool{Device: GreenhouseFan.Name, Capability: oikade.On}`, and run `oikade types` once it has. Give it its `Hardware` and deploy, and the name moves onto it, then run `oikade types` again, as its handles have the hardware from then on. A reserved name that stops being declared, or takes hardware, is refused while something claims it, because its claims are the name's and not the hardware's.
+A reserved device has no capabilities yet, so `oikade types` gives it only its `Hardware`. Until it reports, name a capability yourself, such as `oikade.Bool{Device: GreenhouseFan.Key, Capability: oikade.On}`, and run `oikade types` once it has. Give it its `Hardware` and deploy, and the name moves onto it, then run `oikade types` again, as its handles have the hardware from then on. A reserved name that stops being declared, or takes hardware, is refused while something claims it, because its claims are the name's and not the hardware's.
 
 ### What's refused
 
-`oikade check` refuses a name or a piece of hardware declared twice, a name a device can't have, a type that isn't one of the six on/off types, and a plugin your home doesn't import.
+`oikade check` refuses a name or a piece of hardware declared twice, or both ways, a name a device can't have, a type that isn't one of the six on/off types, a field of a device's struct that isn't a capability, and a plugin your home doesn't import.
 
-A deploy refuses a type the device can't be, and a name an undeclared device has, and the old version keeps running. It also refuses a declared room or type that takes a device out of a Safety case's room write, until you pass `--allow-safety`, and names the case. That's a plug a Safety hold on the porch's plugs keeps off that you now declare a light, or move to the shed. Only Safety cases count, because what a flow writes isn't known until it runs.
+A deploy refuses a type the device can't be, hardware that lacks a capability its line gives it (`relays/valve has no temperature, which its line in your code gives it`), a name an undeclared device has, and hardware of no plugin that isn't on record, and the old version keeps running. Hardware a plugin hasn't reported yet waits for it, as a reserved name does. It also refuses a declared room or type that takes a device out of a Safety case's room write, until you pass `--allow-safety`, and names the case. That's a plug a Safety hold on the porch's plugs keeps off that you now declare a light, or move to the shed. Only Safety cases count, because what a flow writes isn't known until it runs.
 
 ## What a device is
 
 A device's capabilities say what it can do, and its device types say what it is, in Matter's names. `oikade list devices` shows them in its `DEVICE TYPES` column, and `--json` as `deviceTypes`.
 
-Only a device that's on or off can be more than one thing, so that's the one you choose with `Is`:
+In your code, each type is a struct with the capabilities a device of it always has, which `oikade.Device` takes, and its zero value, such as `oikade.OnOffLight{}`, is the type, which `Is` and `oikade.Kinds` take. Only a device that's on or off can be more than one thing, so that's the one you choose:
 
 | Type | |
 |---|---|
@@ -163,17 +191,18 @@ Only a device that's on or off can be more than one thing, so that's the one you
 
 Which one a device is comes from the first of these that says:
 
-1. **Your home's `Is`.** Stop declaring its type, and it goes back to what its plugin says.
+1. **Your home's code:** the type its `oikade.Device` line gives it, or its `Is`. Stop declaring its type, and it goes back to what its plugin says.
 2. **Its plugin, if the plugin knows.** A Zigbee2MQTT light is an `OnOffLight`, or a `DimmableLight` with a brightness, and any plugin may report one. A Zigbee2MQTT switch doesn't say, because a relay can't tell what it switches.
 3. **Its capabilities.** A device with `brightness` is a `DimmableLight`, and one without an `OnOffPlugInUnit`, because a bare relay could be driving anything.
 
 A dimmable type needs `brightness`, and an on/off type on a device that has it leaves dimming out of Matter. A reserved name takes any of the six, and once it's paired, a type its hardware can't be falls back as above.
 
-Every other type follows from the capabilities:
+Every other type follows from the capabilities, so in an `oikade.Device` line it says which capabilities the hardware must have:
 
 - **A sensor** is a type for each thing it senses, so a motion sensor with a thermometer is an `OccupancySensor` and a `TemperatureSensor`.
 - **A device with `locked`** is a `DoorLock`, and one with `position` a `WindowCovering`.
 - **A device with a `setpoint`** is a `Thermostat`, whatever its type, and one with a `mode` and an `on` as well is a `RoomAirConditioner`. Its `on` and `temperature` are the heater's or the air conditioner's own, so it isn't also a plug or a `TemperatureSensor`.
+- **`ContactSensor`, `HumiditySensor` and `TemperatureSensor`** are the sensors' types, with `open`, `humidity` and `temperature`.
 
 ## Capabilities
 

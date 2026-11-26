@@ -356,31 +356,31 @@ var (
 	StudyWindow     = window("study-window")
 	KitchenWindow   = window("kitchen-window")
 	StudySensor     = struct {
-		oikade.Device
+		oikade.Hardware
 		Occupied oikade.Bool
-	}{oikade.Device{Name: "study-sensor"}, oikade.Bool{Device: "study-sensor", Capability: oikade.Occupied}}
+	}{oikade.Hardware{Key: "study-sensor"}, oikade.Bool{Device: "study-sensor", Capability: oikade.Occupied}}
 	OutdoorSensor = struct {
-		oikade.Device
+		oikade.Hardware
 		Temperature oikade.Number
-	}{oikade.Device{Name: "outdoor-sensor"}, oikade.Number{Device: "outdoor-sensor", Capability: oikade.Temperature}}
+	}{oikade.Hardware{Key: "outdoor-sensor"}, oikade.Number{Device: "outdoor-sensor", Capability: oikade.Temperature}}
 )
 
 type radiatorDevice struct {
-	oikade.Device
+	oikade.Hardware
 	Setpoint oikade.Number
 }
 
 func radiator(name string) radiatorDevice {
-	return radiatorDevice{oikade.Device{Name: name}, oikade.Number{Device: name, Capability: oikade.Setpoint}}
+	return radiatorDevice{oikade.Hardware{Key: name}, oikade.Number{Device: name, Capability: oikade.Setpoint}}
 }
 
 type windowDevice struct {
-	oikade.Device
+	oikade.Hardware
 	Open oikade.Bool
 }
 
 func window(name string) windowDevice {
-	return windowDevice{oikade.Device{Name: name}, oikade.Bool{Device: name, Capability: oikade.Open}}
+	return windowDevice{oikade.Hardware{Key: name}, oikade.Bool{Device: name, Capability: oikade.Open}}
 }
 
 // compensate is the setpoint for a temperature outside: warmer inside the colder it is.

@@ -219,8 +219,9 @@ func runTypes(ctx context.Context, args []string) error {
 }
 
 // declaredIn is the host's devices as your home's declarations would make them once it's deployed,
-// so that a name you declare has its handle before the deploy that gives it. A home that doesn't
-// build, as when it already names that handle, has its declarations read from its source.
+// so that a name you declare has its handle before the deploy that gives it, without the hardware it
+// declares with oikade.Device, which it names itself. A home that doesn't build, as when it already
+// names that handle, has its declarations read from its source.
 func declaredIn(ctx context.Context, stderr io.Writer, module string, list registry.Snapshot,
 	manifest func(context.Context) (wire.Manifest, error),
 ) registry.Snapshot {
@@ -245,8 +246,15 @@ func declaredIn(ctx context.Context, stderr io.Writer, module string, list regis
 	declared, err := registry.Declaring(list, wire.Declarations(inventory))
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "The host would refuse your declarations, so devices are under its names: %v\n", err)
-		return list
+		declared = list
+		declared.Devices = slices.Clone(list.Devices)
 	}
+	// Your code names what it declares with oikade.Device, so a handle would clash with it.
+	byHardware := map[string]bool{}
+	for _, d := range inventory {
+		byHardware[d.Hardware] = d.Hardware != ""
+	}
+	declared.Devices = slices.DeleteFunc(declared.Devices, func(d registry.Device) bool { return byHardware[d.Key()] })
 	return declared
 }
 

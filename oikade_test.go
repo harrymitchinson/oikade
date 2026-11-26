@@ -38,7 +38,7 @@ func homeWith(o Options, f func(h *Home)) *Home {
 }
 
 // room is a room of a home of its own, for tests that only read or write it.
-func room(name string, kinds ...Kind) Group { return NewHome(Options{}).Room(name, kinds...) }
+func room(name string, kinds ...Kind) Group { return NewHome(Options{}).Room(Room(name), kinds...) }
 
 // outside and radiator are a temperature and a setpoint, for a Follow.
 var (
@@ -284,8 +284,8 @@ func hallway() engine.Vars {
 			"hall-motion-1": {Room: "hallway"},
 			"hall-motion-2": {Room: "hallway"},
 			"hall-motion-3": {Room: "hallway"},
-			"hall-light":    {Room: "hallway", DeviceTypes: []devicetype.Type{devicetype.Type(OnOffLight)}},
-			"hall-plug":     {Room: "hallway", DeviceTypes: []devicetype.Type{devicetype.Type(OnOffPlugInUnit)}},
+			"hall-light":    {Room: "hallway", DeviceTypes: []devicetype.Type{devicetype.OnOffLight}},
+			"hall-plug":     {Room: "hallway", DeviceTypes: []devicetype.Type{devicetype.OnOffPlugInUnit}},
 			"kitchen":       {Room: "kitchen"},
 			"cellar":        {Room: "cellar"},
 			"porch":         {},
@@ -303,7 +303,7 @@ func TestRoomReadsCoverTheDevicesThatHaveReported(t *testing.T) {
 		"count":       {func(s Snapshot) bool { return s.Count(room("hallway", Everything).Occupied) == 1 }, true},
 		"all on":      {func(s Snapshot) bool { return s.All(room("hallway", Everything).On) }, false},
 		"lights only": {func(s Snapshot) bool { return s.All(room("hallway", Lights).On) }, true},
-		"plugs only":  {func(s Snapshot) bool { return s.Any(room("hallway", Kinds(OnOffPlugInUnit)).On) }, false},
+		"plugs only":  {func(s Snapshot) bool { return s.Any(room("hallway", Kinds(OnOffPlugInUnit{})).On) }, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ok, err := toEngine(ConditionFunc(name, tc.cond))(hallway())
@@ -331,11 +331,12 @@ func TestReadingsAreInDeviceNameOrder(t *testing.T) {
 
 // A hold keeps its state while it can't tell, as with a single device that hasn't reported.
 func TestARoomWhereNothingHasReportedIsAnError(t *testing.T) {
+	declaring(t)
 	for name, cond := range map[string]func(Snapshot) bool{
 		"nothing reported": func(s Snapshot) bool { return s.Any(room("cellar", Everything).Occupied) },
 		"no such room":     func(s Snapshot) bool { return s.Any(room("loft", Everything).Occupied) },
 		"no room":          func(s Snapshot) bool { return s.Any(room("", Everything).Occupied) },
-		"no such type":     func(s Snapshot) bool { return s.Any(room("hallway", Kinds(DimmableLight)).On) },
+		"no such type":     func(s Snapshot) bool { return s.Any(room("hallway", Kinds(DimmableLight{})).On) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := toEngine(ConditionFunc(name, cond))(hallway()); err == nil {

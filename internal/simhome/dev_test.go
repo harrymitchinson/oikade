@@ -39,3 +39,24 @@ func TestTheTypesFileGivesDevicesAndTheHomeTheirRoomsAndTypes(t *testing.T) {
 		t.Errorf("a declared device is %+v", light)
 	}
 }
+
+// A device your code declares by its hardware has no handle in the file, and is simulated from its
+// line, which is enough with no file at all.
+func TestADeviceDeclaredByItsHardwareIsSimulatedFromItsLine(t *testing.T) {
+	salon := "salon"
+	lines := []wire.DeviceDeclaration{{
+		Hardware: "hue/0x1", Room: &salon, DeviceType: devicetype.OccupancySensor, Capabilities: []string{"occupied", "temperature"},
+	}}
+	got, err := ReadTypes(filepath.Join(t.TempDir(), "devices.go"), lines)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "hue/0x1" || got[0].Room != "salon" ||
+		!slices.Equal(got[0].Capabilities, []string{"occupied", "temperature"}) ||
+		!slices.Equal(got[0].DeviceTypes, []devicetype.Type{devicetype.OccupancySensor, devicetype.TemperatureSensor}) {
+		t.Errorf("got %+v", got)
+	}
+	if _, err := ReadTypes(filepath.Join(t.TempDir(), "devices.go"), nil); err == nil {
+		t.Error("a home with no file and nothing declared by its hardware has devices")
+	}
+}

@@ -251,3 +251,36 @@ func TestAStoreKeptByNameStartsItsClaimsAndLatchesAgain(t *testing.T) {
 		t.Errorf("logged it %d times over two starts", got)
 	}
 }
+
+// A line in your code gives its hardware the capabilities of its type and any others it lists, so a
+// deploy refuses one that the hardware doesn't report, naming both.
+func TestADeployRefusesHardwareThatLacksACapabilityItsLineGivesIt(t *testing.T) {
+	t.Parallel()
+	r := startPlugins(t)
+	r.until("the valve", func() bool {
+		return slices.ContainsFunc(r.devices().Devices, func(d registry.Device) bool {
+			return d.ID == "valve" && len(d.Capabilities) > 0
+		})
+	})
+	stderr, err := r.deploy("plugins-warm-valve")
+	if err == nil || !strings.Contains(stderr, "relays/valve has no temperature, which its line in your code gives it") {
+		t.Fatalf("gave the valve a temperature: %v: %s", err, stderr)
+	}
+}
+
+// A room in your code is the devices placed in it, which the host puts there, so a decision on it
+// follows the sensor placed in it.
+func TestARoomFollowsTheSensorPlacedInIt(t *testing.T) {
+	t.Parallel()
+	r := start(t)
+	r.mustDeploy("cuisine")
+	motion, light := deviceOf(t, r.devices(), "cuisine-motion"), deviceOf(t, r.devices(), "cuisine-light")
+	if !motion.Declared || motion.Room != "cuisine" || light.Room != "cuisine" ||
+		light.DeviceType != devicetype.OnOffLight || light.Label != "Plafond" {
+		t.Errorf("the sensor is %+v, and the light %+v", motion, light)
+	}
+	r.change("cuisine-motion", "occupied", true)
+	r.untilValue("cuisine-light", true)
+	r.change("cuisine-motion", "occupied", false)
+	r.untilValue("cuisine-light", false)
+}

@@ -19,7 +19,7 @@ func TestEveryNameFollowsTheDeviceRule(t *testing.T) {
 		"a room in a declaration": {
 			func(h *Home) { h.Device("desk-plug").Room("Living Room") }, `"Living Room" isn't a room name`,
 		},
-		"a room":  {func(h *Home) { h.Room("Living Room").On.To(true) }, `"Living Room" isn't a room name`},
+		"a room":  {func(*Home) { Room("Living Room").On.To(true) }, `"Living Room" isn't a room name`},
 		"a group": {func(h *Home) { h.Group("Down Stairs", hallLamp) }, `"Down Stairs" isn't a group name`},
 		"a case": {
 			func(h *Home) {
@@ -32,6 +32,7 @@ func TestEveryNameFollowsTheDeviceRule(t *testing.T) {
 		"a plugin": {func(h *Home) { h.Plugin("Zigbee.2", made) }, `"Zigbee.2" isn't a plugin name`},
 	} {
 		t.Run(name, func(t *testing.T) {
+			declaring(t)
 			_, _, err := decide(tc.home).compile()
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("got %v, want an error with %q", err, tc.want)

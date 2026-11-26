@@ -12,17 +12,17 @@ import (
 // The devices, as oikade types writes them into devices.go.
 var (
 	BathroomFan = struct {
-		oikade.Device
+		oikade.Hardware
 		On oikade.Bool
 	}{
-		Name: "bathroom-fan",
-		On:   oikade.Bool{Device: "bathroom-fan", Capability: oikade.On},
+		Key: "bathroom-fan",
+		On:  oikade.Bool{Device: "bathroom-fan", Capability: oikade.On},
 	}
 	BathroomSensor = struct {
-		oikade.Device
+		oikade.Hardware
 		Humidity oikade.Number
 	}{
-		Name:     "bathroom-sensor",
+		Key:      "bathroom-sensor",
 		Humidity: oikade.Number{Device: "bathroom-sensor", Capability: oikade.Humidity},
 	}
 )

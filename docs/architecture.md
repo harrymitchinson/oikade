@@ -223,7 +223,7 @@ A device is its key, its hardware (OIK-395): a plugin's device is `<plugin>/<id>
 
 `oikade types` renders the registry to Go (`internal/registry/types.go`), as the home's declarations would make it (`registry.Declaring`). It reads the declarations from the manifest of the home it builds, or from its source when it doesn't build, as when it names a handle only the new file has.
 
-The file has a value per device, named in its comment, with an `oikade.Device` and an `oikade.Bool`, `oikade.Number` or `oikade.Choice` for each capability, named by the capability registry's `Go` name, so the compiler checks what a home names. Each has the device by its key. Nothing else is in it: `oikade dev` and `oikadetest` read the handles back from its Go (`registry.Handles`), by key, with rooms and types from the home's declarations, so they show keys where the host would show names.
+The file has a value per device, named in its comment, with an `oikade.Hardware` and an `oikade.Bool`, `oikade.Number` or `oikade.Choice` for each capability, named by the capability registry's `Go` name, so the compiler checks what a home names. Each has the device by its key. Nothing else is in it: `oikade dev` and `oikadetest` read the handles back from its Go (`registry.Handles`), by key, with rooms and types from the home's declarations, so they show keys where the host would show names.
 
 ## Plugins
 

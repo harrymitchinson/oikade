@@ -69,6 +69,8 @@ type Device struct {
 	DeviceType devicetype.Type `json:"deviceType,omitempty"`
 	// DriverDeviceType is what its driver says it is, if the driver knows.
 	DriverDeviceType devicetype.Type `json:"driverDeviceType,omitempty"`
+	// Label is what your home's code says Matter controllers show for it, in place of its name.
+	Label string `json:"label,omitempty"`
 	// Product is what its driver last said it is, each field kept while the driver says nothing of it.
 	driver.Product
 	// Endpoint is its Matter endpoint ID, and follows the name onto replacement hardware.
@@ -287,11 +289,17 @@ func (r *Registry) Report(report Report) (device Device, changed bool, err error
 		if d.Removed {
 			d.Removed, d.Name = false, uniqueName(*s, d.Name)
 		}
+		unseen := len(d.Capabilities) == 0
 		d.Capabilities, d.DriverDeviceType = slices.Clone(report.Capabilities), report.DeviceType
 		appRoom := d.AppRoom
 		switch {
 		case newAppName(*d, report):
 			d.AppName, d.AppRoom = clean(report.Name), clean(report.Room)
+			// A line in your code that took the hardware before it was paired named it by its ID.
+			if d.Declared && unseen && d.Name == Slug("", d.ID) {
+				d.Name = ""
+				d.Name = uniqueName(*s, Slug(d.AppName, d.ID))
+			}
 		case newAppRoom(*d, report):
 			d.AppRoom = clean(report.Room)
 		}
