@@ -239,9 +239,9 @@ func describe(e api.Event) (what, cause string) {
 		return "forgotten", ""
 	case api.EventRename:
 		if name, ok := e.Previous.(string); ok {
-			cause = "was " + ident.DeviceRef(name).String()
+			cause = "was " + name
 		}
-		return "renamed", cause
+		return "renamed " + e.Message, cause
 	case api.EventCall:
 		if e.Result != "" {
 			return "called " + e.Message + " and it failed", e.Result

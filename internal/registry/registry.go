@@ -257,8 +257,7 @@ func (r *Registry) Report(report Report) (device Device, changed bool, err error
 	}
 	r.mu.RLock()
 	i := hardware(r.state, report.Driver, report.ID)
-	same := i >= 0 && !r.state.Devices[i].Removed && r.state.Devices[i].Driver == report.Driver &&
-		slices.Equal(r.state.Devices[i].Capabilities, report.Capabilities) &&
+	same := i >= 0 && !r.state.Devices[i].Removed && slices.Equal(r.state.Devices[i].Capabilities, report.Capabilities) &&
 		r.state.Devices[i].DriverDeviceType == report.DeviceType && !newAppName(r.state.Devices[i], report) &&
 		!newAppRoom(r.state.Devices[i], report) &&
 		!newProduct(r.state.Devices[i], report) &&
@@ -289,7 +288,6 @@ func (r *Registry) Report(report Report) (device Device, changed bool, err error
 		if d.Removed {
 			d.Removed, d.Name = false, uniqueName(*s, d.Name)
 		}
-		d.Driver = report.Driver
 		unseen := len(d.Capabilities) == 0
 		d.Capabilities, d.DriverDeviceType = slices.Clone(report.Capabilities), report.DeviceType
 		appRoom := d.AppRoom
@@ -374,11 +372,8 @@ func live(s Snapshot, name string) int {
 	return slices.IndexFunc(s.Devices, func(d Device) bool { return d.Name == name && !d.Removed })
 }
 
-// hardware finds a driver instance's device by its key, so a line in your code that took hardware
-// before its driver reported it, which can only guess the driver, has it.
 func hardware(s Snapshot, instance, id string) int {
-	key := KeyOf(instance, id, "")
-	return slices.IndexFunc(s.Devices, func(d Device) bool { return d.ID != "" && d.Key() == key })
+	return slices.IndexFunc(s.Devices, func(d Device) bool { return d.ID == id && d.Driver == instance })
 }
 
 func checkName(name string) error { return ident.CheckName(ident.Device, name) }

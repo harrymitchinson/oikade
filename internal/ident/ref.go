@@ -114,7 +114,10 @@ func CapabilityRef(key, capability string) Ref {
 // CaseRef is the ref of a decision's case of the device whose key is key, such as
 // case/hue/0x2/on/night.
 func CaseRef(key, capability, name string) Ref {
-	device := strings.TrimPrefix(strings.TrimPrefix(DeviceRef(key).String(), string(Hardware)+"/"), string(Device)+"/")
+	device := key
+	if !strings.Contains(key, "/") {
+		device = segment(key)
+	}
 	return Ref(string(Case) + "/" + device + "/" + segment(capability) + "/" + segment(name))
 }
 

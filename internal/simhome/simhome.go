@@ -39,7 +39,7 @@ const settleTimeout = 10 * time.Second
 var settleRecheck = time.Millisecond
 
 // instance is the driver instance simulated devices belong to.
-var instance = driver.InstanceKey{Driver: "simulated", Name: "home"}
+var instance = driver.InstanceKey{Driver: driver.Simulated, Name: "home"}
 
 // Home is a home to run. Compile runs again at each restart, as a new process would.
 type Home struct {

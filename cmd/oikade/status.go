@@ -135,6 +135,9 @@ func missingFrom(st *api.Status, n named) (what, hint string) {
 	case ident.Device:
 		d, ok := device(n.parts[0])
 		switch {
+		case !ok && !strings.Contains(n.parts[0], "/"):
+			return fmt.Sprintf("There's no %s on record: a device's ref is its hardware's, such as hardware/hue/0x2",
+				ident.DeviceRef(n.parts[0])), "oikade list devices shows each one's"
 		case !ok:
 			return fmt.Sprintf("There's no %s on record", ident.DeviceRef(n.parts[0])), "oikade list devices lists them"
 		case len(n.parts) > 1 && !has(d, n.parts[1]):

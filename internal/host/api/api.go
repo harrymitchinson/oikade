@@ -589,8 +589,8 @@ const (
 	EventMatter = "matter"
 	// EventForget is a device forgotten, so its history says why it stops.
 	EventForget = "forget"
-	// EventRename is a device renamed by a deploy: Device is its name from then on, and Previous the
-	// one before. The log keeps its key in Device and the name in Message.
+	// EventRename is a device renamed by a deploy: Device is its key, Message its name from then on,
+	// and Previous the one before.
 	EventRename = "rename"
 	// EventSignal is a signal changing, as the host saved it: Ref is the signal's, Value what it is
 	// now, and Previous what it was.

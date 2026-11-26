@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,6 +18,7 @@ import (
 
 	"oikade.dev/internal/cli"
 	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/driver"
 	"oikade.dev/internal/host/api"
 	"oikade.dev/internal/host/wire"
 	"oikade.dev/internal/ident"
@@ -211,7 +211,7 @@ func sameProtocol(m wire.Manifest) error {
 }
 
 // printUnseen warns of the hardware your home declares that the host has never seen, whose name
-// waits for it to report.
+// waits for it to report, or, for hardware no plugin's, which a deploy refuses until it has.
 func printUnseen(out io.Writer, list registry.Snapshot, inventory []wire.DeviceDeclaration) {
 	for _, d := range wire.Declarations(inventory) {
 		if d.ID == "" || slices.ContainsFunc(list.Devices, func(r registry.Device) bool {
@@ -219,8 +219,16 @@ func printUnseen(out io.Writer, list registry.Snapshot, inventory []wire.DeviceD
 		}) {
 			continue
 		}
-		_, _ = fmt.Fprintf(out, "Warning: the host has never seen %s, so %s waits for it to report\n",
-			registry.DescribeHardware(d.Driver, d.ID), cmp.Or(d.Name, d.Hardware))
+		hardware := ident.DeviceRef(d.Key())
+		switch {
+		case !strings.HasPrefix(d.Driver, driver.Plugin+"/"):
+			_, _ = fmt.Fprintf(out, "Warning: the host has never seen %s, which is no plugin's, so a deploy is refused "+
+				"until it reports\n", hardware)
+		case d.Name != "":
+			_, _ = fmt.Fprintf(out, "Warning: the host has never seen %s, so %s waits for it to report\n", hardware, d.Name)
+		default:
+			_, _ = fmt.Fprintf(out, "Warning: the host has never seen %s, so its line waits for it to report\n", hardware)
+		}
 	}
 }
 

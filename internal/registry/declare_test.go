@@ -323,6 +323,10 @@ func TestHardwareDeclaredByItselfIsChecked(t *testing.T) {
 			"hue/0x1 has no temperature, which its line in your code gives it: it has on",
 		},
 		"no plugin's, and not on record": {[]Declaration{{Hardware: "sim-2"}}, "sim-2 isn't on record"},
+		"the simulator's, and not on record": {
+			[]Declaration{{Hardware: "simulator/sim-2", Driver: "simulated/simulator", ID: "sim-2"}},
+			"simulator/sim-2 isn't on record: it's no plugin's",
+		},
 		"twice": {
 			[]Declaration{{Hardware: "sim-1"}, {Hardware: "sim-1"}}, "sim-1 is declared twice",
 		},
@@ -351,19 +355,5 @@ func TestHardwareDeclaredByItselfIsChecked(t *testing.T) {
 	}
 	if _, err := r.Plan([]Declaration{{Hardware: "sim/sim-1", Capabilities: []string{"on"}}}); err != nil {
 		t.Errorf("hardware of no plugin, on record, is refused: %v", err)
-	}
-}
-
-// A line can only guess the driver of hardware no driver has reported yet, so the report that comes
-// has it, whatever its driver.
-func TestHardwareDeclaredBeforeItsDriverReportsIsItsDrivers(t *testing.T) {
-	r, _ := open(t)
-	declareOK(t, r, Declaration{Hardware: "simulator/porch-light", Driver: "plugin/simulator", ID: "porch-light"})
-	d, _, err := r.Report(Report{ID: "porch-light", Driver: "simulated/simulator", Name: "porch-light", Capabilities: []string{"on"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if d.Driver != "simulated/simulator" || d.Key() != "simulator/porch-light" || !d.Declared || len(r.List().Devices) != 1 {
-		t.Errorf("got %+v", r.List())
 	}
 }

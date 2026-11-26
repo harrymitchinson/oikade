@@ -92,4 +92,8 @@ func TestADeviceIsItsHardwaresRef(t *testing.T) {
 	if _, _, ok := DeviceOf(Flow, []string{"morning"}); ok {
 		t.Error("a flow names a device")
 	}
+	// A plugin may be named as a kind is, and its case keeps it.
+	if got := CaseRef(HardwareKey("device", "x"), "on", "night"); got != "case/device/x/on/night" {
+		t.Errorf("got %s", got)
+	}
 }

@@ -147,6 +147,8 @@ func TestStatusOfARefThatNamesNothingFails(t *testing.T) {
 			"Error: there's no hardware/opentherm/bl on record\nHint: oikade list devices lists them\n"},
 		{st, []string{"hardware/opentherm/b1", "hardware/opentherm/bl"},
 			"Error: there's no hardware/opentherm/bl on record\n"},
+		{st, []string{"device/boiler"}, "Error: there's no device/boiler on record: a device's ref is its hardware's, " +
+			"such as hardware/hue/0x2\nHint: oikade list devices shows each one's\n"},
 		{
 			st, []string{"hardware/opentherm/b1/setpoint"},
 			"Error: hardware/opentherm/b1 has no setpoint\nHint: oikade status hardware/opentherm/b1 lists what it has\n",

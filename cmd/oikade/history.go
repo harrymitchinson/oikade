@@ -234,6 +234,9 @@ func unrecorded(ctx context.Context, t api.Transport, refs []named) []string {
 		case ident.Device:
 			d, ok := device(n.parts[0])
 			switch {
+			case !ok && !strings.Contains(n.parts[0], "/"):
+				out = append(out, fmt.Sprintf("There's no %s on record. A device's ref is its hardware's, such as "+
+					"hardware/hue/0x2: oikade list devices shows each one's.", ident.DeviceRef(n.parts[0])))
 			case !ok:
 				out = append(out, fmt.Sprintf("There's no %s on record: oikade list devices lists them.",
 					ident.DeviceRef(n.parts[0])))

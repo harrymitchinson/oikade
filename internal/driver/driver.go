@@ -16,7 +16,11 @@ import (
 const (
 	Zigbee2MQTT = "zigbee2mqtt"
 	Plugin      = "plugin"
+	Simulated   = "simulated"
 )
+
+// Simulator is the instance of oikade-host --simulate's devices.
+var Simulator = InstanceKey{Driver: Simulated, Name: ident.Simulator}
 
 // InstanceKey identifies a driver instance. Objects of different drivers may share a name, so the
 // driver is part of the key.

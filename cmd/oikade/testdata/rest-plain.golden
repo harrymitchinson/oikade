@@ -27,7 +27,7 @@ Paired controllers
 14:02:07  matter  window closed
 14:02:07  matter  controller left  fabric 1
 14:02:07  hardware/zigbee2mqtt/0x00158d0001a2b3c4  forgotten
-14:02:07  hardware/relays/valve  renamed  was device/valve
+14:02:07  hardware/relays/valve  renamed mains-valve  was valve
 14:02:07  flow/morning  called forecast  got true
 14:02:07  flow/morning  called tariff  got {"cheap":true,"until":"07:00"}
 14:02:07  flow/morning  called notify and it failed  the push service timed out

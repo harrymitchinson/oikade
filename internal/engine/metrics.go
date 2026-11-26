@@ -87,5 +87,4 @@ func (m budgetMetrics) all() []series.Vec {
 // ruleRef is a rule's ref, as its series' rule label and its log lines name it.
 func (e *Engine) ruleRef(key ident.ID) string { return control.RuleRef(key.Name).String() }
 
-// ref is a device's ref, for a log line.
 func ref(dev ident.ID) string { return ident.DeviceRef(dev.Name).String() }

@@ -15,6 +15,7 @@ import (
 	"oikade.dev/internal/driver"
 	"oikade.dev/internal/engine"
 	"oikade.dev/internal/host/pluginwire"
+	"oikade.dev/internal/ident"
 	"oikade.dev/internal/registry"
 )
 
@@ -159,6 +160,9 @@ func Declarations(decls []DeviceDeclaration) []registry.Declaration {
 		}
 		if plugin, id, ok := strings.Cut(d.Hardware, "/"); ok {
 			r.Driver, r.ID = driver.Plugin+"/"+plugin, id
+			if plugin == ident.Simulator {
+				r.Driver = driver.Simulated + "/" + ident.Simulator
+			}
 			if raw, err := url.PathUnescape(id); err == nil {
 				r.ID = raw
 			}

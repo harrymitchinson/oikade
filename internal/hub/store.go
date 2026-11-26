@@ -284,7 +284,6 @@ func (s *Store) UndeclaredCounts() map[driver.InstanceKey]int {
 	return maps.Clone(s.undeclared)
 }
 
-// ref is a device's ref, for a log line.
 func ref(key ident.ID) string { return ident.DeviceRef(key.Name).String() }
 
 func (e *entry) copy() Snapshot {

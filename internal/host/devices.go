@@ -490,5 +490,5 @@ func (s *server) emptyReads(before, after map[string]hub.Member, keep func(rule 
 	return out
 }
 
-// devKey is how the hub and the engine know a device on record: its key, its hardware.
+// devKey is how the hub and the engine know a device on record.
 func devKey(d registry.Device) ident.ID { return ident.ID{Name: d.Key()} }
