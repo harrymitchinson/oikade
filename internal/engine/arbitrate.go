@@ -12,6 +12,7 @@ import (
 	"oikade.dev/internal/capability"
 	"oikade.dev/internal/control"
 	"oikade.dev/internal/driver"
+	"oikade.dev/internal/hub"
 	"oikade.dev/internal/ident"
 )
 
@@ -146,13 +147,52 @@ func (e *Engine) DriverReturned(instance driver.InstanceKey) {
 			continue
 		}
 		for name, ar := range arbs {
-			if !ar.unconfirmed {
-				continue
+			if ar.unconfirmed {
+				ar.lose(snap, name)
 			}
-			ar.unconfirmed, ar.lost, ar.dropped = false, true, false
-			if v, reported := snap.Values[name]; reported {
-				ar.a.Wrote(capability.Float(v))
+		}
+	}
+}
+
+// lose says a write the device hasn't reported may never have reached it: the device is what it
+// last reported, and its next report isn't somebody changing it. The arbiter writes again if that's
+// wrong. Call with e.mu held.
+func (ar *arb) lose(snap hub.Snapshot, name string) {
+	ar.unconfirmed, ar.lost, ar.dropped = false, true, false
+	if v, reported := snap.Values[name]; reported {
+		ar.a.Wrote(capability.Float(v))
+	}
+}
+
+// offline says the device's driver has said it can't reach it. A driver that never says counts as
+// reaching it.
+func offline(snap hub.Snapshot) bool { return snap.Online != nil && !*snap.Online }
+
+// availabilityChanged keeps a device's arbiters to what reaches it. A write it hasn't reported when
+// it goes offline is lost: a plugin publishes the command and nobody hears whether the device took
+// it. Nothing is written while it's away, and its arbiters decide again when it's back, so what
+// they want is written then. Call it after the store has the device's availability.
+func (e *Engine) availabilityChanged(dev ident.ID, online bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	arbs := e.arbs[dev]
+	if !online {
+		snap, _ := e.Store.Get(dev)
+		for name, ar := range arbs {
+			if ar.unconfirmed {
+				ar.lose(snap, name)
 			}
+		}
+		return
+	}
+	// Plugins say online again with every read, so only an arbiter with a write held back for it
+	// looks again. One waiting for its retry waits for that.
+	now := e.Clock.Now()
+	for _, ar := range arbs {
+		if !ar.writing && !now.Before(ar.retry) && (ar.lost || ar.d.Write) {
+			e.controlDue[dev] = true
+			e.signal()
+			return
 		}
 	}
 }
@@ -319,6 +359,9 @@ func (e *Engine) decide(ctx context.Context, dev ident.ID, name string, ar *arb)
 	case !ok || !snap.Discovered:
 		// Discovered decides again.
 		return
+	case offline(snap):
+		// availabilityChanged decides again.
+		return
 	case now.Before(ar.retry):
 		ar.next = earliestOf(ar.next, ar.retry)
 		return
@@ -371,6 +414,10 @@ func (e *Engine) writeControl(ctx context.Context, dev ident.ID, name string, ar
 		cur.a.Wrote(value)
 		cur.wrote, cur.retry = now, time.Time{}
 		cur.unconfirmed, cur.lost = true, false
+		if snap, ok := e.Store.Get(dev); ok && offline(snap) {
+			// It went while the write was on its way.
+			cur.lose(snap, name)
+		}
 	}
 	cur.pending = false
 	e.decide(ctx, dev, name, cur)

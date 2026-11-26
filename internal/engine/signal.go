@@ -229,8 +229,10 @@ func (e *Engine) signalWhy(s *signalState, vars Vars, left []string) {
 
 // Availability implements driver.Sink: a device going offline has the signals look at once, as
 // they leave it out. One coming back counts at the next look, by the minute or with a report, rather
-// than at once, which would most often come between its coming back and its report.
+// than at once, which would most often come between its coming back and its report. Its arbiters
+// write nothing while it's away (availabilityChanged).
 func (e *Engine) Availability(dev ident.ID, online bool) {
+	e.availabilityChanged(dev, online)
 	if len(e.Signals) == 0 {
 		return
 	}

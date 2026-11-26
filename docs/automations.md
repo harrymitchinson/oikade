@@ -198,7 +198,7 @@ Two decimals are about a kilometre, which moves sunset by seconds, so your home'
 
 ## Arbitration
 
-Each line of a decision claims the capability while it applies, and the device takes the winner. An outside change is one from a Matter controller such as the Home app, from `oikade set`, or from the device by itself, such as a wall switch. The override line says where it ranks.
+Each line of a decision claims the capability while it applies, and the device takes the winner. An outside change is one from a Matter controller such as the Home app, from `oikade set`, or from the device by itself, such as a wall switch. The override line says where it ranks. A device its plugin says is offline gets nothing until it's back, and then whatever wins by then.
 
 ```go
 home.Decide(HallLight.On).
