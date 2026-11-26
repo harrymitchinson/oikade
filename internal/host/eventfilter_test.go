@@ -24,7 +24,7 @@ func aLog(at time.Time) (events []api.Event, names []string) {
 	porch := "simulator/porch-light"
 	add("connected", api.Event{Type: api.EventProcess, Message: "connected"})
 	add("relay on", api.Event{Type: api.EventChange, Device: "hue/0x1", Capability: "on", Value: true})
-	add("renamed", api.Event{Type: api.EventRename, Device: "hue/0x1", Previous: "relay-3", Message: "hall-lamp"})
+	add("forgotten", api.Event{Type: api.EventForget, Device: "hue/0x1"})
 	add("lamp on", api.Event{Type: api.EventChange, Device: "hue/0x1", Capability: "on", Value: true, Previous: false})
 	add("lamp dimmed", api.Event{Type: api.EventChange, Device: "hue/0x1", Capability: "brightness", Value: 40.0})
 	add("lamp offline", api.Event{Type: api.EventAvailability, Device: "hue/0x1", Message: api.AvailabilityOffline})
@@ -71,9 +71,9 @@ func TestEachKindOfRefHasItsEventsAndTheHomes(t *testing.T) {
 	}{
 		{"nothing", api.EventFilter{}, names},
 		{"a device, through its rename", api.EventFilter{Refs: []string{"hardware/hue/0x1"}},
-			home("relay on", "renamed", "lamp on", "lamp dimmed", "lamp offline", "lamp dusk wrote")},
+			home("relay on", "forgotten", "lamp on", "lamp dimmed", "lamp offline", "lamp dusk wrote")},
 		{"a capability, and what happened to its device", api.EventFilter{Refs: []string{"hardware/hue/0x1/brightness"}},
-			home("renamed", "lamp dimmed", "lamp offline")},
+			home("forgotten", "lamp dimmed", "lamp offline")},
 		{"a room", api.EventFilter{Refs: []string{"room/office"}}, home("morning wrote", "tap", "set", "ac off")},
 		{"a room's capability", api.EventFilter{Refs: []string{"room/office/on"}}, home("set", "ac off")},
 		{"a room that isn't", api.EventFilter{Refs: []string{"room/attic"}}, home()},
@@ -89,7 +89,7 @@ func TestEachKindOfRefHasItsEventsAndTheHomes(t *testing.T) {
 		{"two refs", api.EventFilter{Refs: []string{"plugin/overkiz", "hardware/simulator/porch-light"}},
 			home("dusk wrote", "porch on", "login refused")},
 		{"a time", api.EventFilter{Since: at.Add(2 * time.Minute), Until: at.Add(4 * time.Minute)},
-			[]string{"renamed", "lamp on", "lamp dimmed"}},
+			[]string{"forgotten", "lamp on", "lamp dimmed"}},
 		{"a ref and a time", api.EventFilter{Refs: []string{"hardware/hue/0x1"}, Since: at.Add(3 * time.Minute)},
 			[]string{"lamp on", "lamp dimmed", "lamp offline", "lamp dusk wrote", "deployed"}},
 	} {
@@ -127,8 +127,7 @@ func TestARefWithNoEventsIsRefused(t *testing.T) {
 	}
 }
 
-// A device's ref is its hardware's events, whatever it was called when they happened, and a tail
-// that follows it carries on through a rename. Another device that takes a name it left isn't it.
+// A device's ref is its hardware's events, and not another device's.
 func TestADevicesRefIsItsHardware(t *testing.T) {
 	at := time.Date(2026, 11, 18, 3, 0, 0, 0, time.UTC)
 	m, err := newEventMatcher(api.EventFilter{Refs: []string{"hardware/hue/0x1/on"}}, rooms)
@@ -139,16 +138,13 @@ func TestADevicesRefIsItsHardware(t *testing.T) {
 		return api.Event{Time: at.Add(after), Type: api.EventChange, Device: key, Capability: "on", Value: true}
 	}
 	events := []api.Event{
-		on("hue/0x1", 0), on("hue/0x2", 0),
-		{Time: at.Add(time.Hour), Type: api.EventRename, Device: "hue/0x1", Previous: "relay-3", Message: "hall-lamp"},
-		{Time: at.Add(time.Hour), Type: api.EventRename, Device: "hue/0x2", Previous: "hall-lamp", Message: "spare"},
-		on("hue/0x1", 2*time.Hour), on("hue/0x2", 2*time.Hour),
+		on("hue/0x1", 0), on("hue/0x2", 0), on("hue/0x1", 2*time.Hour), on("hue/0x2", 2*time.Hour),
 	}
 	got := make([]bool, 0, len(events))
 	for _, e := range events {
 		got = append(got, m.pass(e))
 	}
-	if want := []bool{true, false, true, false, true, false}; !slices.Equal(got, want) {
+	if want := []bool{true, false, true, false}; !slices.Equal(got, want) {
 		t.Errorf("let through %v, want %v", got, want)
 	}
 }

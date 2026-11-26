@@ -20,9 +20,7 @@ import (
 
 // Meta is what the hub is told about a declared Device, as against what its driver reports.
 type Meta struct {
-	// DisplayName is what a person calls the device. The hub knows it by its key, its hardware.
-	DisplayName string
-	Room        string
+	Room string
 	// Instance is the driver instance the device belongs to.
 	Instance driver.InstanceKey
 	// Control is the Device's control entries: the capabilities it arbitrates, and how.
@@ -110,7 +108,7 @@ func (s *Store) SetDevices(instance driver.InstanceKey, devices map[ident.ID]Met
 			s.devices[key] = e
 			reassigned = append(reassigned, key)
 		}
-		if !slices.EqualFunc(e.Control, m.Control, control.Entry.Equal) || len(m.Control) > 0 && e.DisplayName != m.DisplayName {
+		if !slices.EqualFunc(e.Control, m.Control, control.Entry.Equal) {
 			controls = append(controls, key)
 		}
 		e.Meta = m
@@ -263,18 +261,6 @@ func (s *Store) Room(room string) []ident.ID {
 	}
 	slices.SortFunc(out, func(a, b ident.ID) int { return strings.Compare(a.Name, b.Name) })
 	return out
-}
-
-// Named is the key of the device whose DisplayName is name, as a person names it.
-func (s *Store) Named(name string) (ident.ID, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	for key, e := range s.devices {
-		if e.DisplayName == name {
-			return key, true
-		}
-	}
-	return ident.ID{}, false
 }
 
 // UndeclaredCounts returns the number of paired-but-undeclared devices per driver instance.

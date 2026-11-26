@@ -17,7 +17,7 @@ func TestRulesThatNameADeviceHearItAfterItMoves(t *testing.T) {
 	r := startPlugins(t)
 	r.untilValue("quiet/quiet.needs-setup", false)
 	r.mustDeploy("plugins-landing")
-	if d := deviceOf(t, r.devices(), "quiet"); d.Room != "landing" {
+	if d := deviceOf(t, r.devices(), "quiet/quiet.needs-setup"); d.Room != "landing" {
 		t.Fatalf("quiet is in %q", d.Room)
 	}
 	heard, held := r.writes("quiet-heard", true), r.writes("quiet-held", true)

@@ -210,7 +210,7 @@ type Response struct {
 	Ended []string `json:"ended,omitempty"`
 	Kept  []string `json:"kept,omitempty"`
 	// DeviceChanges are a deploy's or a rollback's: what the version's device declarations changed,
-	// a line each, and Unseen the names it declares whose hardware hasn't reported.
+	// a line each, and Unseen the hardware it declares that hasn't reported, by key.
 	DeviceChanges []string `json:"deviceChanges,omitempty"`
 	Unseen        []string `json:"unseen,omitempty"`
 	// Unimported are the devices on record of plugins the version doesn't import: a deploy's or a
@@ -223,6 +223,9 @@ type Response struct {
 	SafetyHeld []string `json:"safetyHeld,omitempty"`
 	// HiddenFromMatter are a devices request's: the devices on record your home keeps off Matter.
 	HiddenFromMatter []string `json:"hiddenFromMatter,omitempty"`
+	// Declared are a devices request's: the devices on record the code of the home last attached
+	// declares.
+	Declared []string `json:"declared,omitempty"`
 	// TakenOffMatter are a deploy's or a rollback's: the devices the version now running took off
 	// Matter, which controllers have lost.
 	TakenOffMatter []string `json:"takenOffMatter,omitempty"`
@@ -277,7 +280,7 @@ func Bridgeable(d registry.Device) bool {
 // bridge would show off it.
 func HiddenFromMatter(hidden []wire.HiddenPlugin, d registry.Device) bool {
 	plugin, ok := PluginOf(d)
-	return ok && Bridgeable(d) && wire.Hidden(hidden, plugin, d.Name)
+	return ok && Bridgeable(d) && wire.Hidden(hidden, plugin, d.Key())
 }
 
 // HiddenDevices are the devices on record that hidden keeps off Matter, by their hardware.
@@ -472,8 +475,8 @@ type Device struct {
 	PluginNotImported bool `json:"pluginNotImported,omitempty"`
 	// Problem is what's wrong with it, as its driver says, such as a missing key.
 	Problem string `json:"problem,omitempty"`
-	// Declare is the line that would declare it, for a device your home's code doesn't declare.
-	Declare string `json:"declare,omitempty"`
+	// Undeclared says your home's code doesn't declare it, which oikade types gives a line.
+	Undeclared bool `json:"undeclared,omitempty"`
 }
 
 // Capability is a device's capability, and who has it if it's arbitrated.
@@ -589,9 +592,6 @@ const (
 	EventMatter = "matter"
 	// EventForget is a device forgotten, so its history says why it stops.
 	EventForget = "forget"
-	// EventRename is a device renamed by a deploy: Device is its key, Message its name from then on,
-	// and Previous the one before.
-	EventRename = "rename"
 	// EventSignal is a signal changing, as the host saved it: Ref is the signal's, Value what it is
 	// now, and Previous what it was.
 	EventSignal = "signal"
@@ -620,8 +620,8 @@ type Event struct {
 	Type string    `json:"type"`
 	// Device, Capability and Value are a change's, a write's or a refused write's, and Previous a
 	// change's. Value and Previous are also a signal's. Device is also the device that went offline
-	// or came back, was forgotten, or was renamed, with Previous its name before. Device is a device's
-	// key, its hardware, as Rule is a rule's, and Ref and By are refs.
+	// or came back, or was forgotten. Device is a device's key, its hardware, as Rule is a rule's, and
+	// Ref and By are refs.
 	Device     string `json:"device,omitempty"`
 	Capability string `json:"capability,omitempty"`
 	Value      any    `json:"value,omitempty"`

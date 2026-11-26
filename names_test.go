@@ -15,10 +15,6 @@ func TestEveryNameFollowsTheDeviceRule(t *testing.T) {
 		home func(*Home)
 		want string
 	}{
-		"a device": {func(h *Home) { h.Device("Desk Plug") }, `"Desk Plug" isn't a device name`},
-		"a room in a declaration": {
-			func(h *Home) { h.Device("desk-plug").Room("Living Room") }, `"Living Room" isn't a room name`,
-		},
 		"a room":  {func(*Home) { Room("Living Room").On.To(true) }, `"Living Room" isn't a room name`},
 		"a group": {func(h *Home) { h.Group("Down Stairs", hallLamp) }, `"Down Stairs" isn't a group name`},
 		"a case": {

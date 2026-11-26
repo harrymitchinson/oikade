@@ -340,7 +340,7 @@ func TestChipToolPairsAndDrivesADevice(t *testing.T) {
 		return strings.Contains(out, "Device commissioning completed with success")
 	})
 
-	endpoint := func(name string) string {
+	endpoint := func(id string) string {
 		out, err := h.client("list", "devices", "--json").Output()
 		if err != nil {
 			t.Fatal(err)
@@ -349,9 +349,9 @@ func TestChipToolPairsAndDrivesADevice(t *testing.T) {
 		if err := json.Unmarshal(out, &list); err != nil {
 			t.Fatalf("%v in %s", err, out)
 		}
-		i := slices.IndexFunc(list, func(d registry.Device) bool { return d.Name == name })
+		i := slices.IndexFunc(list, func(d registry.Device) bool { return d.ID == id })
 		if i < 0 {
-			t.Fatalf("no %s in %s", name, out)
+			t.Fatalf("no %s in %s", id, out)
 		}
 		return fmt.Sprint(list[i].Endpoint)
 	}

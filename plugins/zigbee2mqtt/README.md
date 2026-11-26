@@ -53,10 +53,10 @@ Until both settings are on, or if Zigbee2MQTT isn't heard on the broker within 5
 
 ## Your devices
 
-Every device paired in Zigbee2MQTT is in Oikade at once, but the coordinator and devices Zigbee2MQTT doesn't support. Its ID is its IEEE address, such as `0x00124b0000000004`, so its ref is `hardware/zigbee/0x00124b0000000004`. Its name is its friendly name when it's first seen, made into a name Oikade takes, and renaming it in the Zigbee2MQTT web UI later changes neither. To name it in your code, give its ID:
+Every device paired in Zigbee2MQTT is in Oikade at once, but the coordinator and devices Zigbee2MQTT doesn't support. Its ID is its IEEE address, such as `0x00124b0000000004`, so its ref is `hardware/zigbee/0x00124b0000000004`. Its app's name is its friendly name when it's first seen, and renaming it in the Zigbee2MQTT web UI later changes nothing in Oikade. `oikade types` gives it a line in your code by its ID:
 
 ```go
-home.Device("desk-plug").Hardware("zigbee", "0x00124b0000000004")
+var DeskPlug = oikade.Device[oikade.OnOffPlugInUnit]("zigbee/0x00124b0000000004")
 ```
 
 Its manufacturer and model are its definition's `vendor` and `model`, and its firmware version its `software_build_id`, if the device gave Zigbee2MQTT one. Zigbee has no serial number or hardware version to report. A device that leaves Zigbee2MQTT stays on record, not found and offline.

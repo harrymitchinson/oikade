@@ -625,7 +625,7 @@ func automationsDown(h api.Home) bool { return h.Version != "" && !h.Process && 
 func undeclaredOf(devices []api.Device) []string {
 	var out []string
 	for _, d := range devices {
-		if d.Declare != "" {
+		if d.Undeclared {
 			out = append(out, d.Ref)
 		}
 	}
@@ -633,15 +633,14 @@ func undeclaredOf(devices []api.Device) []string {
 }
 
 // countUndeclared says, once, how many devices aren't in your code, naming one if it's alone, and
-// where to read how to declare them.
+// what adds them.
 func countUndeclared(stderr *cli.Printer, undeclared []string) {
 	switch len(undeclared) {
 	case 0:
 	case 1:
-		stderr.Println(stderr.Dim(undeclared[0] + " isn't in your code: oikade list devices shows how to declare it"))
+		stderr.Println(stderr.Dim(undeclared[0] + " isn't in your code: oikade types adds it"))
 	default:
-		stderr.Println(stderr.Dim(fmt.Sprintf("%d devices aren't in your code: oikade list devices shows how to declare them",
-			len(undeclared))))
+		stderr.Println(stderr.Dim(fmt.Sprintf("%d devices aren't in your code: oikade types adds them", len(undeclared))))
 	}
 }
 
@@ -762,7 +761,7 @@ func stateOf(d api.Device, down string) string {
 	case d.Problem != "":
 		state = append(state, d.Problem)
 	}
-	if d.Declare != "" {
+	if d.Undeclared {
 		state = append(state, notInYourCode)
 	}
 	return strings.Join(state, ", ")

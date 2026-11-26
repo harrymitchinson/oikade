@@ -36,16 +36,16 @@ func report(t *testing.T, r *Registry, id, name string) Device {
 	return d
 }
 
-func get(t *testing.T, r *Registry, name string) Device {
+func get(t *testing.T, r *Registry, key string) Device {
 	t.Helper()
-	d, ok := r.Get(name)
+	d, ok := r.ByKey(key)
 	if !ok {
-		t.Fatalf("no device %s in %+v", name, r.List())
+		t.Fatalf("no device %s in %+v", key, r.List())
 	}
 	return d
 }
 
-func TestAPairedDeviceEntersOnceAndKeepsItsName(t *testing.T) {
+func TestAPairedDeviceEntersOnceAndKeepsItsAppsName(t *testing.T) {
 	r, _ := open(t)
 	d, changed, err := r.Report(Report{ID: "0x1", Driver: "sim", Name: "Hall Lamp!", Room: "Living Room", Capabilities: []string{"on"}})
 	if err != nil || !changed {
@@ -54,45 +54,31 @@ func TestAPairedDeviceEntersOnceAndKeepsItsName(t *testing.T) {
 	if _, changed, _ := r.Report(Report{ID: "0x1", Driver: "sim", Name: "Hall Lamp!", Capabilities: []string{"on"}}); changed {
 		t.Error("the same report changed something")
 	}
-	if d.Name != "hall-lamp" || d.Room != "living-room" || d.AppRoom != "Living Room" || d.Endpoint != FirstEndpoint {
+	if d.Key() != "sim/0x1" || d.AppName != "Hall Lamp!" || d.Room != "living-room" || d.AppRoom != "Living Room" ||
+		d.Endpoint != FirstEndpoint {
 		t.Errorf("got %+v", d)
 	}
-	declareOK(t, r, Declaration{Name: "lamp", Driver: "sim", ID: "0x1", Room: new("attic")})
+	declareOK(t, r, Declaration{Hardware: "sim/0x1", Room: "attic"})
 	again, _, err := r.Report(Report{ID: "0x1", Driver: "sim", Name: "Renamed In The App", Room: "Elsewhere", Capabilities: []string{"on", "brightness"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again.Name != "lamp" || again.Room != "attic" || again.Endpoint != d.Endpoint || len(again.Capabilities) != 2 {
+	if again.AppName != "Hall Lamp!" || again.Room != "attic" || again.Endpoint != d.Endpoint || len(again.Capabilities) != 2 {
 		t.Errorf("an app's names were followed, or capabilities weren't: %+v", again)
-	}
-}
-
-func TestNamesFromAppsAreUniqueAndValid(t *testing.T) {
-	r, _ := open(t)
-	if a, b := report(t, r, "1", "Lamp"), report(t, r, "2", "lamp"); a.Name != "lamp" || b.Name != "lamp-2" {
-		t.Errorf("got %s and %s", a.Name, b.Name)
-	}
-	for name, id := range map[string]string{"": "0x00124B", "2nd floor": "x", "---": "", "Ünï": "y"} {
-		if err := checkName(Slug(name, id)); err != nil {
-			t.Errorf("Slug(%q, %q) = %q: %v", name, id, Slug(name, id), err)
-		}
-	}
-	if err := checkName(Slug(strings.Repeat("ab-", 40), "x")); err != nil {
-		t.Error(err)
 	}
 }
 
 func TestEndpointsAreNeverReused(t *testing.T) {
 	r, _ := open(t)
 	lamp, fan := report(t, r, "lamp", "lamp"), report(t, r, "fan", "fan")
-	if err := r.Remove("lamp"); err != nil {
+	if err := r.Remove(lamp.Key()); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.Remove("fan"); err != nil {
+	if err := r.Remove(fan.Key()); err != nil {
 		t.Fatal(err)
 	}
-	declareOK(t, r, Declaration{Name: "lamp"})
-	if got := get(t, r, "lamp").Endpoint; got == lamp.Endpoint || got == fan.Endpoint {
+	declareOK(t, r, Declaration{Hardware: "hue/0x9", Driver: "plugin/hue", ID: "0x9"})
+	if got := get(t, r, "hue/0x9").Endpoint; got == lamp.Endpoint || got == fan.Endpoint {
 		t.Errorf("a new device took endpoint %d", got)
 	}
 	other := report(t, r, "other", "other")
@@ -100,13 +86,8 @@ func TestEndpointsAreNeverReused(t *testing.T) {
 		t.Errorf("new hardware took endpoint %d", other.Endpoint)
 	}
 
-	back := report(t, r, "fan", "ignored")
-	if back.Endpoint != fan.Endpoint || back.Name != "fan" {
+	if back := report(t, r, "fan", "ignored"); back.Endpoint != fan.Endpoint || back.AppName != "fan" {
 		t.Errorf("removed hardware came back as %+v, want %+v", back, fan)
-	}
-	again := report(t, r, "lamp", "ignored")
-	if again.Endpoint != lamp.Endpoint || again.Name != "lamp-2" {
-		t.Errorf("removed hardware whose name went came back as %+v", again)
 	}
 	seen := map[uint16]bool{}
 	list := r.List()
@@ -120,8 +101,7 @@ func TestEndpointsAreNeverReused(t *testing.T) {
 
 func TestTheRegistrySurvivesReopening(t *testing.T) {
 	r, values := open(t)
-	report(t, r, "lamp", "lamp")
-	if err := r.Remove("lamp"); err != nil {
+	if err := r.Remove(report(t, r, "lamp", "lamp").Key()); err != nil {
 		t.Fatal(err)
 	}
 	reopened, err := Open(values)
@@ -148,11 +128,29 @@ func TestAnAppsRoomSavedBeforeRoomsHadNamesIsMadeIntoOne(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d := get(t, r, "lamp"); d.Room != "living-room" || d.AppRoom != "Living Room" {
+	if d := get(t, r, "sim/1"); d.Room != "living-room" || d.AppRoom != "Living Room" {
 		t.Errorf("got %+v", d)
 	}
-	if d := get(t, r, "fan"); d.Room != "hall" {
+	if d := get(t, r, "sim/2"); d.Room != "hall" {
 		t.Errorf("got %+v", d)
+	}
+}
+
+// A name reserved for hardware before a device was its hardware has none, so it goes, and its
+// endpoint isn't handed out again.
+func TestAReservedNameSavedBeforeDevicesWereTheirHardwareGoes(t *testing.T) {
+	_, values := open(t)
+	raw := `{"next":4,"devices":[{"name":"greenhouse-fan","declared":true,"endpoint":2},` +
+		`{"name":"lamp","id":"1","driver":"sim","endpoint":3}]}`
+	if err := values.Put(stateKey, []byte(raw)); err != nil {
+		t.Fatal(err)
+	}
+	r, err := Open(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if list := r.List(); len(list.Devices) != 1 || list.Devices[0].Key() != "sim/1" || list.Next != 4 {
+		t.Errorf("got %+v", list)
 	}
 }
 
@@ -182,24 +180,11 @@ func TestAFailedSaveChangesNothing(t *testing.T) {
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Declare([]Declaration{{Name: "fan"}}); err == nil {
+	if _, err := r.Declare([]Declaration{{Hardware: "hue/0x9", Driver: "plugin/hue", ID: "0x9"}}); err == nil {
 		t.Fatal("saved to a closed store")
 	}
 	if list := r.List(); list.Next != FirstEndpoint+1 || len(list.Devices) != 1 {
 		t.Errorf("took up a change it couldn't save: %+v", list)
-	}
-}
-
-func TestChecksOnNames(t *testing.T) {
-	r, _ := open(t)
-	report(t, r, "a", "lamp")
-	for _, name := range []string{"", "Lamp", "9lamp", "la mp", "lamp-", "la--mp", strings.Repeat("a", 64)} {
-		if _, err := r.Declare([]Declaration{{Name: name}}); err == nil {
-			t.Errorf("reserved %q", name)
-		}
-	}
-	if _, err := r.Declare([]Declaration{{Name: "lamp"}}); err == nil {
-		t.Error("reserved a name in use")
 	}
 }
 
@@ -226,7 +211,7 @@ func TestArbitrationStaysOnRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d, _ := reopened.Get("valve"); d.ID != "a" || !bytes.Equal(d.Control, settings) {
+	if d, _ := reopened.ByKey("sim/a"); d.ID != "a" || !bytes.Equal(d.Control, settings) {
 		t.Errorf("got %+v", d)
 	}
 }
@@ -241,7 +226,7 @@ func TestADeviceTypeIsYoursOverItsDriversAndSurvives(t *testing.T) {
 		}
 		return d
 	}
-	types := func() []devicetype.Type { return get(t, r, "bulb").DeviceTypes() }
+	types := func() []devicetype.Type { return get(t, r, "sim/0x1").DeviceTypes() }
 
 	report("", capability.On)
 	if got := types(); !slices.Equal(got, []devicetype.Type{devicetype.OnOffPlugInUnit}) {
@@ -253,7 +238,7 @@ func TestADeviceTypeIsYoursOverItsDriversAndSurvives(t *testing.T) {
 	if got := types(); !slices.Equal(got, []devicetype.Type{devicetype.OnOffLight}) {
 		t.Errorf("with the driver's type it's %v", got)
 	}
-	declareOK(t, r, Declaration{Name: "bulb", Driver: "sim", ID: "0x1", DeviceType: devicetype.MountedOnOffControl})
+	declareOK(t, r, Declaration{Hardware: "sim/0x1", DeviceType: devicetype.MountedOnOffControl})
 	report(devicetype.OnOffLight, capability.On)
 	if got := types(); !slices.Equal(got, []devicetype.Type{devicetype.MountedOnOffControl}) {
 		t.Errorf("yours didn't win: %v", got)
@@ -263,7 +248,7 @@ func TestADeviceTypeIsYoursOverItsDriversAndSurvives(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d, _ := again.Get("bulb"); d.DeviceType != devicetype.MountedOnOffControl || d.DriverDeviceType != devicetype.OnOffLight {
+	if d, _ := again.ByKey("sim/0x1"); d.DeviceType != devicetype.MountedOnOffControl || d.DriverDeviceType != devicetype.OnOffLight {
 		t.Errorf("after reopening: %+v", d)
 	}
 
@@ -301,29 +286,8 @@ func TestWhatADeviceIsStaysOnRecordUntilItsDriverSaysOtherwise(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d, _ := again.Get("lamp"); d.Manufacturer != "IKEA of Sweden" || d.Model != "TRADFRI bulb E27 WS" {
+	if d, _ := again.ByKey("sim/0x1"); d.Manufacturer != "IKEA of Sweden" || d.Model != "TRADFRI bulb E27 WS" {
 		t.Errorf("after reopening: %+v", d)
-	}
-}
-
-func TestWhatADeviceIsMovesWithItsHardware(t *testing.T) {
-	r, _ := open(t)
-	if _, _, err := r.Report(Report{ID: "0x2", Driver: "sim", Name: "Sensor 7", Manufacturer: "Aqara", Model: "WSDCGQ11LM"}); err != nil {
-		t.Fatal(err)
-	}
-	declareOK(t, r, Declaration{Name: "hall-sensor", Room: new("hall")})
-	declareOK(t, r, Declaration{Name: "hall-sensor", Driver: "sim", ID: "0x2", Room: new("hall")})
-	if d := get(t, r, "hall-sensor"); d.Manufacturer != "Aqara" || d.Model != "WSDCGQ11LM" {
-		t.Errorf("the name took the hardware without what it is: %+v", d)
-	}
-	for _, d := range r.List().Devices {
-		if d.Name != "hall-sensor" && (d.Manufacturer != "" || d.Model != "") {
-			t.Errorf("the retired entry kept what its hardware is: %+v", d)
-		}
-	}
-	declareOK(t, r, Declaration{Name: "hall-sensor", Driver: "sim", ID: "0x3", Room: new("hall")})
-	if d := get(t, r, "hall-sensor"); d.Manufacturer != "" || d.Model != "" {
-		t.Errorf("hardware not on record kept the last one's manufacturer and model: %+v", d)
 	}
 }
 
@@ -351,34 +315,12 @@ func TestADevicesKeyIsItsHardware(t *testing.T) {
 		d    Device
 		want string
 	}{
-		{Device{Name: "desk-lamp", Driver: "plugin/hue", ID: "0x00178801091863f2"}, "hue/0x00178801091863f2"},
-		{Device{Name: "terrace-blind", Driver: "plugin/overkiz", ID: "io://1234-5678/9 0"}, "overkiz/io:%2F%2F1234-5678%2F9%200"},
-		{Device{Name: "study-heater", Driver: "simulated/simulator", ID: "study-heater"}, "simulator/study-heater"},
-		{Device{Name: "greenhouse-fan"}, "greenhouse-fan"},
+		{Device{Driver: "plugin/hue", ID: "0x00178801091863f2"}, "hue/0x00178801091863f2"},
+		{Device{Driver: "plugin/overkiz", ID: "io://1234-5678/9 0"}, "overkiz/io:%2F%2F1234-5678%2F9%200"},
+		{Device{Driver: "simulated/simulator", ID: "study-heater"}, "simulator/study-heater"},
 	} {
 		if got := tc.d.Key(); got != tc.want || strings.Contains(got, " ") {
-			t.Errorf("%s's key is %q, want %q", tc.d.Name, got, tc.want)
+			t.Errorf("%s's key is %q, want %q", tc.d.ID, got, tc.want)
 		}
-	}
-}
-
-// A rename leaves a device's key as it is, and a device forgotten keeps its name for its past.
-func TestADeviceKeepsItsKeyThroughARename(t *testing.T) {
-	r, _ := open(t)
-	d := report(t, r, "0x1", "Hall lamp")
-	declareOK(t, r, Declaration{Name: "landing-lamp", Driver: "sim", ID: "0x1"})
-	got, ok := r.ByKey(d.Key())
-	if !ok || got.Name != "landing-lamp" || got.Key() != d.Key() {
-		t.Fatalf("by its key: %+v, %v", got, ok)
-	}
-	declareOK(t, r)
-	if err := r.Remove("hall-lamp"); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := r.ByKey(d.Key()); ok {
-		t.Error("a forgotten device is still live by its key")
-	}
-	if name, ok := r.NameOf(d.Key()); !ok || name != "hall-lamp" {
-		t.Errorf("NameOf = %q, %v, want hall-lamp", name, ok)
 	}
 }

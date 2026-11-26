@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"oikade.dev/contract/v1"
-	"oikade.dev/internal/registry"
+	"oikade.dev/internal/ident"
 	"oikade.dev/sdk/plugin"
 )
 
@@ -131,13 +131,14 @@ func (b *bridge) Setup(ctx context.Context, _ *plugin.Plugin, s *plugin.Session)
 		heard[id] = true
 	}
 	b.mu.Unlock()
-	// Only a device the plugin reports can be declared, and one with a name already needs nothing.
+	// Only a device the plugin reports can be declared, and one with a label already needs none.
 	for _, d := range devices {
-		if d.name == "" || !heard[d.id] || b.named[d.id] {
+		if d.name == "" || !heard[d.id] || b.labelled[d.id] {
 			continue
 		}
-		line := fmt.Sprintf("%s is %q in the eWeLink app: home.Device(%q).Hardware(%q, %q) in your home's code "+
-			"names it so", d.id, d.name, registry.Slug(d.name, d.id), b.name(), d.id)
+		line := fmt.Sprintf("%s is %q in the eWeLink app: oikade.Label(%q) on %s's line in your home's code, which "+
+			"oikade types adds, shows it so in the Home app", d.id, d.name, d.name,
+			ident.DeviceRef(ident.HardwareKey(b.name(), d.id)))
 		if err := s.Say(ctx, line); err != nil {
 			return "", err
 		}

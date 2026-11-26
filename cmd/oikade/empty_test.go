@@ -213,7 +213,7 @@ func TestStatusSaysWhatsMissingAndOnlyThat(t *testing.T) {
 		t.Errorf("during a deploy: stdout %q, stderr %q", stdout.String(), stderr.String())
 	}
 	off := false
-	both := api.Device{PluginNotImported: true, Problem: "not seen on the LAN", Online: &off, Declare: "home.Device(…)"}
+	both := api.Device{PluginNotImported: true, Problem: "not seen on the LAN", Online: &off, Undeclared: true}
 	if got := deviceState(both); got != "plugin not imported, not seen on the LAN, not in your code" {
 		t.Errorf("deviceState = %q", got)
 	}

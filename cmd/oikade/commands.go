@@ -237,11 +237,6 @@ func describe(e api.Event) (what, cause string) {
 		return value(e.Value), cause
 	case api.EventForget:
 		return "forgotten", ""
-	case api.EventRename:
-		if name, ok := e.Previous.(string); ok {
-			cause = "was " + name
-		}
-		return "renamed " + e.Message, cause
 	case api.EventCall:
 		if e.Result != "" {
 			return "called " + e.Message + " and it failed", e.Result
@@ -250,8 +245,11 @@ func describe(e api.Event) (what, cause string) {
 			cause = "got " + callResult(e.Value)
 		}
 		return "called " + e.Message, cause
+	case api.EventProcess:
+		return "automations " + e.Message, ""
 	}
-	return "automations " + e.Message, ""
+	// An event of a type this oikade doesn't know, which a host may have kept from before.
+	return e.Type, e.Message
 }
 
 // callResult is what a flow's outside call returned, on one line: a value as it is, and anything

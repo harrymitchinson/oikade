@@ -148,3 +148,38 @@ func (o *homeOptions) takeMatterName(name string) error {
 	}
 	return nil
 }
+
+// keyShownByHardware rewrites the devices a saved home shows on Matter from their old names to their
+// hardware's keys, and drops a name that was reserved without hardware.
+func keyShownByHardware(values *store.Namespace, names map[string]string) error {
+	raw, ok, err := values.Get(hiddenKey)
+	if err != nil || !ok || len(names) == 0 {
+		return err
+	}
+	var hidden []wire.HiddenPlugin
+	if err := json.Unmarshal(raw, &hidden); err != nil {
+		return fmt.Errorf("reading the plugins hidden from Matter: %w", err)
+	}
+	changed := false
+	for i, p := range hidden {
+		shown := make([]string, 0, len(p.Shown))
+		for _, s := range p.Shown {
+			key, named := names[s]
+			switch {
+			case !named:
+				shown = append(shown, s)
+			case key != "":
+				shown = append(shown, key)
+			}
+			changed = changed || named
+		}
+		hidden[i].Shown = shown
+	}
+	if !changed {
+		return nil
+	}
+	if raw, err = json.Marshal(normalHidden(hidden)); err != nil {
+		return err
+	}
+	return values.Put(hiddenKey, raw)
+}

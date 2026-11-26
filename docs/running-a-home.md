@@ -158,7 +158,7 @@ It checks your code as [`oikade check`](testing.md#checking) does, rejecting cod
 - **The swap.** The host runs your home's check, then swaps it in with automations stopped for about a second and your device state untouched. Holds are worked out again, and waiting flows carry on from where they were. A flow whose next step changed is dropped and logged.
 - **The settle.** If the new version crashes within the settle period, 5 seconds by default, the last one comes back and the command fails.
 - **Progress.** A build or check that takes a while says it's still going every 5 seconds, and on a terminal the upload counts its bytes as it goes. Anywhere else, such as a pipe or CI's log, the lines come whole, with no counter.
-- **What else changed** comes on stderr: devices it [renamed or moved](devices.md#what-a-deploy-does-with-them), devices it took off Matter, and devices whose plugin it no longer imports.
+- **What else changed** comes on stderr: devices it [moved, typed or labelled](devices.md#what-a-deploy-does-with-them), devices it took off Matter, and devices whose plugin it no longer imports.
 - **`--module DIR`** deploys another module, and `--binary FILE` something already built for the host, skipping the checks that need your source.
 - **Deploying the running version again** with the same values says `Already running version 3f9c2a1`.
 
@@ -319,7 +319,7 @@ A broker's password is never logged either:
 
 ## Removing a plugin
 
-Taking an `oikade.Plugin` out of your home doesn't remove its devices. They stay on record with their names, rooms, claims and Matter endpoints, offline, and the Home app shows them as not responding. So a plugin missing from one build, or a rollback, loses nothing, and importing the plugin again brings them back as they were.
+Taking an `oikade.Plugin` out of your home doesn't remove its devices. They stay on record with their rooms, claims and Matter endpoints, offline, and the Home app shows them as not responding. So a plugin missing from one build, or a rollback, loses nothing, and importing the plugin again brings them back as they were.
 
 - **`oikade check` and `oikade deploy` list those devices,** and call out any a Safety claim holds.
 - **`oikade list devices` and `oikade status` mark them** `plugin not imported`.
@@ -349,6 +349,7 @@ Unlike a deploy, an upgrade restarts the host, so Matter, your automations and y
 
 - **Update `oikade`** on the machines you run commands from to the same version, as an older or newer client may not speak this host's API.
 - **Bump `oikade.dev`** in your home's `go.mod`, and deploy. A new host may speak a new protocol to your code, and then your process is turned away until you do.
+- **Code that names a device with `home.Device`** doesn't build: run `oikade types` once, which gives each device on record a [line](devices.md#declaring-devices-in-code), and use its handles instead. Each device keeps its Matter endpoint, and a name declared without hardware is dropped.
 
 ## State that must survive
 
@@ -357,7 +358,7 @@ Losing the host's data means pairing again: every controller forgets the bridge,
 **The host's data directory,** `/var/lib/oikade` by default, holds everything a home has to keep, in one file:
 
 - the Matter bridge's setup code, unique ID, attestation key and fabrics
-- the devices on record, with their names, rooms, types and endpoint IDs
+- the devices on record, with their rooms, types, labels and endpoint IDs
 - latches, claims and flows
 - your deployed versions, with the values the last deploy sent
 - what plugins' setups kept

@@ -23,17 +23,18 @@ var printers = map[string]func(io.Writer, int) *cli.Printer{"plain": cli.Plain, 
 // aHome is a home's devices as the host has them, of several plugins and states.
 func aHome() (registry.Snapshot, deviceMarks) {
 	return registry.Snapshot{Devices: []registry.Device{
-		{Name: "hall-lamp", AppName: "Hall lamp", ID: "1000aabbcc", Driver: "plugin/ewelink-lan", Endpoint: 2, Room: "hall",
-			Declared: true, DeviceType: devicetype.OnOffLight, Capabilities: []string{"on"}, Manufacturer: "SONOFF",
+		{AppName: "Hall lamp", ID: "1000aabbcc", Driver: "plugin/ewelink-lan", Endpoint: 2, Room: "hall",
+			DeviceType: devicetype.OnOffLight, Capabilities: []string{"on"}, Manufacturer: "SONOFF",
 			Model: "MINIR4", SerialNumber: "1000aabbcc", FirmwareVersion: "3.6.0"},
-		{Name: "office-ac", AppName: "Bureau", ID: "5f1c0c2e-77b3-4f8e-9d4a-1b2c3d4e5f60", Driver: "plugin/toshiba",
+		{AppName: "Bureau", ID: "5f1c0c2e-77b3-4f8e-9d4a-1b2c3d4e5f60", Driver: "plugin/toshiba",
 			Endpoint: 3, Manufacturer: "Toshiba", Capabilities: []string{"mode", "on", "setpoint", "temperature"}},
-		{Name: "study-blind", AppName: "Volet bureau", ID: "io://0812-4471-2093/5", Driver: "plugin/overkiz", Endpoint: 4,
-			Room: "study", Declared: true, Capabilities: []string{"position", "target-position", "moving"},
+		{AppName: "Volet bureau", ID: "io://0812-4471-2093/5", Driver: "plugin/overkiz", Endpoint: 4,
+			Room: "study", Capabilities: []string{"position", "target-position", "moving"},
 			Manufacturer: "Somfy", Model: "Somfy RS100 io"},
-		{Name: "porch-light", AppName: "Porch", ID: "1000ddeeff", Driver: "plugin/ewelink-lan", Endpoint: 5, Declared: true,
-			Capabilities: []string{"on"}},
-	}}, deviceMarks{hidden: map[string]bool{"overkiz/io:%2F%2F0812-4471-2093%2F5": true}}
+		{AppName: "Porch", ID: "1000ddeeff", Driver: "plugin/ewelink-lan", Endpoint: 5, Capabilities: []string{"on"}},
+	}}, deviceMarks{hidden: map[string]bool{"overkiz/io:%2F%2F0812-4471-2093%2F5": true}, declared: map[string]bool{
+		"ewelink-lan/1000aabbcc": true, "overkiz/io:%2F%2F0812-4471-2093%2F5": true, "ewelink-lan/1000ddeeff": true,
+	}}
 }
 
 // --wide shows a device's endpoint, which goes first on a narrow terminal, and its ref in full.
@@ -98,7 +99,7 @@ func aStatus(now time.Time) *api.Status {
 				Capabilities: []api.Capability{{Name: "on", Value: false}}},
 			{
 				Hardware: "toshiba/5f1c0c2e", Ref: "hardware/toshiba/5f1c0c2e", Online: &on,
-				Declare: `home.Device("office-ac").Hardware("toshiba", "5f1c0c2e")`,
+				Undeclared: true,
 				Capabilities: []api.Capability{
 					{Name: "mode", Value: "cool"},
 					{
@@ -265,7 +266,8 @@ func TestTheRestLookTheSame(t *testing.T) {
 		{Type: api.EventMatter, Ref: "matter", Message: api.MatterWindowClosed},
 		{Type: api.EventMatter, Ref: "matter", Message: api.MatterControllerLeft, Value: 1.0},
 		{Type: api.EventForget, Ref: "hardware/zigbee2mqtt/0x00158d0001a2b3c4"},
-		{Type: api.EventRename, Ref: "hardware/relays/valve", Message: "mains-valve", Previous: "valve"},
+		// A type a host kept from before, which this oikade doesn't know.
+		{Type: "rename", Ref: "hardware/relays/valve", Message: "mains-valve"},
 		{Type: api.EventCall, Ref: "flow/morning", Message: "forecast", Value: true},
 		{Type: api.EventCall, Ref: "flow/morning", Message: "tariff", Value: map[string]any{"cheap": true, "until": "07:00"}},
 		{Type: api.EventCall, Ref: "flow/morning", Message: "notify", Result: "the push service timed out"},

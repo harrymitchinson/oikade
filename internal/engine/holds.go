@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"math"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -981,35 +980,21 @@ func (e *Engine) reportHold(key ident.ID, s *state, st HoldState, next, now time
 	e.report(key, sched)
 }
 
-// release clears a latched hold's latch. Call without e.mu held.
-// ruleNamed is the key of a rule a flow names: a case's may have its device's name, as a person
-// writes it, in place of its key.
-func (e *Engine) ruleNamed(rule string) string {
-	parts := strings.Split(rule, " ")
-	if len(parts) != 3 {
-		return rule
-	}
-	e.mu.Lock()
-	_, loaded := e.rules[ident.ID{Name: rule}]
-	e.mu.Unlock()
-	if loaded || e.Store == nil {
-		return rule
-	}
-	if dev, ok := e.Store.Named(parts[0]); ok {
-		return control.CaseKey(dev.Name, parts[1], parts[2])
-	}
-	return rule
-}
-
-func (e *Engine) release(key ident.ID) {
+// release clears a latched hold's latch, and reports whether the rule is loaded. Call without e.mu
+// held.
+func (e *Engine) release(key ident.ID) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	s := e.rules[key]
-	if s == nil || s.hold == nil {
-		e.Log.Info("Released no hold; the Rule isn't loaded or has none", "rule", e.ruleRef(key))
-		return
+	if s == nil {
+		return false
+	}
+	if s.hold == nil {
+		e.Log.Info("Released no hold; the Rule has none", "rule", e.ruleRef(key))
+		return true
 	}
 	s.hold.released = true
 	s.next = fire{At: e.Clock.Now()}
 	e.signal()
+	return true
 }

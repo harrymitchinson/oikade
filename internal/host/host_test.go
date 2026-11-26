@@ -87,7 +87,7 @@ func TestWelcomeListsTheDevices(t *testing.T) {
 		t.Fatalf("got %+v", welcome.Devices)
 	}
 	d := welcome.Devices[0]
-	if d.Name != "lamp" || d.Room != "hall" || !d.Discovered || d.Values["on"] != false {
+	if d.Key != "simulator/lamp" || d.Room != "hall" || !d.Discovered || d.Values["on"] != false {
 		t.Fatalf("got %+v", d)
 	}
 }
@@ -208,10 +208,7 @@ func TestStartedHostCountsTheDevicesOnRecord(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := reg.Remove("gone"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := reg.Declare([]registry.Declaration{{Name: "future"}}); err != nil {
+	if err := reg.Remove("x/gone"); err != nil {
 		t.Fatal(err)
 	}
 	if err := data.Close(); err != nil {

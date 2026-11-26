@@ -103,9 +103,7 @@ func New(t testing.TB, home *oikade.Home, o Options) *Home {
 		t.Fatalf("Your home has mistakes in it: %v", err)
 	}
 	if len(devices) == 0 {
-		if devices, err = simhome.Declared(compiled.Inventory); err != nil {
-			t.Fatalf("Simulating your home's devices: %v. Or give Options.Devices", err)
-		}
+		devices = simhome.Declared(compiled.Inventory)
 	}
 	sim, err := simhome.New(simhome.Options{Home: compiled, Devices: devices, Start: o.Start, Log: testLog(t)})
 	if err != nil {

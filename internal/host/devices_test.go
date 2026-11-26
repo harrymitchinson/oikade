@@ -223,7 +223,7 @@ func TestARoomsSettingReachesTheDevicesThereNow(t *testing.T) {
 		t.Helper()
 		decls := make([]wire.DeviceDeclaration, 0, len(rooms))
 		for name, room := range rooms {
-			decls = append(decls, wire.DeviceDeclaration{Name: name, Plugin: "x", ID: name[:1], Room: &room})
+			decls = append(decls, wire.DeviceDeclaration{Hardware: ids[name].Name, Room: room})
 		}
 		if err := known.takeDeclared(decls); err != nil {
 			t.Fatal(err)
@@ -319,7 +319,7 @@ func TestRemovingARoomsLastDeviceWarnsOfTheHoldsThatReadIt(t *testing.T) {
 	if !strings.Contains(resp.Warning, "hall-lamp") || !strings.Contains(resp.Warning, "hall") {
 		t.Errorf("got warning %q, want one naming hall-lamp and the hall", resp.Warning)
 	}
-	if _, ok := reg.Get("sensor"); ok {
+	if _, ok := reg.ByKey("simulator/s"); ok {
 		t.Error("sensor is still on record: the forget should still happen")
 	}
 
@@ -392,7 +392,7 @@ func TestForgettingAPluginsDevicesForgetsThemAll(t *testing.T) {
 		t.Fatalf("got %+v", resp)
 	}
 	for _, d := range reg.List().Devices {
-		if d.Removed != (d.Name != "curtain") {
+		if d.Removed != (d.Key() != "shades/c") {
 			t.Errorf("got %+v", d)
 		}
 	}
@@ -428,7 +428,7 @@ func TestADeclaredTypeOutOfARoomsSafetyCaseNamesIt(t *testing.T) {
 		Room: "hall", Capability: capability.On, DeviceTypes: []devicetype.Type{devicetype.OnOffLight}, Except: []string{"x/l"},
 	}}}}
 	as := func(name, room string, t devicetype.Type) []wire.DeviceDeclaration {
-		return []wire.DeviceDeclaration{{Name: name, Plugin: "x", ID: name[:1], Room: &room, DeviceType: t}}
+		return []wire.DeviceDeclaration{{Hardware: "x/" + name[:1], Room: room, DeviceType: t}}
 	}
 	if out := known.leavingSafety(as("ceiling", "hall", devicetype.OnOffPlugInUnit), rules, rules); len(out) != 1 ||
 		!strings.Contains(out[0], "hardware/x/c would leave the devices case/hall/on/smoke writes at Safety") {
@@ -502,12 +502,8 @@ func TestAForgetChecksEveryDeviceAndSaysWhatBecameOfIt(t *testing.T) {
 	if !strings.Contains(resp.Error, "there's no hardware/relays/nope on record") || len(resp.Forgotten) != 0 {
 		t.Errorf("forgetting awning and nope: %+v", resp)
 	}
-	if d, _ := reg.Get("awning"); d.Removed {
+	if d, _ := reg.ByKey("relays/a"); d.Removed {
 		t.Error("awning was forgotten, though nope stopped the forget")
-	}
-	if resp := s.forget(api.Request{Type: api.TypeForget, Devices: []string{"awning"}}); resp.Error !=
-		"device/awning is hardware/relays/a: a device's ref is its hardware's" {
-		t.Errorf("forgetting awning by its name: %+v", resp)
 	}
 	if resp := s.forget(api.Request{Type: api.TypeForget, Devices: []string{"relays/a", "relays/a"}}); resp.Error != "" ||
 		len(resp.Forgotten) != 1 {

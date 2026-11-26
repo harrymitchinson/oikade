@@ -137,7 +137,7 @@ func statusOf(ctx context.Context, t api.Transport) (*api.Status, error) {
 func printJSON(out *cli.Printer, v any) error { return json.NewEncoder(out).Encode(v) }
 
 // printDeviceList prints the devices on record, a line each, without the forgotten ones unless all,
-// then the lines that would declare those your home doesn't.
+// then how many your home's code doesn't declare.
 func printDeviceList(out, stderr *cli.Printer, resp api.Response, o listOptions) error {
 	list := *resp.Registry
 	forgotten := 0
@@ -146,12 +146,15 @@ func printDeviceList(out, stderr *cli.Printer, resp api.Response, o listOptions)
 		list.Devices = slices.DeleteFunc(slices.Clone(list.Devices), func(d registry.Device) bool { return d.Removed })
 		forgotten = before - len(list.Devices)
 	}
-	marks := deviceMarks{unimported: map[string]bool{}, hidden: map[string]bool{}}
+	marks := deviceMarks{unimported: map[string]bool{}, hidden: map[string]bool{}, declared: map[string]bool{}}
 	for _, u := range resp.Unimported {
 		marks.unimported[u.Device] = true
 	}
-	for _, name := range resp.HiddenFromMatter {
-		marks.hidden[name] = true
+	for _, key := range resp.HiddenFromMatter {
+		marks.hidden[key] = true
+	}
+	for _, key := range resp.Declared {
+		marks.declared[key] = true
 	}
 	if o.json {
 		return printJSON(out, listed(list, marks))
@@ -164,7 +167,7 @@ func printDeviceList(out, stderr *cli.Printer, resp api.Response, o listOptions)
 	if len(dropped) > 0 {
 		stderr.Hint("--wide shows %s", andList(dropped))
 	}
-	printUndeclared(stderr, undeclared)
+	countUndeclared(stderr, undeclared)
 	stderr.Hint("oikade status shows what each is doing now, and what's wrong with it")
 	return nil
 }

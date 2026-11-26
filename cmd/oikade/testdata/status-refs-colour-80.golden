@@ -49,4 +49,4 @@ To add another controller, run oikade pair matter, or share the bridge from one 
   fabric 1: Home, vendor 0x0000
 --- stderr
 [2mHint: --wide shows ROOM[0m
-[2mhardware/toshiba/5f1c0c2e isn't in your code: oikade list devices shows how to declare it[0m
+[2mhardware/toshiba/5f1c0c2e isn't in your code: oikade types adds it[0m

@@ -584,17 +584,16 @@ func TestAHoldsDailyIsItsWindow(t *testing.T) {
 	}
 }
 
-// A device is its key, its hardware, and its name is only for what a person reads.
+// A device is its key, its hardware.
 func TestDiscoveredAddsADeviceNewSinceTheWelcome(t *testing.T) {
 	mirror := hub.NewStore(logging.Discard())
 	metas := map[ident.ID]hub.Meta{}
 	discovered(mirror, metas, nil, wire.Device{
-		Key: "hue/0x1", Name: "lamp", Room: "hall", Arbitrated: []string{"on"}, Discovered: true,
+		Key: "hue/0x1", Room: "hall", Arbitrated: []string{"on"}, Discovered: true,
 		Capabilities: []string{"on"}, Values: map[string]any{"on": true},
 	})
 	snap, ok := mirror.Get(deviceKey("hue/0x1"))
-	if !ok || !snap.Discovered || snap.Room != "hall" || !snap.Controls("on") || snap.Values["on"] != true ||
-		snap.DisplayName != "lamp" {
+	if !ok || !snap.Discovered || snap.Room != "hall" || !snap.Controls("on") || snap.Values["on"] != true {
 		t.Fatalf("got %+v, %v", snap, ok)
 	}
 	changed(mirror, wire.Message{Device: "hue/0x1", Changes: []wire.Change{{Capability: "on", Value: false}}})
@@ -741,11 +740,24 @@ func TestAPluginsDevicesCanBeHiddenFromMatter(t *testing.T) {
 		add  func(*Home)
 		want string
 	}{
-		"shown, not hidden": {func(h *Home) { h.Plugin("a", made).ShowOnMatter("x") }, "needs HideFromMatter"},
-		"shown twice": {
-			func(h *Home) { h.Plugin("a", made).HideFromMatter().ShowOnMatter("x", "x") }, "names x twice",
+		"shown, not hidden": {
+			func(h *Home) { h.Plugin("a", made).ShowOnMatter(OnOffLight{Key: "a/1"}) },
+			"needs HideFromMatter",
 		},
-		"shown, no name": {func(h *Home) { h.Plugin("a", made).HideFromMatter().ShowOnMatter("") }, "needs a device's name"},
+		"shown twice": {
+			func(h *Home) {
+				lamp := OnOffLight{Key: "a/1"}
+				h.Plugin("a", made).HideFromMatter().ShowOnMatter(lamp, lamp)
+			}, "has a/1 twice",
+		},
+		"another plugin's": {
+			func(h *Home) {
+				h.Plugin("a", made).HideFromMatter().ShowOnMatter(OnOffLight{Key: "b/1"})
+			}, "has b/1, which is plugin b's",
+		},
+		"shown, no hardware": {
+			func(h *Home) { h.Plugin("a", made).HideFromMatter().ShowOnMatter(OnOffLight{}) }, "has a device with no hardware",
+		},
 	} {
 		if _, _, err := decide(tc.add).compile(); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: got %v, want %q", name, err, tc.want)
@@ -753,13 +765,13 @@ func TestAPluginsDevicesCanBeHiddenFromMatter(t *testing.T) {
 	}
 
 	h := decide(func(h *Home) {
-		h.Plugin("tahoma", made).HideFromMatter().ShowOnMatter("garage-door")
+		h.Plugin("tahoma", made).HideFromMatter().ShowOnMatter(WindowCovering{Key: "tahoma/io%3A%2F%2F7"})
 		h.Plugin("lan", made)
 	})
 	if _, _, err := h.compile(); err != nil {
 		t.Fatal(err)
 	}
-	want := []wire.HiddenPlugin{{Plugin: "tahoma", Shown: []string{"garage-door"}}}
+	want := []wire.HiddenPlugin{{Plugin: "tahoma", Shown: []string{"tahoma/io%3A%2F%2F7"}}}
 	if got := h.manifest().HiddenFromMatter; !reflect.DeepEqual(got, want) {
 		t.Errorf("the manifest hides %+v, want %+v", got, want)
 	}

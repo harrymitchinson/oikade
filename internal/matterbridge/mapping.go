@@ -40,7 +40,8 @@ var onOffTypes = map[devicetype.Type]im.DeviceType{
 type Device struct {
 	Key      ident.ID
 	Endpoint uint16
-	Name     string
+	// Name is its app's name, or its ID when its app gives none.
+	Name string
 	// Label is what controllers show for it, in place of Name.
 	Label        string
 	Capabilities []string

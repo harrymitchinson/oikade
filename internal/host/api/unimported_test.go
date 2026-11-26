@@ -9,17 +9,17 @@ import (
 
 func TestUnimportedListsOnlyDevicesOfPluginsNothingRuns(t *testing.T) {
 	list := registry.Snapshot{Devices: []registry.Device{
-		{Name: "lamp", Driver: "plugin/relays"},
-		{Name: "fan", Driver: "plugin/relays"},
-		{Name: "gone", Driver: "plugin/relays", Removed: true},
-		{Name: "blind", Driver: "plugin/shades"},
-		{Name: "socket", Driver: "plugin/outdoor"},
-		{Name: "kettle", Driver: "simulated/home"},
-		{Name: "reserved"},
+		{ID: "lamp", Driver: "plugin/relays"},
+		{ID: "fan", Driver: "plugin/relays"},
+		{ID: "gone", Driver: "plugin/relays", Removed: true},
+		{ID: "blind", Driver: "plugin/shades"},
+		{ID: "socket", Driver: "plugin/outdoor"},
+		{ID: "kettle", Driver: "simulated/home"},
 	}}
-	got := UnimportedOf(list, []string{"shades"}, []string{"outdoor"}, func(name string) bool { return name == "fan" })
+	got := UnimportedOf(list, []string{"shades"}, []string{"outdoor"}, func(key string) bool { return key == "relays/fan" })
 	want := []Unimported{
-		{Device: "fan", Ref: "device/fan", Plugin: "relays", Safety: true}, {Device: "lamp", Ref: "device/lamp", Plugin: "relays"},
+		{Device: "relays/fan", Ref: "hardware/relays/fan", Plugin: "relays", Safety: true},
+		{Device: "relays/lamp", Ref: "hardware/relays/lamp", Plugin: "relays"},
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)

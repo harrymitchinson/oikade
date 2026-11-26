@@ -757,73 +757,81 @@ func (c *controller) drives(name string, endpoint uint16, on bool) {
 	c.r.until(name+" to change", func() bool { return onOf(c.t, c.r.status(), key).Value == on })
 }
 
-func TestADeclaredRenameKeepsTheBridgedDevice(t *testing.T) {
+// A bridged device is labelled with its app's name, or with the Label your code gives it, on the
+// same endpoint and with the same unique ID, through a restart.
+func TestALabelRelabelsTheBridgedDevice(t *testing.T) {
 	t.Parallel()
 	c := commissionedPlugins(t)
-	endpoint := c.endpoint("valve")
-	c.r.until("simulator/valve on the bridge", func() bool { return c.info(endpoint, labelAttribute) == "valve" })
+	endpoint := c.endpoint("relays/valve")
+	c.r.until("the valve on the bridge by its app's name", func() bool {
+		return c.info(endpoint, labelAttribute) == "valve"
+	})
 	unique := c.info(endpoint, uniqueIDAttribute)
 
 	c.r.mustDeploy("plugins-mains")
-	c.r.until("the new label", func() bool { return c.info(endpoint, labelAttribute) == "mains-valve" })
+	c.r.until("its label", func() bool { return c.info(endpoint, labelAttribute) == "Mains valve" })
 	if got := c.info(endpoint, uniqueIDAttribute); got != unique {
 		t.Errorf("unique ID %v became %v", unique, got)
 	}
-	c.drives("mains-valve", endpoint, false)
+	c.drives("relays/valve", endpoint, false)
 
-	// A restart builds the endpoint again, which is when a unique ID from the name would change.
+	// A restart builds the endpoint again.
 	c.restartPlugins()
 	if got := c.info(endpoint, uniqueIDAttribute); got != unique {
 		t.Errorf("after a restart, unique ID %v became %v", unique, got)
 	}
-	if got := c.info(endpoint, labelAttribute); got != "mains-valve" {
+	if got := c.info(endpoint, labelAttribute); got != "Mains valve" {
 		t.Errorf("after a restart, the label is %v", got)
 	}
 }
 
-func TestADeclaredSwapOfHardwareReachesTheController(t *testing.T) {
+// Swapped hardware is a new bridged device, on an endpoint of its own, which a controller drives.
+func TestADeclaredSwapOfHardwareIsANewBridgedDevice(t *testing.T) {
 	t.Parallel()
 	c := commissionedPlugins(t)
 	c.r.until("the spare relay", func() bool {
-		return slices.ContainsFunc(c.r.devices().Devices, func(d registry.Device) bool { return d.ID == "spare-relay" })
+		return slices.ContainsFunc(c.r.devices().Devices, func(d registry.Device) bool {
+			return d.Key() == "relays/spare-relay"
+		})
 	})
 	c.r.mustDeploy("plugins-valve")
-	endpoint := c.endpoint("valve")
+	old := c.endpoint("relays/valve")
 	// The leak case on the old hardware goes, as swapped hardware is a new device.
 	c.r.mustDeploy("plugins-swapped", "--allow-safety")
-	if d := deviceOf(t, c.r.devices(), "valve"); d.ID != "spare-relay" || d.Endpoint != endpoint {
-		t.Fatalf("got %+v, want the spare on endpoint %d", d, endpoint)
+	spare := c.endpoint("relays/spare-relay")
+	if spare == old || c.endpoint("relays/valve") != old {
+		t.Fatalf("the spare is on endpoint %d, and the valve on %d, want the valve's %d its own", spare,
+			c.endpoint("relays/valve"), old)
 	}
-	// The same endpoint drives the new hardware, and hears it.
-	c.drives("valve", endpoint, true)
-	c.r.until("the controller to hear it", func() bool { return c.isOn(endpoint) })
-	c.drives("valve", endpoint, false)
-	c.r.until("the controller to hear it", func() bool { return !c.isOn(endpoint) })
+	c.drives("relays/spare-relay", spare, true)
+	c.r.until("the controller to hear it", func() bool { return c.isOn(spare) })
+	c.drives("relays/spare-relay", spare, false)
+	c.r.until("the controller to hear it", func() bool { return !c.isOn(spare) })
 }
 
 func TestAControllerReadsTheDeviceTypeYouDeclareThroughARestart(t *testing.T) {
 	t.Parallel()
 	c := commissionedPlugins(t)
-	endpoint := c.endpoint("relay")
+	endpoint := c.endpoint("relays/relay")
 	plug, light := uint64(clusters.DeviceOnOffPlug.ID), uint64(clusters.DeviceOnOffLight.ID)
 	c.r.until("the relay on the bridge", func() bool { return slices.Contains(c.deviceTypes(endpoint), plug) })
 
-	// plugins-declared calls the relay porch-relay, an OnOffLight.
+	// plugins-declared declares the relay an OnOffLight.
 	c.r.mustDeploy("plugins-declared")
 	c.r.until("the relay to be a light", func() bool { return slices.Contains(c.deviceTypes(endpoint), light) })
-	if got := c.endpoint("porch-relay"); got != endpoint {
+	if got := c.endpoint("relays/relay"); got != endpoint {
 		t.Errorf("the relay moved from endpoint %d to %d", endpoint, got)
 	}
 	var listed []struct {
-		Name        string   `json:"name"`
+		Hardware    string   `json:"hardware"`
 		DeviceTypes []string `json:"deviceTypes"`
 	}
 	if err := json.Unmarshal(c.r.stdout(nil, "list", "devices", "--json"), &listed); err != nil {
 		t.Fatal(err)
 	}
 	for _, d := range listed {
-		if d.Name == "porch-relay" && !slices.Equal(d.DeviceTypes, []string{"OnOffLight"}) {
-			t.Errorf("oikade list devices --json says porch-relay is %v", d.DeviceTypes)
+		if d.Hardware == "relays/relay" && !slices.Equal(d.DeviceTypes, []string{"OnOffLight"}) {
+			t.Errorf("oikade list devices --json says the relay is %v", d.DeviceTypes)
 		}
 	}
 	table := string(c.r.stdout(nil, "list", "devices"))

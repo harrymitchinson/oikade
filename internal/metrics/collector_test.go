@@ -51,7 +51,7 @@ func TestDeviceMetricsAreLabelledByHardwareSortedAndEscaped(t *testing.T) {
 	inst := driver.InstanceKey{Driver: "plugin", Name: "zigbee2mqtt"}
 	fan, lamp := ident.ID{Name: "zigbee2mqtt/0x00158d0001a2b3c4"}, ident.ID{Name: "zigbee2mqtt/0x00158d0001a2b3c5"}
 	store.SetDevices(inst, map[ident.ID]hub.Meta{
-		fan: {DisplayName: "fan", Instance: inst, Room: `Kid's "den"`}, lamp: {DisplayName: "lamp", Instance: inst},
+		fan: {Instance: inst, Room: `Kid's "den"`}, lamp: {Instance: inst},
 	})
 	for _, u := range []driver.Update{
 		{Device: lamp, Capability: "on", Value: true},

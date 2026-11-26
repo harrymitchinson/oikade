@@ -67,8 +67,8 @@ const (
 // while the capability is, and a change, which fires whenever it changes. A group's, such as
 // windows.Open, is a change on any member, and Any and All make conditions of it.
 type Bool struct {
-	// Device is the device's key, as Device.Name has it, or the group's or room's name for a
-	// group's capability.
+	// Device is the device's key, such as hue/0x2, or the group's or room's name for a group's
+	// capability.
 	Device     string
 	Capability Capability[bool]
 	// g is the group or room the capability is of, or nil for a device's.
@@ -79,8 +79,8 @@ type Bool struct {
 // one for each such capability each of your devices has. Above, Below and Within make conditions of
 // it, and it's a change, which fires whenever it changes.
 type Number struct {
-	// Device is the device's key, as Device.Name has it, or the group's or room's name for a
-	// group's capability.
+	// Device is the device's key, such as hue/0x2, or the group's or room's name for a group's
+	// capability.
 	Device     string
 	Capability Capability[float64]
 	g          *group
@@ -92,8 +92,8 @@ type Number struct {
 //
 //	home.Decide(BedroomAC.Mode).Case("humid", oikade.ModeDry, BedroomSensor.Humidity.Above(65)).Default(oikade.ModeCool)
 type Choice struct {
-	// Device is the device's key, as Device.Name has it, or the group's or room's name for a
-	// group's capability.
+	// Device is the device's key, such as hue/0x2, or the group's or room's name for a group's
+	// capability.
 	Device     string
 	Capability Capability[ClimateMode]
 	g          *group

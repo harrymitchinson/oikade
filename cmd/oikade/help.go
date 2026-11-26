@@ -118,7 +118,7 @@ var groups = []group{
 			Summary: "What's on record, and how is each set up?",
 			Usage:   []string{"oikade list KIND [--wide] [--all] [--json]"},
 			About: "KIND is devices, rules, signals, plugins, clients or contexts, singular or plural. devices are each " +
-				"device's record: its room, whether it's paired, reserved, forgotten, hidden from Matter or not in your " +
+				"device's record: its room, whether it's paired, forgotten, hidden from Matter or not in your " +
 				"code, what it is, and its plugin, with its hardware and Matter endpoint under --wide, and the forgotten " +
 				"ones under --all. signals are each signal's value and why. contexts " +
 				"are the hosts this machine has logged in to, with the current one marked. --json prints an array, each " +

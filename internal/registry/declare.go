@@ -1,8 +1,6 @@
 package registry
 
 import (
-	"bytes"
-	"cmp"
 	"errors"
 	"fmt"
 	"slices"
@@ -13,58 +11,36 @@ import (
 	"oikade.dev/internal/ident"
 )
 
-// Declaration is a device a home's code declares: its name, and the hardware, room and type it gives
-// it. One with no ID reserves the name for hardware that isn't paired yet. One with Hardware declares
-// hardware by itself, with no name, and keeps the name the device has.
+// Declaration is a device a home's code declares: its hardware, and the room, type and label it
+// gives it.
 type Declaration struct {
-	Name string `json:"name,omitempty"`
-	// Hardware is the key of hardware declared by itself. Driver and ID are then its plugin's, if it
-	// has one, for hardware that isn't on record yet.
-	Hardware string `json:"hardware,omitempty"`
-	// Driver and ID are the hardware's, as a Device has them.
-	Driver string `json:"driver,omitempty"`
-	ID     string `json:"id,omitempty"`
-	// Room is nil for a device in its app's room, and empty for one in none.
-	Room       *string         `json:"room,omitempty"`
+	// Hardware is its key, as hue/0x1. Driver and ID are its plugin's, if it has one, for hardware
+	// that isn't on record yet.
+	Hardware string `json:"hardware"`
+	Driver   string `json:"driver,omitempty"`
+	ID       string `json:"id,omitempty"`
+	// Room is empty for a device in none.
+	Room       string          `json:"room,omitempty"`
 	DeviceType devicetype.Type `json:"deviceType,omitempty"`
 	// Capabilities are those the declaration gives the hardware, which it must report.
 	Capabilities []string `json:"capabilities,omitempty"`
 	Label        string   `json:"label,omitempty"`
 }
 
-// Key is the key of the device it declares.
-func (d Declaration) Key() string { return cmp.Or(d.Hardware, KeyOf(d.Driver, d.ID, d.Name)) }
-
-// what names it in a mistake: by its name, or its hardware's key.
-func (d Declaration) what() string { return cmp.Or(d.Name, d.Hardware) }
-
-// hasHardware says it declares hardware, as against reserving a name.
-func (d Declaration) hasHardware() bool { return d.Hardware != "" || d.ID != "" }
-
 // Declared is what declaring did, or would do.
 type Declared struct {
-	// Renamed are the live devices whose names change, from their old names to their new ones. What
-	// the host keeps for a device is by its hardware, so nothing moves.
-	Renamed map[string]string
-	// Absorbed are hardware whose own entry a declared name takes over, from the hardware's name to
-	// the declared one. Its claims and values are its hardware's, so they stay.
-	Absorbed map[string]string
 	// Changes say what changed, a line each, in the order of the declarations, then of the devices
 	// no longer declared.
 	Changes []string
-	// Unseen are declared names whose hardware hasn't reported yet.
+	// Unseen are the declared devices whose hardware hasn't reported yet, by their keys.
 	Unseen []string
-	// Removed are reserved names no longer declared, which go.
-	Removed []string
-	// Touched are the live devices whose name, room, type or hardware changed, by their keys now.
+	// Touched are the devices whose room, type or label changed, or that came back, by their keys.
 	Touched []string
 }
 
 // Declare makes the registry what the home's code declares, in one change. A declared device takes
-// its name, room and type, matched by its hardware, and keeps its endpoint. A name that moves onto
-// other hardware keeps its endpoint, and a name with no hardware is reserved. A device that was
-// declared and no longer is goes back to what its app calls it, and a reserved name that no longer
-// is declared is removed.
+// its room, type and label, and a device that isn't declared goes back to its app's room, its
+// driver's type and no label.
 func (r *Registry) Declare(decls []Declaration) (Declared, error) {
 	var out Declared
 	err := r.change(func(s *Snapshot) error {
@@ -82,7 +58,7 @@ func (r *Registry) Plan(decls []Declaration) (Declared, error) {
 }
 
 // Declaring is s as decls would make it once a version with them attaches, for oikade types, which
-// writes a home's handles before it's deployed.
+// reads a home's devices before it's deployed.
 func Declaring(s Snapshot, decls []Declaration) (Snapshot, error) {
 	s = clone(s)
 	_, err := declare(&s, decls)
@@ -92,49 +68,20 @@ func Declaring(s Snapshot, decls []Declaration) (Snapshot, error) {
 // CheckDeclarations refuses declarations that disagree among themselves.
 func CheckDeclarations(decls []Declaration) error {
 	var errs []error
-	names, hardware := map[string]bool{}, map[string]Declaration{}
+	seen := map[string]bool{}
 	for _, d := range decls {
-		if d.Room != nil && *d.Room != "" {
-			if err := ident.CheckName(ident.Room, *d.Room); err != nil {
-				errs = append(errs, fmt.Errorf("%s: %w", d.what(), err))
+		if d.Room != "" {
+			if err := ident.CheckName(ident.Room, d.Room); err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", d.Hardware, err))
 			}
 		}
-		switch {
-		case d.Hardware != "":
-			if d.DeviceType != "" && !slices.Contains(devicetype.All, d.DeviceType) {
-				errs = append(errs, fmt.Errorf("%s is declared a %q, which isn't a device type", d.Hardware, d.DeviceType))
-			}
-		default:
-			if err := checkName(d.Name); err != nil {
-				errs = append(errs, err)
-			}
-			if names[d.Name] {
-				errs = append(errs, fmt.Errorf("%s is declared twice", d.Name))
-			}
-			names[d.Name] = true
-			if d.DeviceType != "" && !devicetype.Choosable(d.DeviceType) {
-				errs = append(errs, fmt.Errorf("%s is declared a %q, which isn't one of %s", d.Name, d.DeviceType,
-					devicetype.Join(devicetype.OnOff)))
-			}
-			if (d.ID == "") != (d.Driver == "") {
-				errs = append(errs, fmt.Errorf("%s is declared with half its hardware: it needs a plugin and an ID", d.Name))
-			}
+		if d.DeviceType != "" && !slices.Contains(devicetype.All, d.DeviceType) {
+			errs = append(errs, fmt.Errorf("%s is declared a %q, which isn't a device type", d.Hardware, d.DeviceType))
 		}
-		if !d.hasHardware() {
-			continue
+		if seen[d.Hardware] {
+			errs = append(errs, fmt.Errorf("%s is declared twice", d.Hardware))
 		}
-		switch other, ok := hardware[d.Key()]; {
-		case !ok:
-		case d.Name != "" && other.Name != "":
-			errs = append(errs, fmt.Errorf("%s and %s are both declared as %s", other.Name, d.Name,
-				describeDriver(Device{Driver: d.Driver, ID: d.ID})))
-		case d.Name == "" && other.Name == "":
-			errs = append(errs, fmt.Errorf("%s is declared twice", d.Key()))
-		default:
-			errs = append(errs, fmt.Errorf("%s is declared by itself and as %s: declare it once", d.Key(),
-				cmp.Or(d.Name, other.Name)))
-		}
-		hardware[d.Key()] = d
+		seen[d.Hardware] = true
 	}
 	return errors.Join(errs...)
 }
@@ -145,164 +92,69 @@ func declare(s *Snapshot, decls []Declaration) (Declared, error) {
 		return Declared{}, err
 	}
 	before := clone(*s)
-	out := Declared{Renamed: map[string]string{}, Absorbed: map[string]string{}}
-	// Each declaration's entry, found before any names change.
-	targets := make([]int, len(decls))
-	taken := map[int]string{}
-	for k, d := range decls {
-		i, err := target(s, d, decls, &out)
+	var out Declared
+	taken := map[int]bool{}
+	for _, d := range decls {
+		i, err := target(s, d)
 		if err != nil {
 			return Declared{}, err
 		}
-		if other, ok := taken[i]; ok {
-			return Declared{}, fmt.Errorf("%s and %s are declared as the same device", other, d.what())
-		}
-		taken[i], targets[k] = d.what(), i
-	}
-	// Names first, so hardware declared by itself keeps its name unless a declared name takes it.
-	names := map[string]bool{}
-	for k, d := range decls {
-		if d.Hardware == "" {
-			s.Devices[targets[k]].Name, names[d.Name] = d.Name, true
-		}
-	}
-	for k, d := range decls {
-		if e := &s.Devices[targets[k]]; d.Hardware != "" && (e.Name == "" || names[e.Name]) {
-			e.Name = ""
-			e.Name = uniqueName(*s, Slug(e.AppName, e.ID))
-		}
-	}
-	for k, d := range decls {
-		e := &s.Devices[targets[k]]
+		taken[i] = true
+		e := &s.Devices[i]
 		typ := d.DeviceType
 		if !devicetype.Choosable(typ) {
 			// The rest follow from its capabilities.
 			typ = ""
 		}
-		e.DeviceType, e.Label, e.Declared, e.Removed = typ, d.Label, true, false
-		e.Room, e.RoomDeclared = roomOf(e.AppRoom), d.Room != nil
-		if d.Room != nil {
-			e.Room = *d.Room
-		}
+		e.DeviceType, e.Label, e.Room, e.Removed = typ, d.Label, d.Room, false
 		if err := fits(*e, typ); err != nil {
 			return Declared{}, err
 		}
 		if err := reports(*e, d); err != nil {
 			return Declared{}, err
 		}
-		if e.ID != "" && len(e.Capabilities) == 0 {
-			out.Unseen = append(out.Unseen, d.what())
+		if len(e.Capabilities) == 0 {
+			out.Unseen = append(out.Unseen, d.Hardware)
 		}
 	}
-	// What's no longer declared goes back to its app's name, once every declared name is placed.
-	var undeclared []int
 	for i := range s.Devices {
-		e := &s.Devices[i]
-		if _, ok := taken[i]; ok || !e.Declared || e.Removed {
-			continue
+		if e := &s.Devices[i]; !taken[i] && !e.Removed {
+			e.Room, e.DeviceType, e.Label = roomOf(e.AppRoom), "", ""
 		}
-		e.Declared, e.Room, e.RoomDeclared, e.DeviceType, e.Label = false, roomOf(e.AppRoom), false, "", ""
-		if e.ID == "" {
-			e.Removed = true
-			out.Removed = append(out.Removed, e.Name)
-			continue
-		}
-		e.Name = ""
-		undeclared = append(undeclared, i)
 	}
-	for _, i := range undeclared {
-		e := &s.Devices[i]
-		e.Name = uniqueName(*s, Slug(e.AppName, e.ID))
-	}
-	if err := clash(*s); err != nil {
-		return Declared{}, err
-	}
-	compare(before, *s, &out)
-	out.Changes = append(out.Changes, changes(before, *s, decls)...)
+	out.Touched = touched(before, *s)
+	out.Changes = changes(before, *s, decls)
 	return out, nil
 }
 
-// compare records in out what changed between before and after, entry by entry.
-func compare(before, after Snapshot, out *Declared) {
-	for _, b := range before.Devices {
-		a := after.Devices[slices.IndexFunc(after.Devices, func(d Device) bool { return d.Endpoint == b.Endpoint })]
+// touched are the keys of the devices whose room, type or label differ between before and after,
+// or that are new or came back.
+func touched(before, after Snapshot) []string {
+	var out []string
+	for _, a := range after.Devices {
+		b, existed := at(before, a.Endpoint)
 		if a.Removed {
 			continue
 		}
-		if !b.Removed && b.ID != "" && a.Name != b.Name {
-			out.Renamed[b.Name] = a.Name
-		}
-		sameHardware := b.ID == a.ID && b.Driver == a.Driver
-		if b.Removed || b.Name != a.Name || b.Room != a.Room || b.DeviceType != a.DeviceType || b.Label != a.Label ||
-			!sameHardware {
-			out.Touched = append(out.Touched, a.Key())
+		if !existed || b.Removed || b.Room != a.Room || b.DeviceType != a.DeviceType || b.Label != a.Label {
+			out = append(out, a.Key())
 		}
 	}
-	for _, a := range after.Devices[len(before.Devices):] {
-		out.Touched = append(out.Touched, a.Key())
-	}
+	return out
 }
 
-// target finds a declaration's entry, or makes one. Hardware decides before names do: an entry
-// whose hardware is declared is that declaration's, whatever it's called now, so the order of decls
-// doesn't matter. Hardware the name moves onto leaves its own entry, which it retires, and records in
-// out as renamed.
-func target(s *Snapshot, d Declaration, decls []Declaration, out *Declared) (int, error) {
-	if d.Hardware != "" {
-		return targetHardware(s, d)
+// at is the device of an endpoint.
+func at(s Snapshot, endpoint uint16) (Device, bool) {
+	i := slices.IndexFunc(s.Devices, func(d Device) bool { return d.Endpoint == endpoint })
+	if i < 0 {
+		return Device{}, false
 	}
-	j := -1
-	if d.ID != "" {
-		j = hardware(*s, d.Driver, d.ID)
-	}
-	i := live(*s, d.Name)
-	if i >= 0 && i != j && hardwareDeclared(s.Devices[i], decls) {
-		i = -1 // Its hardware is another declaration's, so this name is free to take.
-	}
-	switch {
-	case j >= 0 && (i < 0 || i == j):
-		return j, nil
-	case i >= 0 && !s.Devices[i].Declared && s.Devices[i].ID != "":
-		return 0, fmt.Errorf("%s is already the name of %s, which isn't declared: declare that too, "+
-			"under another name, or call this something else", d.Name, describeDriver(s.Devices[i]))
-	case i >= 0 && j >= 0:
-		// The name moves onto hardware that's on record: the name's entry takes it, keeping its
-		// endpoint, and the hardware's own is retired.
-		e, from := &s.Devices[i], &s.Devices[j]
-		e.ID, e.Driver, e.Capabilities, e.DriverDeviceType = from.ID, from.Driver, slices.Clone(from.Capabilities), from.DriverDeviceType
-		e.AppName, e.AppRoom = from.AppName, from.AppRoom
-		e.Product = from.Product
-		if len(e.Control) == 0 {
-			e.Control = bytes.Clone(from.Control)
-		}
-		if !from.Removed {
-			out.Absorbed[from.Name] = d.Name
-		}
-		from.ID, from.Removed, from.Declared = "", true, false
-		from.Product = driver.Product{}
-		return i, nil
-	case i >= 0:
-		// Onto hardware not on record, or none: the old hardware is forgotten.
-		e := &s.Devices[i]
-		if e.ID != d.ID || e.Driver != d.Driver {
-			e.ID, e.Driver, e.Capabilities, e.DriverDeviceType, e.AppName, e.AppRoom = d.ID, d.Driver, nil, "", "", ""
-			e.Product = driver.Product{}
-		}
-		return i, nil
-	default:
-		endpoint, err := allocate(s)
-		if err != nil {
-			return 0, err
-		}
-		s.Devices = append(s.Devices, Device{Name: d.Name, ID: d.ID, Driver: d.Driver, Endpoint: endpoint})
-		return len(s.Devices) - 1, nil
-	}
+	return s.Devices[i], true
 }
 
-// targetHardware finds the entry of hardware declared by itself, or makes one for a plugin's hardware
-// that isn't on record yet, which is named once it's placed.
-func targetHardware(s *Snapshot, d Declaration) (int, error) {
-	if j := slices.IndexFunc(s.Devices, func(e Device) bool { return e.ID != "" && e.Key() == d.Hardware }); j >= 0 {
+// target finds a declaration's entry, or makes one for a plugin's hardware that isn't on record yet.
+func target(s *Snapshot, d Declaration) (int, error) {
+	if j := slices.IndexFunc(s.Devices, func(e Device) bool { return e.Key() == d.Hardware }); j >= 0 {
 		return j, nil
 	}
 	if !strings.HasPrefix(d.Driver, driver.Plugin+"/") {
@@ -335,137 +187,56 @@ func reports(e Device, d Declaration) error {
 		strings.Join(e.Capabilities, ", "))
 }
 
-// hardwareDeclared says a declaration names e's hardware.
-func hardwareDeclared(e Device, decls []Declaration) bool {
-	return e.ID != "" && slices.ContainsFunc(decls, func(d Declaration) bool { return d.hasHardware() && d.Key() == e.Key() })
-}
-
-// clash refuses two live devices of one name, which an undeclared device's app name can make.
-func clash(s Snapshot) error {
-	seen := map[string]bool{}
-	for _, d := range s.Devices {
-		if d.Removed {
-			continue
-		}
-		if seen[d.Name] {
-			return fmt.Errorf("%s would be two devices' name", d.Name)
-		}
-		seen[d.Name] = true
-	}
-	return nil
-}
-
 // changes says what changed between two registries, for a deploy to list.
 func changes(before, after Snapshot, decls []Declaration) []string {
 	var out []string
-	at := func(s Snapshot, endpoint uint16) (Device, bool) {
-		i := slices.IndexFunc(s.Devices, func(d Device) bool { return d.Endpoint == endpoint })
-		if i < 0 {
-			return Device{}, false
-		}
-		return s.Devices[i], true
-	}
-	describe := func(a Device) []string {
+	for _, d := range decls {
+		i := slices.IndexFunc(after.Devices, func(a Device) bool { return a.Key() == d.Hardware })
+		a := after.Devices[i]
+		ref := ident.DeviceRef(a.Key())
 		b, existed := at(before, a.Endpoint)
-		var lines []string
 		switch {
-		case !existed || b.Removed && a.ID == "":
-			lines = append(lines, fmt.Sprintf("Reserved %s", a.Name))
-			if a.ID != "" {
-				lines[0] = fmt.Sprintf("Declared %s, for %s", a.Name, describeDriver(a))
-			}
+		case !existed:
+			out = append(out, fmt.Sprintf("Put %s on record", ref))
 		case b.Removed:
-			lines = append(lines, fmt.Sprintf("Brought back %s, which was removed", a.Name))
-		case b.Name != a.Name:
-			lines = append(lines, fmt.Sprintf("Renamed %s to %s", b.Name, a.Name))
+			out = append(out, fmt.Sprintf("Brought back %s, which was forgotten", ref))
 		}
-		if existed && (b.ID != a.ID || b.Driver != a.Driver) && a.ID != "" {
-			lines = append(lines, fmt.Sprintf("Moved %s onto %s", a.Name, describeDriver(a)))
-		}
-		if existed && b.Room != a.Room {
-			lines = append(lines, roomLine(a))
+		switch {
+		case existed && b.Room == a.Room:
+		case a.Room != "":
+			out = append(out, fmt.Sprintf("Moved %s to %s", ref, a.Room))
+		case existed:
+			out = append(out, fmt.Sprintf("Took %s out of its room", ref))
 		}
 		if existed && b.DeviceType != a.DeviceType {
-			lines = append(lines, typeLine(a))
+			out = append(out, typeLine(a))
 		}
-		if existed && b.Label != a.Label {
-			lines = append(lines, labelLine(a))
-		}
-		return lines
-	}
-	for _, d := range decls {
-		i := live(after, d.Name)
-		if d.Hardware != "" {
-			i = slices.IndexFunc(after.Devices, func(a Device) bool { return !a.Removed && a.Key() == d.Hardware })
-		}
-		if i >= 0 {
-			out = append(out, describe(after.Devices[i])...)
+		if b.Label != a.Label {
+			out = append(out, labelLine(a))
 		}
 	}
 	for _, b := range before.Devices {
 		a, _ := at(after, b.Endpoint)
-		switch {
-		case b.Removed || !b.Declared || a.Declared:
-		case a.Removed:
-			out = append(out, fmt.Sprintf("Removed %s, which is no longer declared", b.Name))
-		default:
-			out = append(out, fmt.Sprintf("Gave %s back its app's name, %s: it's no longer declared", b.Name, a.Name))
+		if !b.Removed && !slices.ContainsFunc(decls, func(d Declaration) bool { return d.Hardware == a.Key() }) &&
+			(b.Room != a.Room || b.DeviceType != a.DeviceType || b.Label != a.Label) {
+			out = append(out, fmt.Sprintf("Gave %s back its app's room and its driver's type", ident.DeviceRef(a.Key())))
 		}
 	}
 	return out
 }
 
-func roomLine(d Device) string {
-	switch {
-	case d.Room == "":
-		return fmt.Sprintf("Took %s out of its room", d.Name)
-	case !d.RoomDeclared:
-		return fmt.Sprintf("Moved %s to %s, its app's room", d.Name, d.Room)
-	}
-	return fmt.Sprintf("Moved %s to %s", d.Name, d.Room)
-}
-
 func labelLine(d Device) string {
 	if d.Label == "" {
-		return fmt.Sprintf("Took %s's label off: Matter shows its name", d.Name)
+		return fmt.Sprintf("Took %s's label off: Matter shows its app's name", ident.DeviceRef(d.Key()))
 	}
-	return fmt.Sprintf("Labelled %s %q on Matter", d.Name, d.Label)
+	return fmt.Sprintf("Labelled %s %q on Matter", ident.DeviceRef(d.Key()), d.Label)
 }
 
 func typeLine(d Device) string {
 	if d.DeviceType == "" {
-		return fmt.Sprintf("Gave %s back the device type its driver says", d.Name)
+		return fmt.Sprintf("Gave %s back the device type its driver says", ident.DeviceRef(d.Key()))
 	}
-	return fmt.Sprintf("Set %s's device type to %s", d.Name, d.DeviceType)
-}
-
-// describeDriver names a device's hardware as a person would: its plugin and ID.
-func describeDriver(d Device) string {
-	return DescribeHardware(d.Driver, d.ID)
-}
-
-// pluginOf is the name a home imports a device's plugin by, or false for a device no plugin's
-// hardware is, as with a reserved or simulated one.
-func pluginOf(d Device) (string, bool) {
-	plugin, ok := strings.CutPrefix(d.Driver, driver.Plugin+"/")
-	return plugin, ok && d.ID != ""
-}
-
-// Undeclared says the line that would declare a device your home's code doesn't, as it is now, to
-// paste into it, or false for one it declares, or can't, as with a removed or simulated device.
-func Undeclared(d Device) (string, bool) {
-	plugin, ok := pluginOf(d)
-	if d.Declared || d.Removed || !ok {
-		return "", false
-	}
-	line := fmt.Sprintf("home.Device(%q).Hardware(%q, %q)", d.Name, plugin, d.ID)
-	if d.Room != roomOf(d.AppRoom) {
-		line += fmt.Sprintf(".Room(%q)", d.Room)
-	}
-	if d.DeviceType != "" {
-		line += fmt.Sprintf(".Is(oikade.%s{})", d.DeviceType)
-	}
-	return line, true
+	return fmt.Sprintf("Set %s's device type to %s", ident.DeviceRef(d.Key()), d.DeviceType)
 }
 
 // DescribeHardware names hardware as a person would: its plugin and ID.

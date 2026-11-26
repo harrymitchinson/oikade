@@ -21,8 +21,7 @@ import (
 type Hardware struct {
 	// Key is how the host knows the hardware: its ref without hardware/, as oikade list devices --wide
 	// shows it, which is its plugin's name and the ID the plugin gives it, percent-encoded, such as
-	// hue/0x00178801091863f2. A simulated device's is simulator/ and its ID, and a reserved name's the
-	// name. A rename doesn't change it.
+	// hue/0x00178801091863f2. A simulated device's is simulator/ and its ID. A rename doesn't change it.
 	Key string
 }
 
@@ -35,7 +34,7 @@ type member interface{ hardware() Hardware }
 
 // DeviceType is what a device is, in Matter's names. Each is a struct below, with the capabilities
 // a device of its type always has, which Device takes, and the zero value of one is the type, which
-// Kinds and Declaration.Is take: oikade.Kinds(oikade.DimmableLight{}).
+// Kinds takes: oikade.Kinds(oikade.DimmableLight{}).
 type DeviceType interface{ deviceType() devicetype.Type }
 
 // The types of a device that's on or off. Only these can be more than one thing, since a relay can
@@ -170,8 +169,8 @@ func (l labelOption) applyTo(d *declaredDevice) {
 	d.label = string(l)
 }
 
-// Device declares a device: the hardware it is, its Key, which a reserved name can't be, and what it
-// is, T, a device type or a struct of one and the device's other capabilities.
+// Device declares a device: the hardware it is, its Key, and what it is, T, a device type or a
+// struct of one and the device's other capabilities.
 //
 //	var (
 //		Cuisine        = oikade.Room("cuisine")
@@ -186,8 +185,7 @@ func (l labelOption) applyTo(d *declaredDevice) {
 // Each of T's capabilities is the hardware's, so CuisinePlafond.On is that lamp's, and a deploy
 // refuses hardware that doesn't report them all. A room, from Room, places the device there, and one
 // without is in no room. Declare devices at package level: every device the program declares is its
-// home's, under the name of its variable, which only your code sees. Hardware declared here can't be
-// declared with Home.Device too.
+// home's, under the name of its variable, which only your code sees.
 func Device[T DeviceType](hardware string, options ...DeviceOption) T {
 	var t T
 	d := &declaredDevice{key: hardware}
@@ -407,8 +405,8 @@ func declaredDevices() ([]*declaredDevice, []error) {
 	return slices.Clone(declared.devices), slices.Clone(declared.mistakes)
 }
 
-// hardwareInventory is the devices from Device, for the host, by their hardware.
-func hardwareInventory() []wire.DeviceDeclaration {
+// inventory is the devices from Device, for the host, by their hardware.
+func inventory() []wire.DeviceDeclaration {
 	devices, _ := declaredDevices()
 	out := make([]wire.DeviceDeclaration, 0, len(devices))
 	for _, d := range devices {
@@ -417,23 +415,17 @@ func hardwareInventory() []wire.DeviceDeclaration {
 			room = d.room.room
 		}
 		out = append(out, wire.DeviceDeclaration{
-			Hardware: d.key, Room: &room, DeviceType: d.typ, Capabilities: slices.Clone(d.capabilities), Label: d.label,
+			Hardware: d.key, Room: room, DeviceType: d.typ, Capabilities: slices.Clone(d.capabilities), Label: d.label,
 		})
 	}
 	return out
 }
 
-// checkHardwareInventory refuses a device from Device that's wrong, declared twice, of a plugin the
-// home doesn't import, or that Home.Device declares too.
-func (h *Home) checkHardwareInventory() error {
+// checkInventory refuses a device from Device that's wrong, declared twice, or of a plugin the home
+// doesn't import.
+func (h *Home) checkInventory() error {
 	devices, errs := declaredDevices()
 	seen := map[string]bool{}
-	byName := map[string]string{}
-	for _, d := range h.declared {
-		if d.id != "" {
-			byName[ident.HardwareKey(d.plugin, d.id)] = d.name
-		}
-	}
 	for _, d := range devices {
 		bad := func(err error) { errs = append(errs, fmt.Errorf("device %s: %w", d.key, err)) }
 		for _, err := range d.errs {
@@ -444,9 +436,6 @@ func (h *Home) checkHardwareInventory() error {
 		}
 		if plugin, _, ok := strings.Cut(d.key, "/"); ok && plugin != ident.Simulator && !imported(plugin) {
 			bad(fmt.Errorf("its hardware is plugin %s's, which this home doesn't import with Plugin", plugin))
-		}
-		if name, ok := byName[d.key]; ok {
-			bad(fmt.Errorf("Home.Device declares it too, as %s: declare it once", name))
 		}
 		if seen[d.key] {
 			bad(errors.New("it's declared twice"))

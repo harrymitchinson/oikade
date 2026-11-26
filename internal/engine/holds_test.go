@@ -781,8 +781,10 @@ func TestARulesSeriesAndLogLinesNameItByItsRef(t *testing.T) {
 	if got := r.e.metrics.active.Names(); !slices.Equal(got, []string{`oikade_rule_active{rule="case/water-heater/on/night"}`}) {
 		t.Errorf("series %v", got)
 	}
-	r.e.release(ident.ID{Name: "lamp on dusk"})
-	if !r.logs.Has("Released no hold", "rule=case/lamp/on/dusk") {
+	if err := r.e.Apply(t.Context(), ident.ID{Name: "water-heater on night"}, Release("lamp on dusk")); err == nil {
+		t.Error("released a rule that isn't loaded")
+	}
+	if !r.logs.Has("Failed to run Rule action", "rule=case/water-heater/on/night") {
 		t.Errorf("the log:\n%s", strings.Join(r.logs.Lines(), "\n"))
 	}
 }

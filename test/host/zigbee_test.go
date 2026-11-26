@@ -103,7 +103,7 @@ func TestZigbeeDevicesPairAndCanBeSetThroughAZigbee2MQTTYouRun(t *testing.T) {
 
 	// Paired in Zigbee2MQTT, and usable with nothing else done.
 	r.untilValue(plugKey, false)
-	d := deviceOf(t, r.devices(), "desk-plug")
+	d := deviceOf(t, r.devices(), plugKey)
 	if d.ID != deskPlug || d.Driver != "plugin/zigbee" || d.Endpoint == 0 {
 		t.Fatalf("got %+v", d)
 	}

@@ -9,8 +9,8 @@ This page says how things work, not why they were chosen. A section names the pl
 | Owner | Holds |
 |---|---|
 | Git, as a Go module | Your automations: decisions, flows, arbitration settings, and your devices and rooms (`oikade types` adds new ones) |
-| The host's data directory | Devices, names, rooms and endpoints (the registry), claims, latches, flows' journals, deployed versions and their values, Matter's identity and fabrics, and what plugins' setups kept (secrets) |
-| Apps | Their own names. Drivers find a device by its ID, never by its name in the app, and the host copies a name once (OIK-130) |
+| The host's data directory | Devices, their rooms and endpoints (the registry), claims, latches, flows' journals, deployed versions and their values, Matter's identity and fabrics, and what plugins' setups kept (secrets) |
+| Apps | Their own names. Drivers find a device by its ID, never by its name in the app, and the host reads a name and a room once (OIK-130) |
 | Prometheus, Grafana and Loki | Values over time, changes and rule runs |
 
 ## Two binaries
@@ -199,17 +199,17 @@ Design: OIK-171. The code is `internal/host/api`, and the routes are in [host-ap
 ### Endpoints
 
 - **The store holds the registry as one value,** so a device and the endpoint counter can't disagree after a crash. An unreadable one stops the host, rather than starting empty and handing out endpoints again.
-- **An endpoint belongs to one entry for good.** `Next` only rises, forgotten devices stay on record, and a name moved onto new hardware keeps its entry's endpoint and retires the replacement's.
+- **An endpoint belongs to one entry for good.** `Next` only rises, forgotten devices stay on record, and other hardware on a line in a home's code is another entry, with an endpoint of its own.
 - **A device stays until you forget it.** Your process isn't told a device went: it's told about new and changed ones, and a deploy gives it a fresh list.
 
 ### Claims follow hardware
 
-A device is its key, its hardware (OIK-395): a plugin's device is `<plugin>/<id>`, its ID escaped as a ref's segment (`hue/0x00178801091863f2`, `overkiz/io:%2F%2F1234%2F5`), a simulated device `simulator/<id>`, so its ref has the same shape, and a reserved name itself. The hub, the engine's arbiters, claims, holds, fires, pauses, averages, flow journals, the event log and the host protocol all key a device by it, and so does each device in a home's code, `oikade.Device`'s hardware.
+A device is its key, its hardware (OIK-395): a plugin's device is `<plugin>/<id>`, its ID escaped as a ref's segment (`hue/0x00178801091863f2`, `overkiz/io:%2F%2F1234%2F5`), and a simulated device `simulator/<id>`, so its ref has the same shape. The hub, the engine's arbiters, claims, holds, fires, pauses, averages, flow journals, the event log and the host protocol all key a device by it, and so does each device in a home's code, `oikade.Device`'s hardware.
 
-- **A rename moves nothing.** Only the registry has a device's name, for the Matter bridge and `oikade list devices`. The host's API, logs and metric labels name a device by its key, as its hardware's ref (`ident.DeviceRef`), which the CLI's refs give back. Your process names devices from its `welcome` (`hub.Meta.DisplayName`).
+- **The registry keeps no name.** It keeps the app's name and room, read once, and what a home's code declares: a room, a type and a label. The host's API, logs and metric labels name a device by its key, as its hardware's ref (`ident.DeviceRef`), which the CLI's refs give back, and the Matter bridge by its label, or else its app's name, or else its ID.
 - **Swapped hardware is a new device** to what's kept: its cases are new rules, the old hardware's are ended by the deploy that confirms, and a Safety one among them is a finding.
-- **A store kept by names starts again.** Before the host reads anything a device has (`keyByHardware`), a store whose `layout` doesn't say `hardware` loses what it kept under the name of a device now known by its hardware, which nothing would find: its claims, its cases' holds, latches, fires and pauses, its averages, the holds that write it, and the flow runs whose journal names it. The host logs how many, and a latch that held lets go. A reserved device, whose key is its name, keeps its state, and so does a flow that names no such device.
-- **Forgetting a device ends its claims** (`Engine.ForgetDevice`), rather than leaving them for the next device of that name. Claims it has only on disk count too (`Engine.SavedClaims`).
+- **A store kept by names starts again.** Before the host reads anything a device has (`keyByHardware`), a store whose `layout` doesn't say `hardware` loses what it kept under the name of a device now known by its hardware, or of one reserved without hardware, which is gone, as nothing would find it: its claims, its cases' holds, latches, fires and pauses, its averages, the holds that write it, and the flow runs whose journal names it. The host logs how many, and a latch that held lets go. A flow that names no such device keeps its state. An entry with no hardware is dropped as the registry opens. The devices a saved home shows on Matter are re-keyed by hardware on every start, whatever the layout says, while the registry still has the names.
+- **Forgetting a device ends its claims** (`Engine.ForgetDevice`), rather than leaving them for the hardware if it comes back. Claims it has only on disk count too (`Engine.SavedClaims`).
 - **A claims record that can't be read is a Safety claim on the whole device** (`Engine.UnreadableClaim`). It stays, no arbiter starts empty to save over it, `claimedSetter` refuses every write to the device, and removing the device with `--allow-safety` clears it.
 
 ### Arbitration settings
@@ -223,7 +223,7 @@ A device is its key, its hardware (OIK-395): a plugin's device is `<plugin>/<id>
 
 `oikade types` appends to the home's devices file (`cmd/oikade/devicesfile.go`) a line for each device on record that the home's code doesn't name, as the home's declarations would make it (`registry.Declaring`), and never changes what's there. The hardware named is what an `oikade.Device` call in the package names, read from its source, and what the manifest of the home it builds declares, or its source when it doesn't build. Names are the app's, made Go names (`ident.GoName`), and one that's taken ends with a hash of the hardware's ref.
 
-Each line's type is a device type's Go type, with the capabilities it always has (`devicetype.Has`), or a struct of one and an `oikade.Bool`, `oikade.Number` or `oikade.Choice` for each other capability, named by the capability registry's `Go` name, so the compiler checks what a home names. `oikade dev` and `oikadetest` simulate the lines the home's inventory carries (`simhome.Declared`), by key, so they show keys where the host would show names.
+Each line's type is a device type's Go type, with the capabilities it always has (`devicetype.Has`), or a struct of one and an `oikade.Bool`, `oikade.Number` or `oikade.Choice` for each other capability, named by the capability registry's `Go` name, so the compiler checks what a home names. `oikade dev` and `oikadetest` simulate the lines the home's inventory carries (`simhome.Declared`), by key, as the host does.
 
 ## Plugins
 
@@ -273,7 +273,7 @@ Primitives, certificates and setup payloads are checked against published vector
 
 `internal/host/matter.go`'s `matterBridge` wraps `matterbridge.Bridge`, a `driver.Sink` of the hub, and calls its `Apply` with what the registry says whenever the registry or a device's discovery changes.
 
-- **A bridged device's `UniqueID`** comes from the bridge's unique ID and the endpoint, because the endpoint is what follows a device through a rename or a replacement.
+- **A bridged device's `UniqueID`** comes from the bridge's unique ID and the endpoint, which stays with a device through a new label or type.
 - **What's on the bridge** is what `api.Bridgeable` says: paired, not forgotten, and with a device type. The bridge, `oikade list devices` and a deploy's `takenOffMatter` all use it, and a test keeps it equal to `matterbridge.Supported`. Devices of plugins the home hides from Matter stay off too, and keep their endpoints.
 - **The home's Matter options** (the hidden plugins and the bridge's name) come in the automations process's `hello`. `homeOptions` saves them in the store's `options` namespace before they're applied, so a restart applies the last deploy's before a process connects. While a deploy settles, its `hello`'s hidden plugins are ignored, and `deployer.hide` takes them from the manifest once it's confirmed, so a version that fails costs controllers nothing.
 - **Matter's state** is the store's `matter` namespace: the `identity`, written once before a controller can see it, and the `fabrics`. `fabric.Table` saves through `fabric.Store`, so a fabric is on disk before commissioning hears it worked.
@@ -284,11 +284,11 @@ Primitives, certificates and setup payloads are checked against published vector
 
 `internal/matterbridge` makes each device on record with an endpoint ID one bridged endpoint, with a device type per function and their clusters, and Power Source for a battery.
 
-- **A device that's on or off** is what `internal/devicetype` says, the one answer `oikade list devices` reads too: the registry's `deviceType`, which a declaration's `Is` sets, else its `driverDeviceType` from the driver, else a dimmable light with `brightness` and a plug-in unit without (OIK-142). Level Control comes with a dimmable type, not with `brightness` alone.
+- **A device that's on or off** is what `internal/devicetype` says, the one answer `oikade list devices` reads too: the registry's `deviceType`, which a device's line in a home's code sets, else its `driverDeviceType` from the driver, else a dimmable light with `brightness` and a plug-in unit without (OIK-142). Level Control comes with a dimmable type, not with `brightness` alone.
 - **A device with a `setpoint`** is a Thermostat with only the Heating feature, whose Thermostat cluster carries its `on` and `temperature` too (OIK-20).
 - **A device with a `mode` and an `on` as well** is a Room Air Conditioner (`devicetype.ClimateOf`): a Thermostat with Heating, Cooling and Auto and a dead band of 0, so both occupied setpoints are its `setpoint`, and an On/Off. Its SystemMode is `on` and `mode` together, so a controller's one write can be two (OIK-263).
 - **A Door Lock's LockState follows the lock's reports,** never its commands, so a controller can't show a bolt that hasn't moved. A Window Covering's Current position does the same, and its Target comes from the command. A move shows as moving until a report reaches the target or `position`'s settle has passed on the bridge's clock, and a write that's refused cancels it (`Mapped.Cancel`, OIK-23).
-- **A change of capabilities or device type** rebuilds the device on the same endpoint ID. A new name isn't a rebuild: it sets the Bridged Device Basic Information's NodeLabel in place, and subscribers are sent it (OIK-130).
+- **A change of capabilities or device type** rebuilds the device on the same endpoint ID. A new label isn't a rebuild: it sets the Bridged Device Basic Information's NodeLabel in place, and subscribers are sent it (OIK-130).
 - **What a device is** comes from the registry, which keeps what the driver last said (`driver.Product`, OIK-349). The Bridged Device Basic Information serves it as VendorName, ProductName and SerialNumber, cut to 32 bytes, and SoftwareVersionString and HardwareVersionString, cut to 64, each once it's known.
 - **State reaches attributes under the node's lock,** and availability is the Bridged Device Basic Information's Reachable.
 
@@ -464,7 +464,7 @@ Only writes that can reach the same device wait for each other: in one room, or 
 
 ### The event log
 
-The event log (`store.Events`, fed by `internal/host/eventlog.go`) is what `oikade replay`, `oikade history` and `oikade status REF` read (OIK-355). Beside changes, writes and runs, it has a device going offline or coming back (`hub.Store.Went`), a plugin's own problem (`Instance.OnProblem`), the Matter bridge's window and controllers (`node.Config.WindowChanged` and `FabricsChanged`), and devices forgotten and renamed (`inventory.record`), each reported where the host logs it.
+The event log (`store.Events`, fed by `internal/host/eventlog.go`) is what `oikade replay`, `oikade history` and `oikade status REF` read (OIK-355). Beside changes, writes and runs, it has a device going offline or coming back (`hub.Store.Went`), a plugin's own problem (`Instance.OnProblem`), the Matter bridge's window and controllers (`node.Config.WindowChanged` and `FabricsChanged`), and devices forgotten (`inventory.record`), each reported where the host logs it.
 
 It's history, not state: nothing depends on it, so it trades the rest of the store's durability for staying out of the way.
 
@@ -472,7 +472,7 @@ It's history, not state: nothing depends on it, so it trades the rest of the sto
 - **An idle host doesn't sync the disk.** With nothing queued and nothing over the bound there's no commit.
 - **The bound folds into a baseline.** A commit drops the oldest events over the bound, folding their last values into a baseline in the same transaction, because a device that hasn't changed since still has them.
 - **Reads take pages,** each its own short transaction, because a long one would hold up writes that grow the file, journal entries among them.
-- **A filtered read reads the log through.** The log has no index by time or device, so `eventMatcher` (`internal/host/eventfilter.go`) sends what passes. An event has its device by key, so a device's ref finds its events under every name it had, and the API names them as it sends them (`namedEvent`).
+- **A filtered read reads the log through.** The log has no index by time or device, so `eventMatcher` (`internal/host/eventfilter.go`) sends what passes. An event has its device by key, so a device's ref finds its events whatever a home's code has called it.
 - **A tail that starts with the log's past has each event once.** An event goes to the log's queue and to the feed under one lock (`server.emit`), and such a tail subscribes to the feed at the moment a flush takes the queue (`eventLog.flushedAt`). So the log up to that flush's last record and the feed after it are every event, and neither waits for the disk with that lock held.
 
 #### What it's sized on

@@ -231,7 +231,8 @@ func TestSetupFetchesEachDevicesLANKeyAndTheDeviceComesUp(t *testing.T) {
 		t.Errorf("kept %s", got)
 	}
 	if want := `1000aabbcc is "Greenhouse heater" in the eWeLink app: ` +
-		`home.Device("greenhouse-heater").Hardware("ewelink", "1000aabbcc") in your home's code names it so`; !strings.Contains(said(steps), want) {
+		`oikade.Label("Greenhouse heater") on hardware/ewelink/1000aabbcc's line in your home's code, which oikade types ` +
+		`adds, shows it so in the Home app`; !strings.Contains(said(steps), want) {
 		t.Errorf("said:\n%s", said(steps))
 	}
 	// The probe isn't on this network, so there's nothing to name.
@@ -267,9 +268,9 @@ func TestSetupAgainAsksNothingAndChangesNothing(t *testing.T) {
 	}
 }
 
-func TestSetupGivesNoDeclarationForADeviceWithAName(t *testing.T) {
+func TestSetupSuggestsNoLabelForADeviceWithOne(t *testing.T) {
 	cloud := newFakeEWeLink(t, things)
-	b := startWith(t, withApp(), fast, cloud.cloud(), relayID+"=greenhouse-heater-2")
+	b := startWith(t, withApp(), fast, cloud.cloud(), relayID+"=Serre")
 	b.device(relayID, "th_plug", relayOf("on")).report()
 	b.eventually("the relay", func() bool { _, ok := b.reports()[relayID]; return ok })
 
@@ -277,8 +278,8 @@ func TestSetupGivesNoDeclarationForADeviceWithAName(t *testing.T) {
 	if done := steps[len(steps)-1].Done; done.Error != "" {
 		t.Fatalf("done: %+v", done)
 	}
-	if strings.Contains(said(steps), "home.Device(") {
-		t.Errorf("said, of a device the home names already:\n%s", said(steps))
+	if strings.Contains(said(steps), "oikade.Label(") {
+		t.Errorf("said, of a device the home labels already:\n%s", said(steps))
 	}
 }
 
