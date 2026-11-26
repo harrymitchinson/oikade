@@ -15,7 +15,7 @@ var zigbee = func(plugin.Environment, []contract.DeclaredDevice) (plugin.Handler
 func TestADeclaredDeviceGoesToTheHost(t *testing.T) {
 	h := decide(func(h *Home) {
 		h.Plugin("zigbee", zigbee)
-		h.Device("porch-light").Hardware("zigbee", "0x00178801049a2b3c").Room("porch").Is(OnOffLight)
+		h.Device("porch-light").Hardware("zigbee", "0x00178801049a2b3c").Room("porch").Is(OnOffLight{})
 		h.Device("greenhouse-fan").Room("greenhouse")
 		h.Device("attic-fan").Room("")
 		h.Device("shed-fan")
@@ -50,7 +50,7 @@ func TestDeclaredDevicesAreChecked(t *testing.T) {
 			h.Device("b").Hardware("zigbee", "0x1")
 		}, "both declared"},
 		"bad name":   {func(h *Home) { h.Device("Porch Light") }, "isn't a device name"},
-		"not a type": {func(h *Home) { h.Device("lamp").Is(Thermostat) }, "isn't one of"},
+		"not a type": {func(h *Home) { h.Device("lamp").Is(Thermostat{}) }, "isn't one of"},
 		"no plugin":  {func(h *Home) { h.Device("lamp").Hardware("hue", "0x1") }, "doesn't import"},
 		"no ID":      {func(h *Home) { h.Device("lamp").Hardware("zigbee", "") }, "half its hardware"},
 	} {

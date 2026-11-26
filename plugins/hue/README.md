@@ -11,7 +11,7 @@ Each device appears in `oikade list devices` as `hardware/<plugin>/<ID>`, where 
    ```go
    home.Plugin("hue", hue.New(hue.Config{})).
    	HideFromMatter() // the Hue bridge puts these in the Home app itself
-   home.Device("hall-light").Hardware("hue", "0x7cc6b6fffecb1814").Room("hall").Is(oikade.OnOffLight)
+   home.Device("hall-light").Hardware("hue", "0x7cc6b6fffecb1814").Room("hall").Is(oikade.OnOffLight{})
    ```
 
    Until it has a key for the bridge, `oikade status` says `Plugin hue needs setup: run oikade setup hue`.

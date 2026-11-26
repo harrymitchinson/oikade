@@ -277,6 +277,13 @@ func TestOnlyHardwareThatMapsIsOnTheBridge(t *testing.T) {
 	if got, wantID := want[lamp.Endpoint].Unique, matterbridge.UniqueID("BRIDGE/"+strconv.Itoa(int(lamp.Endpoint))); got != wantID {
 		t.Errorf("lamp's unique ID = %q, want %q", got, wantID)
 	}
+	// Matter shows the label your code gives it, in place of its name.
+	if _, err := reg.Declare([]registry.Declaration{{Name: "future"}, {Hardware: key("lamp").Name, Label: "Reading lamp"}}); err != nil {
+		t.Fatal(err)
+	}
+	if d := m.want()[lamp.Endpoint]; d.Name != "Reading lamp" {
+		t.Errorf("a labelled lamp is %q on the bridge", d.Name)
+	}
 }
 
 func TestAHiddenPluginsDevicesAreOffTheBridge(t *testing.T) {

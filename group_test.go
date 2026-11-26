@@ -14,22 +14,22 @@ import (
 
 // heater and light are devices as oikade types writes them.
 type heater struct {
-	Device
+	Hardware
 	On       Bool
 	Setpoint Number
 }
 
 func newHeater(name string) heater {
-	return heater{Device{Name: name}, Bool{Device: name, Capability: On}, Number{Device: name, Capability: Setpoint}}
+	return heater{Hardware{Key: name}, Bool{Device: name, Capability: On}, Number{Device: name, Capability: Setpoint}}
 }
 
 type light struct {
-	Device
+	Hardware
 	On Bool
 }
 
 func newLight(name string) light {
-	return light{Device{Name: name}, Bool{Device: name, Capability: On}}
+	return light{Hardware{Key: name}, Bool{Device: name, Capability: On}}
 }
 
 var (
@@ -54,7 +54,7 @@ func TestCompileRejectsAnUnsoundGroup(t *testing.T) {
 			`group "hall-heater" has a device's name`,
 		},
 		"made twice":       {func(h *Home) { h.Group("g", hallLamp); h.Group("g", hallHeater) }, `group "g" is made twice`},
-		"a room with none": {func(h *Home) { h.Room("") }, "a room needs a name"},
+		"a room with none": {func(*Home) { Room("") }, "a room needs a name"},
 		"no member has it": {
 			func(h *Home) { h.Decide(h.Group("g", hallLamp).Setpoint).Default(18) },
 			"no member of group g has setpoint",
@@ -159,6 +159,7 @@ func TestCompileRejectsAnUnsoundGroup(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
+			declaring(t)
 			_, _, err := homeWith(Options{}, tc.home).compile()
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("got %v, want an error with %q", err, tc.want)
@@ -248,7 +249,7 @@ func caseNamed(t *testing.T, h *Home, key string) engine.Hold {
 func TestARoomsDecisionLeavesOutDevicesWithTheirOwn(t *testing.T) {
 	when := ConditionFunc("always", func(Snapshot) bool { return true })
 	h := decide(func(h *Home) {
-		hall := h.Room("hall", Lights)
+		hall := h.Room(Room("hall"), Lights)
 		h.Decide(hall.On).Case("alarm", true, when).OverrideFor(time.Hour).Case("evening", true, when).Default(false)
 		h.Decide(hallLamp.On).Case("reading", true, when).Default(false)
 		h.Decide(newLight("hall-spot").On).Case("art", true, when).Then(hall.On)
@@ -325,8 +326,8 @@ func TestAGroupsAnyAndAllReadItsMembers(t *testing.T) {
 func TestARoomMadeTwiceIsOne(t *testing.T) {
 	when := ConditionFunc("always", func(Snapshot) bool { return true })
 	h := decide(func(h *Home) {
-		h.Decide(h.Room("hall", Lights).On).Default(false)
-		h.Decide(hallLamp.On).Case("a", true, when).Then(h.Room("hall", Lights).On)
+		h.Decide(h.Room(Room("hall"), Lights).On).Default(false)
+		h.Decide(hallLamp.On).Case("a", true, when).Then(h.Room(Room("hall"), Lights).On)
 	})
 	if _, _, err := h.compile(); err != nil {
 		t.Fatal(err)
@@ -334,7 +335,7 @@ func TestARoomMadeTwiceIsOne(t *testing.T) {
 	porch := newLight("porch")
 	h = decide(func(h *Home) {
 		h.Decide(porch.On).Default(false)
-		h.Decide(h.Room("porch").On).Default(false)
+		h.Decide(Room("porch").On).Default(false)
 	})
 	_, _, err := h.compile()
 	want := "porch on and room porch on are both decided, and would name their cases alike"

@@ -69,6 +69,8 @@ type Device struct {
 	DeviceType devicetype.Type `json:"deviceType,omitempty"`
 	// DriverDeviceType is what its driver says it is, if the driver knows.
 	DriverDeviceType devicetype.Type `json:"driverDeviceType,omitempty"`
+	// Label is what your home's code says Matter controllers show for it, in place of its name.
+	Label string `json:"label,omitempty"`
 	// Product is what its driver last said it is, each field kept while the driver says nothing of it.
 	driver.Product
 	// Endpoint is its Matter endpoint ID, and follows the name onto replacement hardware.

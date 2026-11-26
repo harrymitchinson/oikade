@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"oikade.dev/internal/control"
+	"oikade.dev/internal/devicetype"
 	"oikade.dev/internal/driver"
 	"oikade.dev/internal/engine"
 	"oikade.dev/internal/flow"
@@ -295,6 +296,10 @@ func init() {
 			return "", "", nil, fmt.Errorf("device %s's Set has a claim's options, which a report has none of", s.device)
 		}
 		return s.device, s.capability, s.value, nil
+	}
+	simhome.TypeOf = func(t any) devicetype.Type {
+		typ, _ := t.(DeviceType)
+		return typeOf(typ)
 	}
 }
 

@@ -17,7 +17,7 @@ The host starts your binary as `<binary> automations`, with its own environment 
 A process has 5 seconds to send its `hello`:
 
 ```json
-{"type":"hello","version":8,"role":"automations","rules":["ewelink/1000a1b2c3 on humid","morning"]}
+{"type":"hello","version":9,"role":"automations","rules":["ewelink/1000a1b2c3 on humid","morning"]}
 ```
 
 A device is its key throughout, its hardware, as `oikade types` writes it in a handle: `<plugin>/<id>`, such as `ewelink/1000a1b2c3`, a simulated device's ID, or a reserved name. So a rename changes nothing here but the `name` a `welcome` gives (OIK-395).
@@ -33,13 +33,13 @@ A device is its key throughout, its hardware, as `oikade types` writes it in a h
 | `signals` | The home's signals, by name, so the `welcome` can return their saved state |
 | `info` | Each rule's `name`, `kind` (`case` or `flow`), `safety` and `latch`, and a case's `device`, `capability` and `case`, which `oikade status` shows and `oikade pause` checks. A Safety rule's `rooms` are each `room`, `capability` and `deviceTypes` (none for any) it writes at Safety, which a deploy checks the declared rooms and types against |
 | `control` | Each `device` and `entry` the home arbitrates, or a `room`'s, with its `deviceTypes`, which each device there of those types with the capability takes unless it has its own |
-| `inventory` | Every device the home declares with `Home.Device`: its `name`, and its `plugin` and `id`, `room` and `deviceType` if it gives them. No `room` leaves the device in its app's room, and `""` puts it in none. None leaves every device under its app's name (OIK-295) |
+| `inventory` | Every device the home declares. One from `Home.Device` has its `name`, and its `plugin` and `id`, `room` and `deviceType` if it gives them. One from `oikade.Device` has no name: its `hardware`, the key as `oikade list devices --json` has it, its `room`, its `deviceType`, the `capabilities` its line gives it and its `label`, if it has one. No `room` leaves the device in its app's room, and `""` puts it in none. None leaves every device under its app's name (OIK-295) |
 | `matterName` | The Matter bridge's name from `oikade.Options`, empty for `Oikade` (OIK-296) |
 | `hiddenFromMatter` | The plugins whose devices the home keeps off Matter, each `plugin` with the devices it `shown` (OIK-294) |
 
 The host takes these up before the `welcome`, in this order, and refuses the `hello` if it can't:
 
-1. **`inventory`:** it saves it, then applies it to the registry. It can refuse, as with a reserved name something holds that the home stops declaring or gives hardware.
+1. **`inventory`:** it saves it, then applies it to the registry. It can refuse, as with a reserved name something holds that the home stops declaring or gives hardware, or hardware that has reported and lacks a capability its line gives it. Hardware declared by itself keeps the name it has, unless a declared name takes it.
 2. **`control`:** it adds and changes settings. One the home has dropped stays until a deploy of that version settles.
 3. **`matterName`:** it saves it, then renames the bridge in place.
 4. **`hiddenFromMatter`:** it saves it, then takes the devices off the bridge. A process whose version is still settling has no say here: the host takes the version's `hiddenFromMatter` from its manifest once it's confirmed, so a deploy that fails takes nothing off.
@@ -117,7 +117,7 @@ Each request has an `id`, and gets a `reply` with the same one. Requests are car
 A plugin your home imports has its own session on the same socket. The host starts your binary as `<binary> plugin <name>`, with the same environment as your automations, and `<name>` comes from `plugins` in what [check mode](#check-mode) prints. The process says who it is:
 
 ```json
-{"type":"hello","version":8,"role":"plugin","plugin":"ewelink-lan"}
+{"type":"hello","version":9,"role":"plugin","plugin":"ewelink-lan"}
 ```
 
 The `welcome` has `topic`, the plugin's topic root, `declared`, the devices on record for it, and `setTimeout`. The host refuses a plugin it doesn't know, and a second connection for one that's connected.
@@ -162,7 +162,7 @@ A rule's claims end with the rule, but only through a deploy, which is what chec
 The host runs a binary as `<binary> check` before it stops anything. That loads the home with no writes and no session, and prints one line of JSON, `wire.Manifest`, as its last line of output, then exits 0:
 
 ```json
-{"protocol":8,"rules":[{"name":"ewelink/1000a1b2c3 on leak","kind":"case","safety":true,"latch":true,"device":"ewelink/1000a1b2c3","capability":"on","case":"leak"}]}
+{"protocol":9,"rules":[{"name":"ewelink/1000a1b2c3 on leak","kind":"case","safety":true,"latch":true,"device":"ewelink/1000a1b2c3","capability":"on","case":"leak"}]}
 ```
 
 | Field | Means |

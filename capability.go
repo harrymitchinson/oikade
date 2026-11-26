@@ -2,6 +2,7 @@ package oikade
 
 import (
 	"oikade.dev/contract/v1"
+	"oikade.dev/internal/devicetype"
 	"oikade.dev/internal/engine"
 )
 
@@ -190,53 +191,36 @@ func (c becomes) changes() []engine.Change {
 	return out
 }
 
-// DeviceType is what a device is, in Matter's names, as oikade list devices shows it. Kinds takes
-// any of these to pick a room's devices. Declaration.Is takes only the types of a device that's on
-// or off, since the rest follow from a device's capabilities.
-type DeviceType string
-
-// Thermostat is a heater or thermostat: a device with a Setpoint that isn't a RoomAirConditioner.
-const Thermostat DeviceType = "Thermostat"
-
-// RoomAirConditioner is an air conditioner or heat pump: a device with a Setpoint, a Mode and an On. A
-// room's on covers it with Everything, and Kinds(RoomAirConditioner) means only them.
-const RoomAirConditioner DeviceType = "RoomAirConditioner"
-
-// The device types a device that's on or off can be.
-const (
-	OnOffLight                 DeviceType = contract.OnOffLight
-	DimmableLight              DeviceType = contract.DimmableLight
-	OnOffPlugInUnit            DeviceType = contract.OnOffPlugInUnit
-	DimmablePlugInUnit         DeviceType = contract.DimmablePlugInUnit
-	MountedOnOffControl        DeviceType = contract.MountedOnOffControl
-	MountedDimmableLoadControl DeviceType = contract.MountedDimmableLoadControl
-)
-
 // Kind is which of a room's devices Home.Room means: Lights, Plugs, Heaters, Everything, or some
 // device types from Kinds. A room write says what it's for, so turning on the lights at dusk doesn't
 // also turn on the heater.
 type Kind struct {
-	types []DeviceType
+	types []devicetype.Type
 }
 
 // The kinds a room's devices fall into, by device type.
 var (
 	// Lights are the on/off and dimmable lights.
-	Lights = Kinds(OnOffLight, DimmableLight)
+	Lights = Kinds(OnOffLight{}, DimmableLight{})
 	// Plugs are the plug-in units and the mounted controls: whatever is wired to a relay or an outlet.
-	Plugs = Kinds(OnOffPlugInUnit, DimmablePlugInUnit, MountedOnOffControl, MountedDimmableLoadControl)
+	Plugs = Kinds(OnOffPlugInUnit{}, DimmablePlugInUnit{}, MountedOnOffControl{}, MountedDimmableLoadControl{})
 	// Heaters are the heaters and thermostats.
-	Heaters = Kinds(Thermostat)
+	Heaters = Kinds(Thermostat{})
 	// Everything is every device in the room with the capability, whatever it is: any of its sensors,
 	// or every device there that has on, lights, plugs and heaters alike.
 	Everything = Kind{}
 )
 
-// Kinds is a kind of the devices of these types, such as only the dimmable lights.
+// Kinds is a kind of the devices of these types, such as only the dimmable lights. A room write can
+// be limited to the types of a device that's on or off, Thermostat and RoomAirConditioner.
 //
-//	home.Room("study", oikade.Kinds(oikade.DimmableLight)).Brightness.To(40)
+//	home.Room(Bureau, oikade.Kinds(oikade.DimmableLight{})).Brightness.To(40)
 func Kinds(t DeviceType, more ...DeviceType) Kind {
-	return Kind{types: append([]DeviceType{t}, more...)}
+	k := Kind{}
+	for _, t := range append([]DeviceType{t}, more...) {
+		k.types = append(k.types, typeOf(t))
+	}
+	return k
 }
 
 // Change is what triggers a flow, in its When: a capability changing on a device, as a Bool, a

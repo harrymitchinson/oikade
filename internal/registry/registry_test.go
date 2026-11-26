@@ -225,9 +225,9 @@ func TestRenderIsDeterministicAndValidGo(t *testing.T) {
 	}
 	// Each handle has its device's key: a simulated device's ID, here.
 	for _, want := range []string{
-		"var AppleLamp = struct", "AppleLamp is apple-lamp", `Name: "a"`, "var ZebraLamp = struct",
-		`On:     oikade.Bool{Device: "z", Capability: oikade.On}`,
-		"var Porch = struct {\n\toikade.Device\n}{\n\tDevice: oikade.Device{Name: \"porch\"},\n}", "reserved",
+		"var AppleLamp = struct", "AppleLamp is apple-lamp", `Key: "a"`, "var ZebraLamp = struct",
+		`On:       oikade.Bool{Device: "z", Capability: oikade.On}`,
+		"var Porch = struct {\n\toikade.Hardware\n}{\n\tHardware: oikade.Hardware{Key: \"porch\"},\n}", "reserved",
 	} {
 		if !strings.Contains(string(first), want) {
 			t.Errorf("no %q in:\n%s", want, first)

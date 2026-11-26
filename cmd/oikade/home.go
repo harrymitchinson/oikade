@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -217,7 +218,7 @@ func printUnseen(out io.Writer, list registry.Snapshot, inventory []wire.DeviceD
 			continue
 		}
 		_, _ = fmt.Fprintf(out, "Warning: the host has never seen %s, so %s waits for it to report\n",
-			registry.DescribeHardware(d.Driver, d.ID), d.Name)
+			registry.DescribeHardware(d.Driver, d.ID), cmp.Or(d.Name, d.Hardware))
 	}
 }
 
@@ -513,7 +514,7 @@ func home() *oikade.Home {
 	// room and what it is to the Home app. oikade list devices prints the line to declare each
 	// one that isn't yet:
 	//
-	//	home.Device("hall-lamp").Hardware("zigbee2mqtt", "0x00158d0001a2b3c4").Room("hall").Is(oikade.OnOffLight)
+	//	home.Device("hall-lamp").Hardware("zigbee2mqtt", "0x00158d0001a2b3c4").Room("hall").Is(oikade.OnOffLight{})
 	home.Decide(PorchLight.On).
 		Case("motion", true, PorchSensor.Occupied).Linger(5 * time.Minute).
 		Default(false)

@@ -246,7 +246,7 @@ func TestAnUndeclaredPluginDeviceHasALineToPaste(t *testing.T) {
 		t.Errorf("got %q, %v", line, ok)
 	}
 	placed := Device{Name: "lamp", ID: "0x1", Driver: "plugin/zigbee", Room: "hall", DeviceType: devicetype.OnOffLight}
-	if line, _ := Undeclared(placed); line != `home.Device("lamp").Hardware("zigbee", "0x1").Room("hall").Is(oikade.OnOffLight)` {
+	if line, _ := Undeclared(placed); line != `home.Device("lamp").Hardware("zigbee", "0x1").Room("hall").Is(oikade.OnOffLight{})` {
 		t.Errorf("got %q, want its room and type kept", line)
 	}
 	inAppsRoom := Device{Name: "lamp", ID: "0x1", Driver: "plugin/zigbee", Room: "living-room", AppRoom: "Living Room"}
@@ -262,5 +262,87 @@ func TestAnUndeclaredPluginDeviceHasALineToPaste(t *testing.T) {
 		if line, ok := Undeclared(d); ok {
 			t.Errorf("%+v has %q", d, line)
 		}
+	}
+}
+
+// Hardware declared by itself, as oikade.Device declares it, keeps its name, and takes its room, type
+// and label.
+func TestHardwareDeclaredByItselfKeepsItsName(t *testing.T) {
+	r, _ := open(t)
+	before, _, err := r.Report(Report{ID: "0x1", Driver: "plugin/hue", Name: "Salon lampe", Room: "Salon", Capabilities: []string{"on", "brightness"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := Declaration{
+		Hardware: "hue/0x1", Driver: "plugin/hue", ID: "0x1", Room: new("cuisine"), DeviceType: devicetype.DimmableLight,
+		Capabilities: []string{"brightness", "on"}, Label: "Lampe",
+	}
+	got := declareOK(t, r, line)
+	d := get(t, r, "salon-lampe")
+	if !d.Declared || d.Room != "cuisine" || d.DeviceType != devicetype.DimmableLight || d.Label != "Lampe" || d.Endpoint != before.Endpoint {
+		t.Errorf("got %+v", d)
+	}
+	want := []string{"Moved salon-lampe to cuisine", "Set salon-lampe's device type to DimmableLight", `Labelled salon-lampe "Lampe" on Matter`}
+	if !slices.Equal(got.Changes, want) || len(got.Renamed) != 0 || !slices.Equal(got.Touched, []string{"hue/0x1"}) {
+		t.Errorf("got %+v, want the changes %q", got, want)
+	}
+
+	// A sensor's type follows from its capabilities, which the lamp lacks.
+	sensor := Declaration{
+		Hardware: "hue/0x1", Driver: "plugin/hue", ID: "0x1", Room: new(""), DeviceType: devicetype.OccupancySensor,
+		Capabilities: []string{"occupied"},
+	}
+	if _, err := r.Plan([]Declaration{sensor}); err == nil || !strings.Contains(err.Error(), "hue/0x1 has no occupied") {
+		t.Errorf("a lamp declared a sensor is %v", err)
+	}
+
+	// A declared name that takes its name gives it another.
+	got = declareOK(t, r, line, Declaration{Name: "salon-lampe"})
+	if get(t, r, "salon-lampe").ID != "" || get(t, r, "salon-lampe-2").ID != "0x1" {
+		t.Errorf("got %+v", r.List())
+	}
+
+	got = declareOK(t, r)
+	if d := get(t, r, "salon-lampe"); d.Declared || d.Room != "salon" || d.DeviceType != "" || d.Label != "" {
+		t.Errorf("no longer declared, it's %+v", d)
+	}
+}
+
+func TestHardwareDeclaredByItselfIsChecked(t *testing.T) {
+	r, _ := open(t)
+	if _, _, err := r.Report(Report{ID: "0x1", Driver: "plugin/hue", Name: "Lamp", Capabilities: []string{"on"}}); err != nil {
+		t.Fatal(err)
+	}
+	report(t, r, "sim-1", "Sim")
+	for name, tc := range map[string]struct {
+		decls []Declaration
+		want  string
+	}{
+		"a capability it lacks": {
+			[]Declaration{{Hardware: "hue/0x1", Driver: "plugin/hue", ID: "0x1", Capabilities: []string{"on", "temperature"}}},
+			"hue/0x1 has no temperature, which its line in your code gives it: it has on",
+		},
+		"no plugin's, and not on record": {[]Declaration{{Hardware: "sim-2"}}, "sim-2 isn't on record"},
+		"twice": {
+			[]Declaration{{Hardware: "sim-1"}, {Hardware: "sim-1"}}, "sim-1 is declared twice",
+		},
+		"both ways": {
+			[]Declaration{{Hardware: "hue/0x1", Driver: "plugin/hue", ID: "0x1"}, {Name: "lamp", Driver: "plugin/hue", ID: "0x1"}},
+			"hue/0x1 is declared by itself and as lamp: declare it once",
+		},
+		"no type": {[]Declaration{{Hardware: "sim-1", DeviceType: "Toaster"}}, `sim-1 is declared a "Toaster", which isn't a device type`},
+	} {
+		if _, err := r.Plan(tc.decls); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: got %v, want %q", name, err, tc.want)
+		}
+	}
+
+	// Hardware no plugin has reported yet waits for it.
+	got := declareOK(t, r, Declaration{Hardware: "hue/0x9", Driver: "plugin/hue", ID: "0x9", Capabilities: []string{"on"}})
+	if !slices.Equal(got.Unseen, []string{"hue/0x9"}) || get(t, r, "device-0x9").Key() != "hue/0x9" {
+		t.Errorf("got %+v, and %+v", got, r.List())
+	}
+	if _, err := r.Plan([]Declaration{{Hardware: "sim-1", Capabilities: []string{"on"}}}); err != nil {
+		t.Errorf("hardware of no plugin, on record, is refused: %v", err)
 	}
 }

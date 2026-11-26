@@ -11,18 +11,6 @@ import (
 	"oikade.dev/internal/ident"
 )
 
-// Device is what each device oikade types writes embeds, which makes it a member a group can take.
-type Device struct {
-	// Name is the device's key, its hardware, such as hue/0x00178801091863f2, which a rename doesn't
-	// change. A simulated device's is its ID, and a reserved one's its name.
-	Name string
-}
-
-func (d Device) device() Device { return d }
-
-// member is a device from devices.go, which embeds Device.
-type member interface{ device() Device }
-
 // Group is some devices together, from Home.Group or Home.Room, with a field for each capability. A
 // group's capability is a Bool, a Number or a Choice that a decision, a flow's Set and a trigger take,
 // and a Bool's Any and All are conditions:
@@ -86,7 +74,7 @@ func (g *group) what() string {
 	return "group " + g.name
 }
 
-// Group is some devices from devices.go together, under a name of their own:
+// Group is some devices together, under a name of their own:
 //
 //	radiators := home.Group("radiators", BedroomRadiator, StudyRadiator, KitchenRadiator)
 //
@@ -106,7 +94,7 @@ func (h *Home) Group(name string, members ...member) Group {
 			bad(errors.New("it has a nil member"))
 			continue
 		}
-		gm := groupMember{name: m.device().Name, capabilities: capabilitiesOf(m)}
+		gm := groupMember{name: m.hardware().Key, capabilities: capabilitiesOf(m)}
 		switch {
 		case gm.name == "":
 			bad(errors.New("it has a member with no name"))
@@ -121,37 +109,42 @@ func (h *Home) Group(name string, members ...member) Group {
 	return g.fields()
 }
 
-// Room is the devices in a room now, of the kinds given, or every one with none, as a Group:
+// Room is the devices in a room now, of the kinds given, as a Group, or every one, as the room is,
+// with none:
 //
-//	home.Room("living-room", oikade.Lights).On.To(false) // the lights, not the plugs
-//	home.Room("hallway").Occupied.Any()                  // any sensor in the hallway
+//	home.Room(Salon, oikade.Lights).On.To(false) // the lights, not the plugs
 //
-// A room's devices change as a device is paired, removed or declared in another room, so what it
+// A room's devices change as a device is paired, removed or placed in another room, so what it
 // covers is worked out when it's read or written. A device in the room with a decision of its own on a
 // capability keeps it, rather than taking the room's.
-func (h *Home) Room(name string, kinds ...Kind) Group {
-	g := &group{name: name, room: name}
+func (h *Home) Room(room RoomGroup, kinds ...Kind) Group {
+	if room.g == nil {
+		h.mistakes = append(h.mistakes, errors.New("Room needs a room from oikade.Room"))
+		return Group{}
+	}
+	var types []devicetype.Type
 	for _, k := range kinds {
-		for _, t := range k.types {
-			if !slices.Contains(g.types, devicetype.Type(t)) {
-				g.types = append(g.types, devicetype.Type(t))
-			}
-		}
 		if len(k.types) == 0 {
 			// Everything is every device.
-			g.types = nil
+			types = nil
 			break
 		}
+		for _, t := range k.types {
+			if !slices.Contains(types, t) {
+				types = append(types, t)
+			}
+		}
+	}
+	if len(types) == 0 {
+		return room.Group
 	}
 	// A room of these kinds is one group however often it's made, so a Then finds its decision.
 	if i := slices.IndexFunc(h.groups, func(o *group) bool {
-		return o.room == name && name != "" && sameTypes(o.types, g.types)
+		return o.room == room.g.room && sameTypes(o.types, types)
 	}); i >= 0 {
 		return h.groups[i].fields()
 	}
-	if err := ident.CheckName(ident.Room, name); err != nil {
-		h.mistakes = append(h.mistakes, err)
-	}
+	g := &group{name: room.g.name, room: room.g.room, types: types}
 	h.groups = append(h.groups, g)
 	return g.fields()
 }
@@ -195,25 +188,33 @@ func capabilityNamed(field string) string {
 	return c
 }
 
-// capabilitiesOf are the capabilities a device from devices.go has: its Bool, Number and Choice
-// fields.
+// capabilitiesOf are the capabilities a device has: its Bool, Number and Choice fields, its device
+// type's among them.
 func capabilitiesOf(m member) []string {
 	v := reflect.ValueOf(m)
 	for v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
+	return fieldCapabilities(v)
+}
+
+func fieldCapabilities(v reflect.Value) []string {
 	if v.Kind() != reflect.Struct {
 		return nil
 	}
 	var out []string
-	for _, field := range v.Fields() {
-		switch f := field.Interface().(type) {
+	for field, f := range v.Fields() {
+		switch c := f.Interface().(type) {
 		case Bool:
-			out = append(out, string(f.Capability))
+			out = append(out, string(c.Capability))
 		case Number:
-			out = append(out, string(f.Capability))
+			out = append(out, string(c.Capability))
 		case Choice:
-			out = append(out, string(f.Capability))
+			out = append(out, string(c.Capability))
+		default:
+			if field.Anonymous {
+				out = append(out, fieldCapabilities(f)...)
+			}
 		}
 	}
 	return out

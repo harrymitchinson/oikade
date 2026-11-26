@@ -17,12 +17,12 @@ var (
 )
 
 type presenceDevice struct {
-	oikade.Device
+	oikade.Hardware
 	Occupied oikade.Bool
 }
 
 func presenceSensor(name string) presenceDevice {
-	return presenceDevice{oikade.Device{Name: name}, oikade.Bool{Device: name, Capability: oikade.Occupied}}
+	return presenceDevice{oikade.Hardware{Key: name}, oikade.Bool{Device: name, Capability: oikade.Occupied}}
 }
 
 // awayHome keeps the towel rail at frost protection while nobody has been seen for a day and a half,

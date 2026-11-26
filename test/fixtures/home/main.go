@@ -301,6 +301,23 @@ func main() {
 	home().Run()
 }
 
+// declareByHardware declares the variant's devices with oikade.Device.
+func declareByHardware(h *oikade.Home) {
+	switch variant {
+	case "plugins-warm-valve":
+		// A relay reports no temperature, so a deploy refuses the line.
+		oikade.Device[struct {
+			oikade.OnOffPlugInUnit
+			Temperature oikade.Number
+		}](hardware("relays", valve))
+	case "cuisine":
+		cuisine := oikade.Room("cuisine")
+		oikade.Device[oikade.OccupancySensor]("cuisine-motion", cuisine)
+		light := oikade.Device[oikade.OnOffLight]("cuisine-light", cuisine, oikade.Label("Plafond"))
+		h.Decide(light.On).Case("someone-in", true, cuisine.Occupied.Any()).Default(false)
+	}
+}
+
 // home is the home this variant builds.
 func home() *oikade.Home {
 	leakShutoff, claimMoment := "leak-shutoff", "claim-moment"
@@ -383,7 +400,7 @@ func home() *oikade.Home {
 		Case("leak-alarm", true, open("leak-sensor")).LatchUntil(open("reset")).
 		Default(false)
 	// Reads whichever devices are in the cellar now.
-	cellar := h.Room("cellar")
+	cellar := h.Room(oikade.Room("cellar"))
 	h.Decide(on("dehumidifier")).
 		Case("cellar-damp", true, oikade.ConditionFunc("cellar damp", func(s oikade.Snapshot) bool {
 			return slices.Max(s.Readings(cellar.Humidity)) > 65
@@ -440,18 +457,19 @@ func home() *oikade.Home {
 	// The porch's plugs are switched off at Safety on a leak, and a test declares the relay there
 	// as a plug, then as a light, which the hold would no longer reach.
 	if porch, ok := map[string]oikade.DeviceType{
-		"plugins-porch-plug": oikade.OnOffPlugInUnit, "plugins-porch-light": oikade.OnOffLight,
+		"plugins-porch-plug": oikade.OnOffPlugInUnit{}, "plugins-porch-light": oikade.OnOffLight{},
 	}[variant]; ok {
 		h.Device("relay").Hardware("relays", "relay").Room("porch").Is(porch)
-		h.Decide(h.Room("porch", oikade.Plugs).On).
+		h.Decide(h.Room(oikade.Room("porch"), oikade.Plugs).On).
 			Case("porch-leak", false, open("leak-sensor")).
 			OverrideFor(time.Hour).
 			Default(true)
 	}
 	if variant == "plugins-declared" {
-		h.Device("porch-relay").Hardware("relays", "relay").Room("porch").Is(oikade.OnOffLight)
+		h.Device("porch-relay").Hardware("relays", "relay").Room("porch").Is(oikade.OnOffLight{})
 		h.Device("shed-fan").Room("shed")
 	}
+	declareByHardware(h)
 	switch {
 	case plugins:
 		imported := h.Plugin("relays", faultyRelays)

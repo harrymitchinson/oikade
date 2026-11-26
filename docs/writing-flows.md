@@ -3,8 +3,11 @@
 A flow is an automation written as ordinary Go, with real `if`, `for` and `switch`. It can wait for hours, and it survives a crash at any point. Use a [decision](automations.md#decisions) when something should stay true, and a flow when something should happen. [Testing a home](testing.md#tests) shows how to test one on a fake clock, crashes included.
 
 ```go
-// downstairs is the downstairs lights, from home.Room("downstairs", oikade.Lights).
-var downstairs oikade.Group
+// Downstairs is a room, and downstairs its lights, from home.Room(Downstairs, oikade.Lights).
+var (
+	Downstairs = oikade.Room("downstairs")
+	downstairs oikade.Group
+)
 
 func bedtime(r *oikade.FlowRun) {
 	r.Set(downstairs.Brightness.To(20))
@@ -22,7 +25,7 @@ func bedtime(r *oikade.FlowRun) {
 
 func main() {
 	home := oikade.NewHome(oikade.Options{})
-	downstairs = home.Room("downstairs", oikade.Lights)
+	downstairs = home.Room(Downstairs, oikade.Lights)
 	home.Flow("bedtime", bedtime).At(oikade.Clock("22:30"))
 	home.Run()
 }

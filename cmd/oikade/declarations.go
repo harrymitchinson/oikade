@@ -36,6 +36,10 @@ func declarationsInSource(module string) ([]wire.DeviceDeclaration, error) {
 			if !ok {
 				return true
 			}
+			if hardware, ok := deviceHardwareOf(call); ok {
+				out = append(out, wire.DeviceDeclaration{Hardware: hardware})
+				return false
+			}
 			if decl, ok := declarationOf(call); ok {
 				out = append(out, decl)
 				return false
@@ -50,6 +54,25 @@ func declarationsInSource(module string) ([]wire.DeviceDeclaration, error) {
 // skipped are directories with no home code in them.
 func skipped(dir string) bool {
 	return strings.HasPrefix(dir, ".") || dir == "vendor" || dir == "testdata"
+}
+
+// deviceHardwareOf reads the hardware of an oikade.Device[T] call, which is all oikade types needs of it.
+func deviceHardwareOf(call *ast.CallExpr) (string, bool) {
+	var fun ast.Expr
+	switch f := call.Fun.(type) {
+	case *ast.IndexExpr:
+		fun = f.X
+	case *ast.IndexListExpr:
+		fun = f.X
+	default:
+		return "", false
+	}
+	sel, ok := fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "Device" || len(call.Args) == 0 {
+		return "", false
+	}
+	args := literals(call.Args[:1])
+	return strings.Join(args, ""), len(args) == 1 && args[0] != ""
 }
 
 // declarationOf reads a chain of Device, Hardware, Room and Is calls, outermost first.
@@ -70,11 +93,15 @@ func declarationOf(call *ast.CallExpr) (wire.DeviceDeclaration, bool) {
 		case sel.Sel.Name == "Room" && len(args) == 1:
 			d.Room = &args[0]
 		case sel.Sel.Name == "Is" && len(call.Args) == 1:
-			t, ok := call.Args[0].(*ast.SelectorExpr)
+			lit, ok := call.Args[0].(*ast.CompositeLit)
 			if !ok {
 				return d, false
 			}
-			d.DeviceType = devicetype.Type(t.Sel.Name) // oikade's constants are named by their values.
+			t, ok := lit.Type.(*ast.SelectorExpr)
+			if !ok {
+				return d, false
+			}
+			d.DeviceType = devicetype.Type(t.Sel.Name) // oikade's device types are named as Matter's are.
 		default:
 			return d, false
 		}

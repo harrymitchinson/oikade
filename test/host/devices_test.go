@@ -123,7 +123,7 @@ func TestTypesAreDeterministicAndARemovedDeviceStopsCompiling(t *testing.T) {
 	if again := r.stdout(nil, "types", "--out", "-"); string(again) != string(first) {
 		t.Errorf("two runs differ:\n%s\n%s", first, again)
 	}
-	const code = "package main\n\nfunc main() { println(Fan.On.Device, Valve.Name) }\n"
+	const code = "package main\n\nfunc main() { println(Fan.On.Device, Valve.Key) }\n"
 	if err := goBuild(t, dir, code); err != nil {
 		t.Fatalf("code naming its devices didn't compile: %v\n%s", err, first)
 	}

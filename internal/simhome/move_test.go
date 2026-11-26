@@ -13,7 +13,7 @@ import (
 func TestACaseWhoseRoomLosesItsLastMemberWarnsOnce(t *testing.T) {
 	occupied := string(oikade.Occupied)
 	home := oikade.NewHome(oikade.Options{})
-	hall := home.Room("hall")
+	hall := home.Room(oikade.Room("hall"))
 	home.Decide(switchOf("lamp")).
 		Case("hall-occupied", true, oikade.ConditionFunc("hall occupied", func(s oikade.Snapshot) bool {
 			return s.Any(hall.Occupied)
@@ -71,7 +71,7 @@ func TestACaseWhoseRoomLosesItsLastMemberWarnsOnce(t *testing.T) {
 // with a decision of its own.
 func TestARoomsDecisionHoldsTheDevicesThereNow(t *testing.T) {
 	home := oikade.NewHome(oikade.Options{})
-	home.Decide(home.Room("hall").On).Case("evening", true, oikade.ConditionFunc("always", func(oikade.Snapshot) bool { return true })).
+	home.Decide(home.Room(oikade.Room("hall")).On).Case("evening", true, oikade.ConditionFunc("always", func(oikade.Snapshot) bool { return true })).
 		Default(false)
 	// The lamp's Flows line would rank the room's case as a flow's claim, but it's the lamp's own.
 	home.Decide(switchOf("lamp")).Flows().Default(false)

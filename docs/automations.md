@@ -11,7 +11,7 @@ Use a decision when something should stay true, and a flow when something should
 
 ## Devices in your code
 
-`devices.go` has a value for each device, which [`oikade types`](devices.md#devices-in-your-code) writes from your real devices. `PorchLight.Name` is the device's name, and each of its capabilities is a field: `PorchLight.On` is an `oikade.Bool`, `Bathroom.Humidity` an `oikade.Number`, and an air conditioner's `BedroomAC.Mode` an `oikade.Choice`. Your editor lists what each device can do, and a capability the device doesn't have, or a value of the wrong type, doesn't compile.
+Each device is a value: one your home [declares with `oikade.Device`](devices.md#declaring-devices-in-code), or one in `devices.go`, which [`oikade types`](devices.md#devices-in-your-code) writes from your real devices. `PorchLight.Key` is the device's hardware, and each of its capabilities is a field: `PorchLight.On` is an `oikade.Bool`, `Bathroom.Humidity` an `oikade.Number`, and an air conditioner's `BedroomAC.Mode` an `oikade.Choice`. Your editor lists what each device can do, and a capability the device doesn't have, or a value of the wrong type, doesn't compile.
 
 - **A `Bool` is a [condition](#conditions),** true while the capability is, and a `Number` makes one, as `Bathroom.Humidity.Above(70)` does.
 - **`To` makes a write,** such as `BedroomAC.Mode.To(oikade.ModeDry)`, which a flow's `r.Set` takes.
@@ -382,7 +382,7 @@ A budget's conditions come after it, as a case's do: `Budget("summer-extra", tru
 
 ## Groups and rooms
 
-A group is some devices together, under a name of its own, and a room is the devices in a room now. Each has a field for every capability, a `Bool`, a `Number` or a `Choice` as a device does, which a decision, a flow's `Set` and a trigger take. A `Bool`'s `Any()` and `All()` are [conditions](#conditions):
+A group is some devices together, under a name of its own, and a room, from `oikade.Room`, is the devices in a room now. Each has a field for every capability, a `Bool`, a `Number` or a `Choice` as a device does, which a decision, a flow's `Set` and a trigger take. A `Bool`'s `Any()` and `All()` are [conditions](#conditions):
 
 ```go
 radiators := home.Group("radiators", BedroomRadiator, StudyRadiator, KitchenRadiator)
@@ -394,29 +394,34 @@ home.Decide(radiators.Setpoint).
 	Follow("weather", OutdoorSensor.Temperature, compensate).
 	Default(18)
 
+var (
+	Salon  = oikade.Room("salon")
+	Entree = oikade.Room("entree")
+)
+
 home.Flow("lights-out", func(r *oikade.FlowRun) {
-	r.Set(home.Room("living-room", oikade.Lights).On.To(false)) // the lights, not the plugs
-}).When(home.Room("hallway").Occupied) // any sensor in the hallway
+	r.Set(home.Room(Salon, oikade.Lights).On.To(false)) // the lights, not the plugs
+}).When(Entree.Occupied) // any sensor in the hall
 ```
 
-A group's members are devices from `devices.go`, and a group's capability covers the members that have it. So `radiators.Humidity` compiles, and `oikade check` refuses it, since no radiator has one. A group's name is how `oikade status` and `oikade pause` name its decision's cases, `case/radiators/setpoint/windows-open`, so it can't be a device's name too.
+A group's members are devices, and a group's capability covers the members that have it. So `radiators.Humidity` compiles, and `oikade check` refuses it, since no radiator has one. A group's name is how `oikade status` and `oikade pause` name its decision's cases, `case/radiators/setpoint/windows-open`, so it can't be a device's name too.
 
 ### Which of a room's devices
 
-A room's devices change as a device is paired, removed, or [declared](devices.md#declaring-devices-in-code) in another room, so what a room covers is worked out each time it's read or written. A lamp moved into the room later is covered, and so is one paired there.
+A room's devices are the ones the host has in it: those your code places in it with `oikade.Device`, and any it doesn't declare whose app puts them there. They change as a device is paired, removed, or [declared](devices.md#declaring-devices-in-code) in another room, so what a room covers is worked out each time it's read or written. A lamp moved into the room later is covered, and so is one paired there.
 
-Its kinds say which of the room's devices you mean, by their [device types](devices.md#what-a-device-is). `on` is a light's, a plug's and a heater's alike, and "lights on at dusk" shouldn't turn on the heater:
+`home.Room(Salon, kinds...)` says which of the room's devices you mean, by their kinds, by their [device types](devices.md#what-a-device-is). `on` is a light's, a plug's and a heater's alike, and "lights on at dusk" shouldn't turn on the heater:
 
 | Kind | Device types |
 |---|---|
 | `oikade.Lights` | `OnOffLight`, `DimmableLight` |
 | `oikade.Plugs` | `OnOffPlugInUnit`, `DimmablePlugInUnit`, `MountedOnOffControl`, `MountedDimmableLoadControl` |
 | `oikade.Heaters` | `Thermostat`: any other device with a setpoint |
-| `oikade.Kinds(oikade.RoomAirConditioner)` | The air conditioners: any device with a setpoint, a mode and an on |
-| `oikade.Kinds(...)` | The types you list, such as `oikade.Kinds(oikade.DimmableLight)` |
-| `oikade.Everything`, or none | Every device in the room with the capability, whatever it is |
+| `oikade.Kinds(oikade.RoomAirConditioner{})` | The air conditioners: any device with a setpoint, a mode and an on |
+| `oikade.Kinds(...)` | The types you list, such as `oikade.Kinds(oikade.DimmableLight{})` |
+| `oikade.Everything`, or none | Every device in the room with the capability, whatever it is: the room itself |
 
-A device whose type isn't one of the room's kinds is left alone, and the log names it. So a wall switch typed `MountedOnOffControl` is a plug until your home declares it a light with `Is`. A room's sensors have no kind of their own: read and trigger on them with none.
+A device whose type isn't one of the room's kinds is left alone, and the log names it. So a wall switch typed `MountedOnOffControl` is a plug until your home declares it a light. A room's sensors have no kind of their own: read and trigger on them with none.
 
 ### A decision on a group or a room
 
@@ -444,7 +449,7 @@ A `ConditionFunc` reads a room or a group with its `Snapshot`'s `Any`, `All` and
 
 ```go
 // A dehumidifier that runs on whichever cellar sensors have reported.
-cellar := home.Room("cellar")
+cellar := oikade.Room("cellar")
 oikade.ConditionFunc("cellar damp", func(s oikade.Snapshot) bool {
 	return slices.Max(s.Readings(cellar.Humidity)) > 65
 })

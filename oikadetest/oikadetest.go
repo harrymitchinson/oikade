@@ -34,8 +34,9 @@ type Device struct {
 	Name, Room string
 	// Capabilities are its capabilities' names, such as string(oikade.On).
 	Capabilities []string
-	// DeviceType is what a device that's on or off is, as Declaration.Is would say. Empty is
-	// what its capabilities say: a dimmable light with oikade.Brightness, and a plug without.
+	// DeviceType is what a device that's on or off is, as Declaration.Is would say, such as
+	// oikade.OnOffLight{}. Nil is what its capabilities say: a dimmable light with
+	// oikade.Brightness, and a plug without.
 	DeviceType oikade.DeviceType
 	// Values are its first values, by capability. A capability without one hasn't reported yet.
 	Values map[string]any
@@ -47,7 +48,7 @@ type Options struct {
 	// is the home's.
 	Start time.Time
 	// Devices are the devices. Empty means the ones in Types, in the rooms and of the types your home
-	// declares.
+	// declares, and the ones it declares with oikade.Device.
 	Devices []Device
 	// Types is the file oikade types wrote, which a test finds beside itself. Empty means devices.go.
 	Types string
@@ -91,12 +92,13 @@ func New(t testing.TB, home *oikade.Home, o Options) *Home {
 	}
 	devices := make([]simhome.Device, 0, len(o.Devices))
 	for _, d := range o.Devices {
-		if d.DeviceType != "" && !devicetype.Choosable(devicetype.Type(d.DeviceType)) {
-			t.Fatalf("Device %s has device type %q: use one of %s", d.Name, d.DeviceType, devicetype.Join(devicetype.OnOff))
+		typ := simhome.TypeOf(d.DeviceType)
+		if typ != "" && !devicetype.Choosable(typ) {
+			t.Fatalf("Device %s has device type %s: use one of %s", d.Name, typ, devicetype.Join(devicetype.OnOff))
 		}
 		devices = append(devices, simhome.Device{
 			Name: d.Name, Room: d.Room, Capabilities: d.Capabilities, Values: d.Values,
-			DeviceTypes: devicetype.Of(devicetype.Type(d.DeviceType), "", d.Capabilities),
+			DeviceTypes: devicetype.Of(typ, "", d.Capabilities),
 		})
 	}
 	compiled, err := simhome.FromHome(home)
