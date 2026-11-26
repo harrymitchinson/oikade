@@ -103,8 +103,12 @@ func TestDeclaredHardwareWithoutARoomTakesItsAppsWhenItReports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, id := range []string{"0x8", "0x9"} {
-		if _, _, err := r.Report(Report{ID: id, Driver: "sim", Name: "Light " + id, Room: "Porch", Capabilities: []string{"on"}}); err != nil {
+	// porch-light's app gives it a room and no name.
+	for _, report := range []Report{
+		{ID: "0x8", Driver: "sim", Room: "Porch", Capabilities: []string{"on"}},
+		{ID: "0x9", Driver: "sim", Name: "Light 9", Room: "Porch", Capabilities: []string{"on"}},
+	} {
+		if _, _, err := r.Report(report); err != nil {
 			t.Fatal(err)
 		}
 	}

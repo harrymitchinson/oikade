@@ -31,7 +31,7 @@ A process has 5 seconds to send its `hello`:
 | `signals` | The home's signals, by name, so the `welcome` can return their saved state |
 | `info` | Each rule's `name`, `kind` (`case` or `flow`), `safety` and `latch`, and a case's `device`, `capability` and `case`, which `oikade status` shows and `oikade pause` checks. A Safety rule's `rooms` are each `room`, `capability` and `deviceTypes` (none for any) it writes at Safety, which a deploy checks the declared rooms and types against |
 | `control` | Each `device` and `entry` the home arbitrates, or a `room`'s, with its `deviceTypes`, which each device there of those types with the capability takes unless it has its own |
-| `inventory` | Every device the home declares with `Home.Device`: its `name`, and its `plugin` and `id`, `room` and `deviceType` if it gives them. None leaves every device under its app's name (OIK-295) |
+| `inventory` | Every device the home declares with `Home.Device`: its `name`, and its `plugin` and `id`, `room` and `deviceType` if it gives them. No `room` leaves the device in its app's room, and `""` puts it in none. None leaves every device under its app's name (OIK-295) |
 | `matterName` | The Matter bridge's name from `oikade.Options`, empty for `Oikade` (OIK-296) |
 | `hiddenFromMatter` | The plugins whose devices the home keeps off Matter, each `plugin` with the devices it `shown` (OIK-294) |
 
