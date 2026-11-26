@@ -23,24 +23,24 @@ var printers = map[string]func(io.Writer, int) *cli.Printer{"plain": cli.Plain, 
 // aHome is a home's devices as the host has them, of several plugins and states.
 func aHome() (registry.Snapshot, deviceMarks) {
 	return registry.Snapshot{Devices: []registry.Device{
-		{Name: "hall-lamp", ID: "1000aabbcc", Driver: "plugin/ewelink-lan", Endpoint: 2, Room: "hall", Declared: true,
-			DeviceType: devicetype.OnOffLight, Capabilities: []string{"on"}, Manufacturer: "SONOFF", Model: "MINIR4",
-			SerialNumber: "1000aabbcc", FirmwareVersion: "3.6.0"},
-		{Name: "office-ac", ID: "5f1c0c2e-77b3-4f8e-9d4a-1b2c3d4e5f60", Driver: "plugin/toshiba", Endpoint: 3,
-			Manufacturer: "Toshiba", Capabilities: []string{"mode", "on", "setpoint", "temperature"}},
-		{Name: "study-blind", ID: "io://0812-4471-2093/5", Driver: "plugin/overkiz", Endpoint: 4, Room: "study",
-			Declared: true, Capabilities: []string{"position", "target-position", "moving"},
+		{Name: "hall-lamp", AppName: "Hall lamp", ID: "1000aabbcc", Driver: "plugin/ewelink-lan", Endpoint: 2, Room: "hall",
+			Declared: true, DeviceType: devicetype.OnOffLight, Capabilities: []string{"on"}, Manufacturer: "SONOFF",
+			Model: "MINIR4", SerialNumber: "1000aabbcc", FirmwareVersion: "3.6.0"},
+		{Name: "office-ac", AppName: "Bureau", ID: "5f1c0c2e-77b3-4f8e-9d4a-1b2c3d4e5f60", Driver: "plugin/toshiba",
+			Endpoint: 3, Manufacturer: "Toshiba", Capabilities: []string{"mode", "on", "setpoint", "temperature"}},
+		{Name: "study-blind", AppName: "Volet bureau", ID: "io://0812-4471-2093/5", Driver: "plugin/overkiz", Endpoint: 4,
+			Room: "study", Declared: true, Capabilities: []string{"position", "target-position", "moving"},
 			Manufacturer: "Somfy", Model: "Somfy RS100 io"},
-		{Name: "porch-light", ID: "1000ddeeff", Driver: "plugin/ewelink-lan", Endpoint: 5, Declared: true,
+		{Name: "porch-light", AppName: "Porch", ID: "1000ddeeff", Driver: "plugin/ewelink-lan", Endpoint: 5, Declared: true,
 			Capabilities: []string{"on"}},
-	}}, deviceMarks{hidden: map[string]bool{"study-blind": true}}
+	}}, deviceMarks{hidden: map[string]bool{"overkiz/io:%2F%2F0812-4471-2093%2F5": true}}
 }
 
-// --wide shows a device's hardware and endpoint, which go first on a narrow terminal.
+// --wide shows a device's endpoint, which goes first on a narrow terminal, and its ref in full.
 func TestDevicesWideShowsEveryColumn(t *testing.T) {
 	list, marks := aHome()
 	var b bytes.Buffer
-	if _, dropped := printDevices(cli.Plain(&b, 80), list, marks, false); !slices.Contains(dropped, "HARDWARE") {
+	if _, dropped := printDevices(cli.Plain(&b, 80), list, marks, false); !slices.Contains(dropped, "ENDPOINT") {
 		t.Errorf("at 80 columns, dropped %v:\n%s", dropped, b.String())
 	}
 	b.Reset()
@@ -73,13 +73,13 @@ func TestDevicesToAPipeAreUnstyled(t *testing.T) {
 	list, marks := aHome()
 	p := cli.NewPrinter(w)
 	printDevices(p, list, marks, false)
-	p.Hint("--wide shows HARDWARE")
+	p.Hint("--wide shows ENDPOINT")
 	_ = w.Close()
 	out, err := io.ReadAll(r)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Styled || bytes.Contains(out, []byte("\x1b")) || !bytes.Contains(out, []byte("hall-lamp")) {
+	if p.Styled || bytes.Contains(out, []byte("\x1b")) || !bytes.Contains(out, []byte("hardware/ewelink-lan/1000aabbcc")) {
 		t.Errorf("styled %v:\n%q", p.Styled, out)
 	}
 }
@@ -94,15 +94,17 @@ func aStatus(now time.Time) *api.Status {
 	return &api.Status{
 		Home: api.Home{Version: "f113018fb81c06e4d5fa3500102bfbc4", Process: true, Since: &since},
 		Devices: []api.Device{
-			{Name: "hall-lamp", Room: "hall", Online: &on, Capabilities: []api.Capability{{Name: "on", Value: false}}},
+			{Hardware: "ewelink-lan/1000aabbcc", Ref: "hardware/ewelink-lan/1000aabbcc", Room: "hall", Online: &on,
+				Capabilities: []api.Capability{{Name: "on", Value: false}}},
 			{
-				Name: "office-ac", Online: &on, Declare: `home.Device("office-ac").Hardware("toshiba", "5f1c0c2e")`,
+				Hardware: "toshiba/5f1c0c2e", Ref: "hardware/toshiba/5f1c0c2e", Online: &on,
+				Declare: `home.Device("office-ac").Hardware("toshiba", "5f1c0c2e")`,
 				Capabilities: []api.Capability{
 					{Name: "mode", Value: "cool"},
 					{
 						Name: "on", Value: true, Level: "Normal", Wanted: true, Case: "too-warm",
 						Claims: []api.Claim{{
-							Source: "case/office-ac/on/too-warm", Case: "too-warm", Level: "Normal", Value: true, Winner: true,
+							Source: "case/toshiba/5f1c0c2e/on/too-warm", Case: "too-warm", Level: "Normal", Value: true, Winner: true,
 						}},
 						Limit: "MinimumOn", LimitUntil: &until,
 					},
@@ -111,11 +113,13 @@ func aStatus(now time.Time) *api.Status {
 				},
 			},
 			{
-				Name: "porch-light", Problem: "no LAN key: oikade setup ewelink-lan", Plugin: "ewelink-lan",
+				Hardware: "ewelink-lan/1000ddeeff", Ref: "hardware/ewelink-lan/1000ddeeff",
+				Problem: "no LAN key: oikade setup ewelink-lan", Plugin: "ewelink-lan",
 				Capabilities: []api.Capability{{Name: "on"}},
 			},
 			{
-				Name: "study-blind", Room: "study", Online: &off, OfflineSince: &gone, Plugin: "overkiz",
+				Hardware: "overkiz/io:%2F%2F0812-4471-2093%2F5", Ref: "hardware/overkiz/io:%2F%2F0812-4471-2093%2F5",
+				Room: "study", Online: &off, OfflineSince: &gone, Plugin: "overkiz",
 				Capabilities: []api.Capability{
 					{Name: "position", Value: 40.0}, {Name: "target-position", Value: 40.0}, {Name: "moving", Value: false},
 				},
@@ -123,8 +127,8 @@ func aStatus(now time.Time) *api.Status {
 		},
 		Rules: []api.Rule{
 			{
-				Name: "office-ac on too-warm", Ref: "case/office-ac/on/too-warm", Kind: "case", Device: "office-ac",
-				Capability: "on", Case: "too-warm", Active: &on, Since: since,
+				Name: "toshiba/5f1c0c2e on too-warm", Ref: "case/toshiba/5f1c0c2e/on/too-warm", Kind: "case",
+				Device: "toshiba/5f1c0c2e", Capability: "on", Case: "too-warm", Active: &on, Since: since,
 			},
 			{Name: "morning", Ref: "flow/morning", Kind: "flow"},
 		},
@@ -132,15 +136,15 @@ func aStatus(now time.Time) *api.Status {
 			{
 				Name: "anyone-home", Ref: "signal/anyone-home", Value: &on, Since: &gone, OffAt: &lingers,
 				Why:  "its conditions are false: group/presence/occupied isn't true on any of them",
-				Dead: []string{"device/landing-sensor"},
+				Dead: []string{"hardware/hue/0x9"},
 			},
 			{Name: "upstairs", Ref: "signal/upstairs", Value: &off, Since: &since},
 		},
 		Plugins: []api.Plugin{
-			{Name: "ewelink-lan", Ref: "plugin/ewelink-lan", Devices: []string{"porch-light"}},
+			{Name: "ewelink-lan", Ref: "plugin/ewelink-lan", Devices: []string{"ewelink-lan/1000ddeeff"}},
 			{
 				Name: "overkiz", Ref: "plugin/overkiz", Problem: "login refused: check overkiz.Local's Token",
-				Devices: []string{"study-blind"},
+				Devices: []string{"overkiz/io:%2F%2F0812-4471-2093%2F5"},
 			},
 		},
 		Matter: &api.Matter{Serving: true, Port: 5540, Fabrics: []api.Fabric{{Index: 1, Label: "Home"}}},
@@ -151,18 +155,19 @@ func aStatus(now time.Time) *api.Status {
 func officeACEvents(now time.Time) []api.Event {
 	at := func(ago time.Duration) time.Time { return now.Add(-ago) }
 	return []api.Event{
-		{Type: api.EventAvailability, Ref: "device/office-ac", Time: at(26 * time.Hour), Message: api.AvailabilityOnline},
+		{Type: api.EventAvailability, Ref: "hardware/toshiba/5f1c0c2e", Time: at(26 * time.Hour),
+			Message: api.AvailabilityOnline},
 		{
-			Type: api.EventWrite, Ref: "device/office-ac/on", Time: at(8 * time.Minute), Capability: "on", Value: true,
-			By: "case/office-ac/on/too-warm",
+			Type: api.EventWrite, Ref: "hardware/toshiba/5f1c0c2e/on", Time: at(8 * time.Minute), Capability: "on", Value: true,
+			By: "case/toshiba/5f1c0c2e/on/too-warm",
 		},
 		{
-			Type: api.EventChange, Ref: "device/office-ac/on", Time: at(8*time.Minute - time.Second), Capability: "on",
+			Type: api.EventChange, Ref: "hardware/toshiba/5f1c0c2e/on", Time: at(8*time.Minute - time.Second), Capability: "on",
 			Value: true, Previous: false,
 		},
 		{
-			Type: api.EventChange, Ref: "device/office-ac/temperature", Time: at(time.Minute), Capability: "temperature",
-			Value: 24.25,
+			Type: api.EventChange, Ref: "hardware/toshiba/5f1c0c2e/temperature", Time: at(time.Minute),
+			Capability: "temperature", Value: 24.25,
 		},
 	}
 }
@@ -176,14 +181,15 @@ func TestStatusFitsTheTerminal(t *testing.T) {
 		for name, printer := range printers {
 			var out, stderr bytes.Buffer
 			printStatus(printer(&out, width), printer(&stderr, width), aStatus(now), false, now)
-			out.WriteString("--- stderr\n")
-			out.Write(stderr.Bytes())
-			testkit.Golden(t, fmt.Sprintf("status-%s-%d", name, width), out.Bytes())
+			// The tables fit, where stderr's sentences wrap.
 			for i, line := range strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n") {
 				if n := len([]rune(stripStyles(line))); n > width {
 					t.Errorf("%s at %d: line %d is %d wide: %q", name, width, i, n, line)
 				}
 			}
+			out.WriteString("--- stderr\n")
+			out.Write(stderr.Bytes())
+			testkit.Golden(t, fmt.Sprintf("status-%s-%d", name, width), out.Bytes())
 		}
 	}
 }
@@ -196,7 +202,8 @@ func TestStatusFitsTheTerminal(t *testing.T) {
 func TestStatusOfEachKindFitsTheTerminal(t *testing.T) {
 	now := time.Date(2026, 11, 18, 14, 0, 0, 0, time.Local)
 	refs, err := statusRefs([]string{
-		"office-ac", "device/study-blind/position", "room/hall", "case/office-ac/on/too-warm", "flow/morning",
+		"hardware/toshiba/5f1c0c2e", "hardware/overkiz/io:%2F%2F0812-4471-2093%2F5/position", "room/hall",
+		"case/toshiba/5f1c0c2e/on/too-warm", "flow/morning",
 		"signal/anyone-home", "plugin/overkiz", "matter",
 	})
 	if err != nil {
@@ -204,7 +211,7 @@ func TestStatusOfEachKindFitsTheTerminal(t *testing.T) {
 	}
 	events := func(ref string) ([]api.Event, error) {
 		switch ref {
-		case "device/office-ac":
+		case "hardware/toshiba/5f1c0c2e":
 			return officeACEvents(now), nil
 		case "signal/anyone-home":
 			return []api.Event{
@@ -230,32 +237,35 @@ func TestStatusOfEachKindFitsTheTerminal(t *testing.T) {
 func TestTheRestLookTheSame(t *testing.T) {
 	at := time.Date(2026, 11, 18, 14, 2, 7, 0, time.Local)
 	events := []api.Event{
-		{Type: api.EventChange, Ref: "device/desk-plug/on", Capability: "on", Value: true, Previous: false},
-		{Type: api.EventChange, Ref: "device/office-ac/setpoint", Capability: "setpoint", Value: 21.5},
-		{Type: api.EventWrite, Ref: "device/desk-plug/on", Capability: "on", Value: false},
-		{Type: api.EventWrite, Ref: "device/desk-plug/on", Capability: "on", Value: true, By: "case/desk-plug/on/occupied"},
-		{Type: api.EventWrite, Ref: "device/office-ac/setpoint", Capability: "setpoint", Value: 20.0, By: "matter"},
-		{Type: api.EventWrite, Ref: "device/hall-blind/position", Capability: "position", Value: 40.0, By: "command"},
+		{Type: api.EventChange, Ref: "hardware/kasa/desk1/on", Capability: "on", Value: true, Previous: false},
+		{Type: api.EventChange, Ref: "hardware/toshiba/5f1c0c2e/setpoint", Capability: "setpoint", Value: 21.5},
+		{Type: api.EventWrite, Ref: "hardware/kasa/desk1/on", Capability: "on", Value: false},
+		{Type: api.EventWrite, Ref: "hardware/kasa/desk1/on", Capability: "on", Value: true,
+			By: "case/kasa/desk1/on/occupied"},
+		{Type: api.EventWrite, Ref: "hardware/toshiba/5f1c0c2e/setpoint", Capability: "setpoint", Value: 20.0, By: "matter"},
+		{Type: api.EventWrite, Ref: "hardware/overkiz/io:%2F%2F0812-4471-2093%2F7/position", Capability: "position",
+			Value: 40.0, By: "command"},
 		{
-			Type: api.EventRefused, Ref: "device/desk-plug/on", Capability: "on", Value: true,
-			Message: "case/desk-plug/on/hall-too-humid holds it at Safety",
+			Type: api.EventRefused, Ref: "hardware/kasa/desk1/on", Capability: "on", Value: true,
+			Message: "case/kasa/desk1/on/hall-too-humid holds it at Safety",
 		},
 		{Type: api.EventRule, Ref: "flow/morning", Result: "succeeded"},
-		{Type: api.EventRule, Ref: "case/towel-rail/on/after-shower", Result: "condition_error"},
+		{Type: api.EventRule, Ref: "case/ewelink-lan/1000a1b2c3/on/after-shower", Result: "condition_error"},
 		{Type: api.EventPause, Ref: "flow/morning", Message: "paused"},
 		{Type: api.EventDeploy, Message: "f113018fb81c06e4d5fa3500102bfbc4"},
 		{Type: api.EventProcess, Message: "connected"},
-		{Type: api.EventAvailability, Ref: "device/porch-light", Message: api.AvailabilityOffline},
-		{Type: api.EventAvailability, Ref: "device/garage-relay", Message: api.AvailabilityOffline, Result: "no LAN key"},
-		{Type: api.EventAvailability, Ref: "device/porch-light", Message: api.AvailabilityOnline},
+		{Type: api.EventAvailability, Ref: "hardware/ewelink-lan/1000ddeeff", Message: api.AvailabilityOffline},
+		{Type: api.EventAvailability, Ref: "hardware/ewelink-lan/1000c0ffee", Message: api.AvailabilityOffline,
+			Result: "no LAN key"},
+		{Type: api.EventAvailability, Ref: "hardware/ewelink-lan/1000ddeeff", Message: api.AvailabilityOnline},
 		{Type: api.EventPlugin, Ref: "plugin/overkiz", Message: "the TaHoma box refused the login"},
 		{Type: api.EventPlugin, Ref: "plugin/overkiz"},
 		{Type: api.EventMatter, Ref: "matter", Message: api.MatterWindowOpened},
 		{Type: api.EventMatter, Ref: "matter", Message: api.MatterControllerPaired, Value: 2.0},
 		{Type: api.EventMatter, Ref: "matter", Message: api.MatterWindowClosed},
 		{Type: api.EventMatter, Ref: "matter", Message: api.MatterControllerLeft, Value: 1.0},
-		{Type: api.EventForget, Ref: "device/shed-lamp"},
-		{Type: api.EventRename, Ref: "device/mains-valve", Previous: "valve"},
+		{Type: api.EventForget, Ref: "hardware/zigbee2mqtt/0x00158d0001a2b3c4"},
+		{Type: api.EventRename, Ref: "hardware/relays/valve", Message: "mains-valve", Previous: "valve"},
 		{Type: api.EventCall, Ref: "flow/morning", Message: "forecast", Value: true},
 		{Type: api.EventCall, Ref: "flow/morning", Message: "tariff", Value: map[string]any{"cheap": true, "until": "07:00"}},
 		{Type: api.EventCall, Ref: "flow/morning", Message: "notify", Result: "the push service timed out"},

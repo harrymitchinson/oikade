@@ -1,19 +1,19 @@
 Home f113018 · automations connected 8 min ago
 
-[1mNAME[0m         [1mVALUES[0m                         [1mSTATE[0m
-hall-lamp    on false
-office-ac    mode cool, on true, setpoint…  [2mnot in your code[0m
-porch-light                                 no LAN key: oikade setup ewelink-lan
-study-blind  position 40%, target-positio…  went offline today 12:25
+[1mDEVICE[0m                        [1mVALUES[0m        [1mSTATE[0m
+hardware/ewelink-lan/1000aa…  on false
+hardware/toshiba/5f1c0c2e     mode cool…    [2mnot in your code[0m
+hardware/ewelink-lan/1000dd…                no LAN key: oikade setup ewelink-lan
+hardware/overkiz/io:%2F%2F0…  position 40…  went offline today 12:25
 
-case/office-ac/on/too-warm  case  active since 13:52
+case/toshiba/5f1c0c2e/on/too-warm  case  active since 13:52
 flow/morning  flow
 
 signal/anyone-home  true since 12:25, false at 2026-11-19 20:00:00
 signal/upstairs  false since 13:52
 --- stderr
 Plugin overkiz: login refused: check overkiz.Local's Token
-Devices with a problem: porch-light. Their STATE says what's wrong.
+Devices with a problem: hardware/ewelink-lan/1000ddeeff. Their STATE says what's wrong.
 [2mHint: --wide shows ROOM[0m
-[2moffice-ac isn't in your code: oikade list devices shows how to declare it[0m
-[2mHint: oikade status office-ac says why each of its values is what it is[0m
+[2mhardware/toshiba/5f1c0c2e isn't in your code: oikade list devices shows how to declare it[0m
+[2mHint: oikade status hardware/toshiba/5f1c0c2e says why each of its values is what it is[0m

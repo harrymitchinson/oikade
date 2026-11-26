@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -84,19 +83,19 @@ type Device struct {
 
 // Key is how the host and your process know the device, whatever it's called: its hardware, as
 // hue/0x00178801091863f2, which is its plugin's name and the ID the plugin gives it, percent-encoded.
-// Hardware of no plugin, as a simulated device, is its ID alone, and a name reserved for hardware
-// that isn't paired yet is the name. A key has no space, so a case's key can hold one.
+// A simulated device's is simulator/ and its ID, and a name reserved for hardware that isn't paired
+// yet is the name. A key has no space, so a case's key can hold one.
 func (d Device) Key() string { return KeyOf(d.Driver, d.ID, d.Name) }
 
-// KeyOf is the key of a device of a driver instance with an ID, or of the name, with no ID.
+// KeyOf is the key of a device of a driver instance with an ID, or of the name, with no ID. A
+// device is its plugin's, or, for a driver that isn't one, its instance's, as simulator/porch-light,
+// so every device's ref has the same shape.
 func KeyOf(instance, id, name string) string {
-	switch plugin, ok := strings.CutPrefix(instance, driver.Plugin+"/"); {
-	case id == "":
+	if id == "" {
 		return name
-	case ok:
-		return ident.HardwareKey(plugin, id)
 	}
-	return url.PathEscape(id)
+	_, source, _ := strings.Cut(instance, "/")
+	return ident.HardwareKey(cmp.Or(source, instance), id)
 }
 
 // DeviceTypes are what it is: yours, else its driver's, else what its capabilities say.

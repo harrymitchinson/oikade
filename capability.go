@@ -99,13 +99,13 @@ type Choice struct {
 	g          *group
 }
 
-// String is its ref, such as device/porch-light/on, or group/radiators/setpoint for a group's.
+// String is its ref, such as hardware/hue/0x2/on, or group/radiators/setpoint for a group's.
 func (b Bool) String() string { return b.handle().ref() }
 
-// String is its ref, such as device/study/setpoint, or room/hall/temperature for a room's.
+// String is its ref, such as hardware/toshiba/5f1c0c2e/setpoint, or room/hall/temperature for a room's.
 func (n Number) String() string { return n.handle().ref() }
 
-// String is its ref, such as device/bedroom-ac/mode.
+// String is its ref, such as hardware/toshiba/5f1c0c2e/mode.
 func (c Choice) String() string { return c.handle().ref() }
 
 // Ref is a Bool, a Number or a Choice: a capability of one device, or of a group, whose values are

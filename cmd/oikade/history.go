@@ -217,7 +217,7 @@ func unrecorded(ctx context.Context, t api.Transport, refs []named) []string {
 	}
 	st := resp.Status
 	device := func(name string) (api.Device, bool) {
-		i := slices.IndexFunc(st.Devices, func(d api.Device) bool { return d.Name == name })
+		i := slices.IndexFunc(st.Devices, func(d api.Device) bool { return d.Hardware == name })
 		if i < 0 {
 			return api.Device{}, false
 		}
@@ -234,12 +234,15 @@ func unrecorded(ctx context.Context, t api.Transport, refs []named) []string {
 		case ident.Device:
 			d, ok := device(n.parts[0])
 			switch {
+			case !ok && !strings.Contains(n.parts[0], "/"):
+				out = append(out, fmt.Sprintf("There's no %s on record. A device's ref is its hardware's, such as "+
+					"hardware/hue/0x2: oikade list devices shows each one's.", ident.DeviceRef(n.parts[0])))
 			case !ok:
 				out = append(out, fmt.Sprintf("There's no %s on record: oikade list devices lists them.",
 					ident.DeviceRef(n.parts[0])))
 			case len(n.parts) > 1 && !has(d, n.parts[1]):
 				out = append(out, fmt.Sprintf("%s has no %s: oikade status %s lists what it has.",
-					ident.DeviceRef(n.parts[0]), n.parts[1], n.parts[0]))
+					ident.DeviceRef(n.parts[0]), n.parts[1], ident.DeviceRef(n.parts[0])))
 			}
 		case ident.Room:
 			room := ident.NewRef(ident.Room, n.parts[0])

@@ -12,24 +12,24 @@ To name, place or type a device yourself, [declare it in your code](#declaring-d
 
 ```sh
 oikade list devices          # every device on record, and how it's set up
-oikade list devices --wide   # with its hardware and Matter endpoint, however narrow the terminal
+oikade list devices --wide   # with its Matter endpoint, device types and capabilities, however narrow the terminal
 oikade list devices --all    # with the forgotten devices too
 ```
 
 ```console
 $ oikade list devices
-NAME         ROOM   STATE                     DEVICE TYPES        CAPABILITIES                     PLUGIN
-hall-lamp    hall   paired                    OnOffLight          on                               ewelink-lan
-office-ac           paired, not in your code  RoomAirConditioner  mode, on, setpoint, temperature  toshiba
-porch-light         plugin not imported       OnOffPlugInUnit     on                               ewelink-lan
-study-blind  study  hidden from Matter        WindowCovering      position                         overkiz
-Hint: --wide shows HARDWARE and ENDPOINT
+DEVICE                                                 APP NAME      ROOM   STATE                     DEVICE TYPES        CAPABILITIES
+hardware/ewelink-lan/1000aabbcc                        Hall lamp     hall   paired                    OnOffLight          on
+hardware/ewelink-lan/1000ddeeff                        Porch                plugin not imported       OnOffPlugInUnit     on
+hardware/overkiz/io:%2F%2F0812-4471-2093%2F5           Volet bureau  study  hidden from Matter        WindowCovering      position
+hardware/toshiba/5f1c0c2e-77b3-4f8e-9d4a-1b2c3d4e5f60  Bureau               paired, not in your code  RoomAirConditioner  mode, on, setpoint, temperature
+Hint: --wide shows ENDPOINT
 To name, place or type a device that's not in your code, declare it in your home:
   home.Device("office-ac").Hardware("toshiba", "5f1c0c2e-77b3-4f8e-9d4a-1b2c3d4e5f60")
 Hint: oikade status shows what each is doing now, and what's wrong with it
 ```
 
-Its STATE is the device's record, never what's wrong with it now, which is [`oikade status`](working-with-a-home.md#status)'s:
+Each device is its hardware's ref, which every command takes, then the name and room its app gives it. Its STATE is the device's record, never what's wrong with it now, which is [`oikade status`](working-with-a-home.md#status)'s:
 
 | STATE | |
 |---|---|
@@ -40,12 +40,12 @@ Its STATE is the device's record, never what's wrong with it now, which is [`oik
 | `hidden from Matter` | Your home [keeps its plugin's devices off Matter](#hiding-a-plugins-devices-from-matter) |
 | `not in your code` | Your home doesn't declare it. The lines after the table say how to |
 
-The table keeps to the terminal's width, and is whole when piped. The hardware, endpoint and device types columns go first, then the capabilities shorten, and `--wide` shows them all.
+The table keeps to the terminal's width, and is whole when piped. The endpoint, device types and capabilities columns go first, then the app's name shortens, then a long ref, and `--wide` shows them all.
 
 `--json` is an array of devices, each with its `ref`:
 
 - **What the plugin says it is:** its `manufacturer`, `model`, `serialNumber`, `firmwareVersion` and `hardwareVersion`. Each is kept while the plugin says nothing of it, so a device that's offline still has them, and the Home app shows them on the bridged device too.
-- **Where it came from:** its app's name and room as `appName` and `appRoom`, and its hardware's ID as `id` and ref as `hardware`.
+- **Where it came from:** its app's name and room as `appName` and `appRoom`, its hardware's ID as `id`, and its hardware as your code names it as `hardware`, such as `hue/0x2`, whose ref is its `ref`.
 - **Whether your home declares it,** as `declared`, and its room, as `roomDeclared`. `oikade status --json` has the line that would declare it as `declare`.
 
 ## Devices in your code
@@ -75,7 +75,7 @@ oikade types --out - | less   # or read what devices.go would be first
 ## Forgetting a device
 
 ```sh
-oikade forget porch-light        # several at once too, checked before any is forgotten
+oikade forget hardware/hue/0x7   # several at once too, checked before any is forgotten
 oikade forget --plugin relays    # every device of a plugin you no longer import
 ```
 
@@ -84,7 +84,7 @@ Forgetting a device ends its claims and takes it off the Matter bridge, and `for
 - **It keeps its endpoint,** so hardware that comes back gets its name, room and endpoint back.
 - **A plugin's device stays forgotten** while the plugin lists it, and comes back if it leaves the list and returns, as a device re-paired in its app does. `forget` says which.
 - **A simulated device** comes back when it next reports.
-- **A device your home declares is refused:** delete its declaration and deploy, then forget it under its app's name.
+- **A device your home declares is refused:** delete its declaration and deploy, then forget it.
 - **Forgetting the last device a case reads in a room warns,** as in [Reading a room or a group](automations.md#reading-a-room-or-a-group).
 
 ## Online and offline
@@ -105,21 +105,21 @@ A ref names one thing, by its kind and then its name, and any parts, each a URI 
 
 | Kind | Ref |
 |---|---|
-| A device, and one of its capabilities | `device/desk-plug`, `device/desk-plug/on` |
+| A device, by its plugin and the plugin's ID for it, and one of its capabilities | `hardware/zigbee2mqtt/0x00158d0001a2b3c4`, `hardware/zigbee2mqtt/0x00158d0001a2b3c4/on` |
 | A room's or a group's capability | `room/hall/temperature`, `group/radiators/setpoint` |
-| A decision's case | `case/desk-plug/on/night` |
+| A decision's case | `case/zigbee2mqtt/0x00158d0001a2b3c4/on/night` |
 | A flow | `flow/morning` |
 | A room, a group | `room/living-room`, `group/downstairs` |
 | A plugin, a client | `plugin/zigbee2mqtt`, `client/laptop` |
-| A device's hardware, by its plugin and the plugin's ID for it | `hardware/zigbee2mqtt/0x00158d0001a2b3c4` |
 | An outside change's claim: a Matter controller's, the device's own, `oikade set`'s | `matter`, `device`, `command` |
 
-- **Commands take refs.** A command that takes one kind of thing takes its ref or its bare name: `oikade status desk-plug` or `oikade status device/desk-plug`.
-- **Output prints them.** Each thing `--json` lists has its `ref`, and a claim's `source` in `oikade status --json` is one, so `oikade pause` takes a case's or a flow's straight from it. Answers and errors name a capability, a case or a flow by its ref, such as `device/desk-plug/on is false, not true: case/desk-plug/on/hall-too-humid holds it`.
-- **Your code prints them.** A handle's `String` is its ref: `PorchLight.On` prints `device/porch-light/on`, and a room's or a group's capability `room/hall/temperature` or `group/radiators/setpoint`.
-- **Logs and metrics use them.** Log lines give a rule, a claim's source or an average as a ref (`rule=case/desk-plug/on/night`, `source=matter`, `average=device/bathroom-sensor/humidity over=10m`), and metrics' `rule` label is a rule's ref.
+- **Commands take refs:** `oikade status hardware/hue/0x2`. Only `oikade setup` takes a bare name, a plugin's, and `matter` is the Matter bridge. Outside your code, a device has no name but its hardware, so a rename in your code changes no ref.
+- **Output prints them.** Each thing `--json` lists has its `ref`, and a claim's `source` in `oikade status --json` is one, so `oikade pause` takes a case's or a flow's straight from it. Answers and errors name a capability, a case or a flow by its ref, such as `hardware/hue/0x2/on is false, not true: case/hue/0x2/on/hall-too-humid holds it`.
+- **Your code prints them.** A handle's `String` is its ref: `CuisinePlafond.On` prints `hardware/hue/0x001788010f9c0392/on`, and a room's or a group's capability `room/hall/temperature` or `group/radiators/setpoint`.
+- **Logs and metrics use them.** Log lines give a device, a rule, a claim's source or an average as a ref (`device=hardware/hue/0x2`, `rule=case/hue/0x2/on/night`, `source=matter`, `average=hardware/hue/0x9/humidity over=10m`), and metrics' `device` and `rule` labels are refs.
+- **A simulated device** is the simulator's: `hardware/simulator/porch-light` for the device `porch-light` in `oikade-host --simulate`'s file. A reserved name, with no hardware yet, is `device/NAME`.
 
-Only a hardware ID is the plugin's and not Oikade's, so it's percent-encoded where it needs to be. `oikade list devices --wide` shows each plugin's device by its hardware's ref, such as `hardware/overkiz/io.11111111` for the Overkiz ID `io.11111111`, and `--json` has it as `hardware`. `Hardware` in your code takes the plugin's name and the raw ID, as `id` in `--json` and the line `oikade list devices` gives an undeclared device have it.
+Only a hardware ID is the plugin's and not Oikade's, so it's percent-encoded where it needs to be: the Overkiz ID `io://0812-4471-2093/5` is `hardware/overkiz/io:%2F%2F0812-4471-2093%2F5`, and `oikade.Device` takes it as `overkiz/io:%2F%2F0812-4471-2093%2F5`, as `--json` has it in `hardware`. `Hardware` in your code takes the plugin's name and the raw ID, as `id` in `--json` and the line `oikade list devices` gives an undeclared device have it.
 
 ## Declaring devices in code
 
@@ -146,7 +146,7 @@ var (
 home.Decide(CuisinePlafond.On).Case("someone-in", true, Cuisine.Occupied.Any()).Default(false)
 ```
 
-- **`oikade.Device[T](hardware, ...)` is a device.** Its hardware is its ref without `hardware/`, as `oikade list devices --wide` shows it, and a device no plugin reports, such as a simulated one, is its ID. `T` is [what it is](#what-a-device-is), a struct with the capabilities a device of that type always has, or a struct of one and the device's other capabilities, named as in [Capabilities](#capabilities). Each is the hardware's, so `CuisinePlafond.On` is that lamp's, and a typo doesn't compile.
+- **`oikade.Device[T](hardware, ...)` is a device.** Its hardware is its ref without `hardware/`, as `oikade list devices` shows it, and a simulated one's is `simulator/` and its ID. `T` is [what it is](#what-a-device-is), a struct with the capabilities a device of that type always has, or a struct of one and the device's other capabilities, named as in [Capabilities](#capabilities). Each is the hardware's, so `CuisinePlafond.On` is that lamp's, and a typo doesn't compile.
 - **Declare devices at package level.** Every device the program declares is its home's. Its name is its variable's, which only your code sees: the host knows it by its hardware, and keeps the name its app gives it.
 - **`oikade.Room(name)` is a room,** and the devices in it as a [group](automations.md#groups-and-rooms), so `Cuisine.Occupied.Any()` is true while anything in it senses someone. A device placed in it is there, and one with no room is in none, whatever its app says. `home.Room(Salon, oikade.Lights)` is some kinds of a room's devices.
 - **`oikade.Label(name)`** is the name Matter controllers, such as the Home app, show for it, in place of the one the host has.

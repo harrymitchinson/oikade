@@ -119,6 +119,9 @@ func runHost(ctx context.Context, args []string) error {
 			if err := ident.CheckName(ident.Plugin, name); err != nil {
 				return cli.UsageErrorf("--outside-plugins: %s", err)
 			}
+			if name == ident.Simulator {
+				return cli.UsageErrorf("--outside-plugins: %s is simulated hardware's: give the plugin another name", name)
+			}
 			h.Outside = append(h.Outside, name)
 		}
 	}

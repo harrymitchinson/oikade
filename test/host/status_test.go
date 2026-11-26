@@ -28,12 +28,16 @@ func TestStatusNarrowsAndChecks(t *testing.T) {
 	if whole != "devices home matter plugins rules signals" {
 		t.Errorf("status --json has %s", whole)
 	}
-	for _, refs := range [][]string{{"fan"}, {"device/fan/on"}, {"case/fan/on/fan"}, {"fan", "bathroom-sensor"}} {
+	for _, refs := range [][]string{
+		{"hardware/simulator/fan"}, {"hardware/simulator/fan/on"}, {"case/simulator/fan/on/fan"},
+		{"hardware/simulator/fan", "hardware/simulator/bathroom-sensor"},
+	} {
 		if got := keys(refs...); got != whole {
 			t.Errorf("status --json %s has %s, not %s", strings.Join(refs, " "), got, whole)
 		}
 	}
-	if st := r.status("fan"); len(st.Devices) != 1 || st.Devices[0].Name != "fan" || len(st.Rules) != 0 {
+	if st := r.status("hardware/simulator/fan"); len(st.Devices) != 1 || st.Devices[0].Hardware != "simulator/fan" ||
+		len(st.Rules) != 0 {
 		t.Errorf("status --json fan: %+v", st)
 	}
 
@@ -57,22 +61,22 @@ func TestStatusNarrowsAndChecks(t *testing.T) {
 	}
 	r.online("fan", false)
 	r.until("the fan to be offline", func() bool {
-		st := r.status("fan")
+		st := r.status("hardware/simulator/fan")
 		return st.Devices[0].Online != nil && !*st.Devices[0].Online
 	})
-	if d := r.status("fan").Devices[0]; d.OfflineSince == nil {
+	if d := r.status("hardware/simulator/fan").Devices[0]; d.OfflineSince == nil {
 		t.Errorf("the fan is offline, but not since a time: %+v", d)
 	}
-	out := string(r.stdout(nil, "status", "fan"))
-	if !strings.HasPrefix(out, "fan") || !strings.Contains(out, ": went offline ") ||
-		!strings.Contains(out, "device/fan  went offline") {
+	out := string(r.stdout(nil, "status", "hardware/simulator/fan"))
+	if !strings.HasPrefix(out, "hardware/simulator/fan: went offline ") || !strings.Contains(out, ": went offline ") ||
+		!strings.Contains(out, "hardware/simulator/fan  went offline") {
 		t.Errorf("status fan:\n%s", out)
 	}
-	for args, want := range map[string]int{"": 0, "fan": 1, "bathroom-sensor": 0} {
+	for args, want := range map[string]int{"": 0, simRef("fan"): 1, simRef("bathroom-sensor"): 0} {
 		if code := exits(strings.Fields(args)...); code != want {
 			t.Errorf("status --check %s with the fan offline exits %d, want %d", args, code, want)
 		}
 	}
 	r.online("fan", true)
-	r.until("the fan to be back", func() bool { return r.status("fan").Devices[0].OfflineSince == nil })
+	r.until("the fan to be back", func() bool { return r.status("hardware/simulator/fan").Devices[0].OfflineSince == nil })
 }

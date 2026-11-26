@@ -59,7 +59,7 @@ func TestCheckRefusesASignalsMistakes(t *testing.T) {
 				other := NewHome(Options{}).Signal("anyone-home", occupied)
 				h.Decide(towelRail).Case("away", false, Not(other)).Default(true)
 			},
-			"decision towel-rail on reads signal/anyone-home, which is another home's",
+			"decision device/towel-rail/on reads signal/anyone-home, which is another home's",
 		},
 		"another home's Signal in a flow's If": {
 			func(h *Home) {

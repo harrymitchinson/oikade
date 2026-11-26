@@ -265,22 +265,6 @@ func (s *Store) Room(room string) []ident.ID {
 	return out
 }
 
-// Names names devices by their DisplayName, for what a person reads. A nil store names none.
-func (s *Store) Names() control.Names {
-	if s == nil {
-		return nil
-	}
-	return func(key string) (string, bool) {
-		s.mu.RLock()
-		defer s.mu.RUnlock()
-		e, ok := s.devices[ident.ID{Name: key}]
-		if !ok || e.DisplayName == "" {
-			return "", false
-		}
-		return e.DisplayName, true
-	}
-}
-
 // Named is the key of the device whose DisplayName is name, as a person names it.
 func (s *Store) Named(name string) (ident.ID, bool) {
 	s.mu.RLock()
@@ -300,13 +284,7 @@ func (s *Store) UndeclaredCounts() map[driver.InstanceKey]int {
 	return maps.Clone(s.undeclared)
 }
 
-// name is what a person calls the device, for a log line: its DisplayName, or else its key.
-func (e *entry) name(key ident.ID) string {
-	if e.DisplayName != "" {
-		return e.DisplayName
-	}
-	return key.Name
-}
+func ref(key ident.ID) string { return ident.DeviceRef(key.Name).String() }
 
 func (e *entry) copy() Snapshot {
 	c := e.Snapshot
@@ -353,7 +331,7 @@ func (s *Store) Changed(changes ...driver.Update) {
 		e.Values[u.Capability] = u.Value
 		e.Changes[u.Capability]++
 		known = append(known, u)
-		names = append(names, e.name(u.Device))
+		names = append(names, ref(u.Device))
 	}
 	s.mu.Unlock()
 	if len(known) == 0 {
@@ -377,7 +355,7 @@ func (s *Store) Availability(dev ident.ID, online bool) {
 	var was *bool
 	var name string
 	if !s.update(dev, func(e *entry) {
-		was, e.Online, name = e.Online, &online, e.name(dev)
+		was, e.Online, name = e.Online, &online, ref(dev)
 		switch {
 		case online:
 			e.OfflineSince = time.Time{}

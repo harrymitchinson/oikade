@@ -832,9 +832,9 @@ func (e *Engine) holdJoined(ctx context.Context, key ident.ID, t HoldTarget, cla
 			continue
 		}
 		if t.Room != "" {
-			e.Log.Info("Held Room member that joined", "rule", e.ruleRef(key), "device", e.name(dev), "room", t.Room)
+			e.Log.Info("Held Room member that joined", "rule", e.ruleRef(key), "device", ref(dev), "room", t.Room)
 		} else {
-			e.Log.Info("Held group member once it could be written", "rule", e.ruleRef(key), "device", e.name(dev))
+			e.Log.Info("Held group member once it could be written", "rule", e.ruleRef(key), "device", ref(dev))
 		}
 		added = append(added, dev)
 	}
@@ -881,7 +881,7 @@ func (e *Engine) applyHold(ctx context.Context, key ident.ID, t HoldTarget, star
 			continue
 		}
 		if !ok || !snap.Discovered {
-			log.Debug("Waiting for Device before writing hold", "device", e.name(dev))
+			log.Debug("Waiting for Device before writing hold", "device", ref(dev))
 			if len(t.Devices) > 0 {
 				waiting = true
 				continue
@@ -891,7 +891,7 @@ func (e *Engine) applyHold(ctx context.Context, key ident.ID, t HoldTarget, star
 		}
 		if err := e.Setter.Set(writtenFor(ctx, ruleSource(key.Name)), dev, t.Capability, value); err != nil {
 			if ctx.Err() == nil {
-				log.Error("Failed to write hold", "err", err, "device", e.name(dev))
+				log.Error("Failed to write hold", "err", err, "device", ref(dev))
 			}
 			retry, failed = retryFailed, err
 			continue

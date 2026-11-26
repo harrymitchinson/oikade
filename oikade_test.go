@@ -103,7 +103,7 @@ func TestCompileRejectsAnUnsoundHome(t *testing.T) {
 		},
 		"a sunrise window with no site": {
 			deciding(Options{}, "a", Daily(Sunrise(0), Clock("09:00"))),
-			"decision d on: Case \"a\": a sunrise or sunset needs the home's location",
+			"decision device/d/on: Case \"a\": a sunrise or sunset needs the home's location",
 		},
 		"a latitude off the earth":  {deciding(Options{Location: NewLocation(91, 0)}, "a", when), "latitude 91 isn't"},
 		"a longitude off the earth": {deciding(Options{Location: NewLocation(0, -181)}, "a", when), "longitude -181 isn't"},
@@ -511,13 +511,13 @@ func TestAConditionHasALabelForTheJournal(t *testing.T) {
 }
 
 func TestAConditionSaysWhyItsFalse(t *testing.T) {
-	water := Number{Device: "pool-water", Capability: Temperature}
-	door := Bool{Device: "garage-door", Capability: Open}
+	water := Number{Device: "hue/0x9", Capability: Temperature}
+	door := Bool{Device: "overkiz/io:%2F%2F0812-4471-2093%2F5", Capability: Open}
 	vars := engine.Vars{
 		"now": time.Date(2026, 11, 16, 9, 12, 0, 0, time.UTC), "location": time.UTC,
 		"devices": map[string]map[string]any{
-			"pool-water":  {"temperature": 5.0, "temperature over 24h": 12.291878360583002},
-			"garage-door": {"open": false}, "unheard": {},
+			"hue/0x9":                             {"temperature": 5.0, "temperature over 24h": 12.291878360583002},
+			"overkiz/io:%2F%2F0812-4471-2093%2F5": {"open": false}, "unheard": {},
 		},
 	}
 	for name, tc := range map[string]struct {
@@ -525,13 +525,13 @@ func TestAConditionSaysWhyItsFalse(t *testing.T) {
 		want string
 	}{
 		"true":      {water.Above(3), ""},
-		"a bool":    {door, "device/garage-door/open is false"},
-		"not":       {Not(Not(door)), "device/garage-door/open is false"},
-		"below":     {water.Below(3), "device/pool-water/temperature is 5, not below 3"},
-		"not above": {Not(water.Above(3)), "device/pool-water/temperature is 5, above 3"},
-		"within":    {water.Within(18, 25.5), "device/pool-water/temperature is 5, not within 18 to 25.5"},
+		"a bool":    {door, "hardware/overkiz/io:%2F%2F0812-4471-2093%2F5/open is false"},
+		"not":       {Not(Not(door)), "hardware/overkiz/io:%2F%2F0812-4471-2093%2F5/open is false"},
+		"below":     {water.Below(3), "hardware/hue/0x9/temperature is 5, not below 3"},
+		"not above": {Not(water.Above(3)), "hardware/hue/0x9/temperature is 5, above 3"},
+		"within":    {water.Within(18, 25.5), "hardware/hue/0x9/temperature is 5, not within 18 to 25.5"},
 		"an average": {
-			water.AverageOver(24 * time.Hour).Above(20), "device/pool-water/temperature over 24h is 12.29, not above 20",
+			water.AverageOver(24 * time.Hour).Above(20), "hardware/hue/0x9/temperature over 24h is 12.29, not above 20",
 		},
 		"daily":     {Daily("10:00", "18:00"), "it's 09:12, outside 10:00 to 18:00"},
 		"days":      {Daily("10:00", "18:00").Days(time.Saturday), "it's Mon 09:12, outside 10:00 to 18:00 starting Sat"},
@@ -540,13 +540,14 @@ func TestAConditionSaysWhyItsFalse(t *testing.T) {
 			Daily(Sunset(-20*time.Minute), Sunrise(time.Hour)), "it's 09:12, outside sunset-20m0s to sunrise+1h0m0s",
 		},
 		"yearly": {Yearly("1 Jun", "15 Sep"), "it's 16 Nov, outside 1 Jun to 15 Sep"},
-		"all":    {All(water.Above(3), door, water.Below(3)), "device/garage-door/open is false"},
+		"all":    {All(water.Above(3), door, water.Below(3)), "hardware/overkiz/io:%2F%2F0812-4471-2093%2F5/open is false"},
 		"any": {
-			Any(door, water.Below(3)), "device/garage-door/open is false, and device/pool-water/temperature is 5, not below 3",
+			Any(door, water.Below(3)),
+			"hardware/overkiz/io:%2F%2F0812-4471-2093%2F5/open is false, and hardware/hue/0x9/temperature is 5, not below 3",
 		},
 		"not all": {
 			Not(All(water.Above(3), Not(door))),
-			"device/pool-water/temperature is 5, above 3, and device/garage-door/open is false",
+			"hardware/hue/0x9/temperature is 5, above 3, and hardware/overkiz/io:%2F%2F0812-4471-2093%2F5/open is false",
 		},
 		"a func":     {ConditionFunc("cellar damp", func(Snapshot) bool { return false }), "cellar damp is false"},
 		"unreported": {Bool{Device: "unheard", Capability: Open}, "unheard open hasn't reported"},
@@ -811,7 +812,7 @@ func TestHomeChecksDecisionsAndBudgets(t *testing.T) {
 		"twice": {decide(func(h *Home) {
 			h.Decide(pump).Default(false)
 			h.Decide(pump).Default(true)
-		}), "decision pump on is decided twice"},
+		}), "decision device/pump/on is decided twice"},
 		"no Default":    {pumped(func(d *Decision[bool]) { d.Case("a", true, when) }), "it needs a Default"},
 		"Default twice": {pumped(func(d *Decision[bool]) { d.Default(false).Default(true) }), "Default is given twice"},
 		"a line after Default": {
@@ -1032,7 +1033,7 @@ func TestAnOptionGivenTwiceFailsNamingTheRuleAndTheOption(t *testing.T) {
 	}{
 		"Case.Delay": {decide(func(h *Home) {
 			h.Decide(pump).Case("c", true, always).Delay(0).Delay(time.Second).Default(false)
-		}), []string{"decision pump on", `Case "c"`, "Delay is given twice"}},
+		}), []string{"decision device/pump/on", `Case "c"`, "Delay is given twice"}},
 		"Case.LatchUntil": {decide(func(h *Home) {
 			h.Decide(pump).Case("c", true, always).LatchUntil(always).LatchUntil(always).Default(false)
 		}), []string{"LatchUntil is given twice"}},

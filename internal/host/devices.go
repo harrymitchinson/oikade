@@ -253,20 +253,19 @@ func (i *inventory) announce(dev ident.ID) {
 // claimed says who holds a device: every claim's source, by its ref, and whether one is at Safety.
 // A device with no arbiters can still have claims on record, waiting for it.
 func (i *inventory) claimed(dev ident.ID) (holders []string, safety bool) {
-	names := registryNames(i.registry)
 	status := i.engine.ControlOf(dev)
 	for _, c := range status {
 		for _, o := range c.Claims {
 			if o.Reverted {
 				continue
 			}
-			holders = append(holders, names.SourceRef(o.Source).String())
+			holders = append(holders, control.SourceRef(o.Source).String())
 			safety = safety || o.Level == control.NameSafety
 		}
 	}
 	if len(status) == 0 {
 		for _, c := range i.engine.SavedClaims(dev) {
-			holders = append(holders, names.SourceRef(c.Source).String())
+			holders = append(holders, control.SourceRef(c.Source).String())
 			safety = safety || c.Level == control.Safety
 		}
 	}
@@ -283,13 +282,13 @@ type members struct {
 // describe says what becomes of a device on record once it's forgotten, beyond its claims.
 type describe func(registry.Device) api.Forgotten
 
-// forget drops devices from the record, refusing them all if a Safety claim holds one, unless told
-// otherwise. Their claims end with them, so they can't wait for the next device of that name. how,
-// which may be nil, says what becomes of each, from its record as it's forgotten.
-func (i *inventory) forget(ctx context.Context, names []string, allowSafety bool, how describe) (api.Response, members) {
+// forget drops devices from the record, by their keys, refusing them all if a Safety claim holds
+// one, unless told otherwise. Their claims end with them. how, which may be nil, says what becomes
+// of each, from its record as it's forgotten.
+func (i *inventory) forget(ctx context.Context, keys []string, allowSafety bool, how describe) (api.Response, members) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	return i.forgetLocked(ctx, names, allowSafety, how)
+	return i.forgetLocked(ctx, keys, allowSafety, how)
 }
 
 // forgetPlugin forgets every device of a plugin on record, as forget does.
@@ -297,54 +296,49 @@ func (i *inventory) forgetPlugin(ctx context.Context, plugin string, allowSafety
 	how describe) (api.Response, members) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	var names []string
+	var keys []string
 	for _, d := range i.registry.List().Devices {
 		if name, ok := api.PluginOf(d); ok && name == plugin && !d.Removed {
-			names = append(names, d.Name)
+			keys = append(keys, d.Key())
 		}
 	}
-	if len(names) == 0 {
+	if len(keys) == 0 {
 		return api.Response{Error: fmt.Sprintf("no device of plugin %s is on record", plugin)}, members{}
 	}
-	return i.forgetLocked(ctx, names, allowSafety, how)
+	return i.forgetLocked(ctx, keys, allowSafety, how)
 }
 
 // forgetLocked forgets devices, checking them all before it changes anything. A device that was
 // forgotten has its claims ended, even if a later one couldn't be forgotten.
-func (i *inventory) forgetLocked(ctx context.Context, names []string, allowSafety bool,
+func (i *inventory) forgetLocked(ctx context.Context, keys []string, allowSafety bool,
 	how describe) (api.Response, members) {
-	names = slices.Compact(slices.Sorted(slices.Values(names))) // A device named twice is forgotten once.
+	keys = slices.Compact(slices.Sorted(slices.Values(keys))) // A device named twice is forgotten once.
 	forgotten := map[string]bool{}
 	for _, d := range i.registry.List().Devices {
-		forgotten[d.Name] = forgotten[d.Name] || d.Removed
+		forgotten[d.Key()] = forgotten[d.Key()] || d.Removed
 	}
 	var refused []string
-	for _, name := range names {
-		d, ok := i.registry.Get(name)
+	for _, key := range keys {
+		d, ok := i.registry.ByKey(key)
 		switch {
-		case !ok && forgotten[name]:
-			refused = append(refused, fmt.Sprintf("%s is forgotten already", ident.DeviceRef(name)))
+		case !ok && forgotten[key]:
+			refused = append(refused, fmt.Sprintf("%s is forgotten already", ident.DeviceRef(key)))
 		case !ok:
-			refused = append(refused, noDevice(name).Error())
+			refused = append(refused, noDevice(i.registry, key).Error())
 		case d.Declared:
 			// The next deploy, or start, would bring it back.
 			refused = append(refused, fmt.Sprintf("%s is declared in your home's code: delete its declaration and "+
-				"deploy, then forget it under its app's name", ident.DeviceRef(name)))
+				"deploy, then forget it", ident.DeviceRef(key)))
 		}
 	}
 	if len(refused) > 0 {
 		return api.Response{Error: strings.Join(refused, "; ")}, members{}
 	}
-	keys := map[string]ident.ID{}
-	for _, name := range names {
-		d, _ := i.registry.Get(name)
-		keys[name] = devKey(d)
-	}
 	if !allowSafety {
 		var held []string
-		for _, name := range names {
-			if holders, safety := i.claimed(keys[name]); safety {
-				held = append(held, fmt.Sprintf("%s holds %s at Safety", strings.Join(holders, ", "), name))
+		for _, key := range keys {
+			if holders, safety := i.claimed(ident.ID{Name: key}); safety {
+				held = append(held, fmt.Sprintf("%s holds %s at Safety", strings.Join(holders, ", "), ident.DeviceRef(key)))
 			}
 		}
 		if len(held) > 0 {
@@ -354,16 +348,17 @@ func (i *inventory) forgetLocked(ctx context.Context, names []string, allowSafet
 	before := i.store.Members()
 	var done []api.Forgotten
 	var problems []string
-	for _, name := range names {
+	for _, key := range keys {
+		d, _ := i.registry.ByKey(key)
 		var f api.Forgotten
-		if d, ok := i.registry.Get(name); ok && how != nil {
+		if how != nil {
 			f = how(d)
 		}
-		f.Device, f.Ref = name, ident.DeviceRef(name).String()
-		f.Ended, _ = i.claimed(keys[name])
-		if err := i.registry.Remove(name); err != nil {
+		f.Device, f.Ref = key, ident.DeviceRef(key).String()
+		f.Ended, _ = i.claimed(ident.ID{Name: key})
+		if err := i.registry.Remove(d.Name); err != nil {
 			if errors.Is(err, registry.ErrNoDevice) {
-				err = noDevice(name)
+				err = noDevice(i.registry, key)
 			}
 			problems = append(problems, err.Error())
 			break
@@ -372,11 +367,11 @@ func (i *inventory) forgetLocked(ctx context.Context, names []string, allowSafet
 	}
 	i.sync()
 	for _, f := range done {
-		if err := i.engine.ForgetDevice(ctx, keys[f.Device]); err != nil {
+		if err := i.engine.ForgetDevice(ctx, ident.ID{Name: f.Device}); err != nil {
 			problems = append(problems, fmt.Sprintf("forgot %s, but couldn't end its claims: %v", f.Ref, err))
 		}
-		i.log.Info("Forgot device", "device", f.Device)
-		i.record(api.Event{Type: api.EventForget, Device: keys[f.Device].Name})
+		i.log.Info("Forgot device", "device", f.Ref)
+		i.record(api.Event{Type: api.EventForget, Device: f.Device})
 	}
 	return api.Response{Error: strings.Join(problems, "; "), Forgotten: done},
 		members{before: before, after: i.store.Members()}
@@ -440,7 +435,7 @@ func (s *apiServer) forget(req api.Request) api.Response {
 		resp, change = s.devices.forget(s.ctx, req.Devices, req.AllowSafety, how)
 	}
 	if len(resp.Forgotten) > 0 {
-		resp.Warning = emptiedWarning(s.srv.emptyReads(change.before, change.after, nil, s.srv.names))
+		resp.Warning = emptiedWarning(s.srv.emptyReads(change.before, change.after, nil))
 	}
 	return resp
 }
@@ -458,10 +453,10 @@ func emptiedWarning(emptied map[string][]string) string {
 }
 
 // emptyReads are the refs of the running process's holds with a read of a room that had devices of
-// the read's types among before and has none among after, by room, each sorted and named by names. A
+// the read's types among before and has none among after, by room, each sorted. A
 // read that was empty already isn't the change's doing. keep, if set, says which holds' rules to
 // keep: nil keeps every one.
-func (s *server) emptyReads(before, after map[string]hub.Member, keep func(rule string) bool, names control.Names) map[string][]string {
+func (s *server) emptyReads(before, after map[string]hub.Member, keep func(rule string) bool) map[string][]string {
 	covers := func(members map[string]hub.Member, r engine.RoomRead) bool {
 		for _, m := range members {
 			if m.Room == r.Room && m.OfTypes(r.Types) {
@@ -485,7 +480,7 @@ func (s *server) emptyReads(before, after map[string]hub.Member, keep func(rule 
 				}
 			}
 			for room := range rooms {
-				out[room] = append(out[room], names.RuleRef(rule).String())
+				out[room] = append(out[room], control.RuleRef(rule).String())
 			}
 		}
 	}
@@ -494,3 +489,6 @@ func (s *server) emptyReads(before, after map[string]hub.Member, keep func(rule 
 	}
 	return out
 }
+
+// devKey is how the hub and the engine know a device on record.
+func devKey(d registry.Device) ident.ID { return ident.ID{Name: d.Key()} }

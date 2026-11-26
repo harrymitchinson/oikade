@@ -305,7 +305,7 @@ func targetHardware(s *Snapshot, d Declaration) (int, error) {
 	if j := slices.IndexFunc(s.Devices, func(e Device) bool { return e.ID != "" && e.Key() == d.Hardware }); j >= 0 {
 		return j, nil
 	}
-	if d.Driver == "" {
+	if !strings.HasPrefix(d.Driver, driver.Plugin+"/") {
 		return 0, fmt.Errorf("%s isn't on record: it's no plugin's, so the host only has it once its driver reports it",
 			d.Hardware)
 	}
@@ -442,16 +442,6 @@ func typeLine(d Device) string {
 // describeDriver names a device's hardware as a person would: its plugin and ID.
 func describeDriver(d Device) string {
 	return DescribeHardware(d.Driver, d.ID)
-}
-
-// HardwareRef is the ref of a device's hardware, hardware/<plugin>/<id>, or empty for one that has
-// no plugin's hardware, as with a reserved or simulated device.
-func HardwareRef(d Device) ident.Ref {
-	plugin, ok := pluginOf(d)
-	if !ok {
-		return ""
-	}
-	return ident.HardwareRef(plugin, d.ID)
 }
 
 // pluginOf is the name a home imports a device's plugin by, or false for a device no plugin's

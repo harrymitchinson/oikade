@@ -19,13 +19,13 @@ func aHealthyHome() *api.Status {
 	return &api.Status{
 		Home: api.Home{Version: "v3", Process: true},
 		Devices: []api.Device{
-			{Name: "boiler", Ref: "device/boiler", Room: "utility", Online: &on, Plugin: "opentherm",
+			{Hardware: "opentherm/b1", Ref: "hardware/opentherm/b1", Room: "utility", Online: &on, Plugin: "opentherm",
 				Capabilities: []api.Capability{{Name: "on", Value: true}}},
-			{Name: "hall-lamp", Ref: "device/hall-lamp", Room: "hall", Online: &on,
+			{Hardware: "hue/0x2", Ref: "hardware/hue/0x2", Room: "hall", Online: &on,
 				Capabilities: []api.Capability{{Name: "on", Value: false}}},
 		},
 		Rules:   []api.Rule{{Name: "morning", Ref: "flow/morning", Kind: "flow"}},
-		Plugins: []api.Plugin{{Name: "opentherm", Ref: "plugin/opentherm", Devices: []string{"boiler"}}},
+		Plugins: []api.Plugin{{Name: "opentherm", Ref: "plugin/opentherm", Devices: []string{"opentherm/b1"}}},
 		Matter:  &api.Matter{Serving: true, Fabrics: []api.Fabric{{Index: 1}}},
 	}
 }
@@ -59,12 +59,13 @@ func TestCheckFailsForWhatACommandFixes(t *testing.T) {
 		{"Matter turned off", func(st *api.Status) { st.Matter = nil }, nil, false},
 
 		// An offline device counts when it's named.
-		{"an offline device named", func(st *api.Status) { st.Devices[0].Online = &off }, []string{"boiler"}, true},
+		{"an offline device named", func(st *api.Status) { st.Devices[0].Online = &off }, []string{"hardware/opentherm/b1"},
+			true},
 		{"an offline device's capability named", func(st *api.Status) { st.Devices[0].Online = &off },
-			[]string{"device/boiler/on"}, true},
+			[]string{"hardware/opentherm/b1/on"}, true},
 		{"an offline device's room named", func(st *api.Status) { st.Devices[0].Online = &off },
 			[]string{"room/utility"}, true},
-		{"another device named", func(st *api.Status) { st.Devices[0].Online = &off }, []string{"hall-lamp"}, false},
+		{"another device named", func(st *api.Status) { st.Devices[0].Online = &off }, []string{"hardware/hue/0x2"}, false},
 		{"an offline device's plugin named", func(st *api.Status) { st.Devices[0].Online = &off },
 			[]string{"plugin/opentherm"}, false},
 
@@ -72,16 +73,16 @@ func TestCheckFailsForWhatACommandFixes(t *testing.T) {
 		{"a plugin named with its problem", func(st *api.Status) { st.Plugins[0].Problem = "login refused" },
 			[]string{"plugin/opentherm"}, true},
 		{"a device named whose plugin has a problem", func(st *api.Status) { st.Plugins[0].Problem = "login refused" },
-			[]string{"hall-lamp"}, false},
+			[]string{"hardware/hue/0x2"}, false},
 		{"a device named with a problem", func(st *api.Status) { st.Devices[1].Problem = "no LAN key" },
 			[]string{"room/hall"}, true},
 		{"a flow named with automations down", func(st *api.Status) { st.Home.Process = false },
 			[]string{"flow/morning"}, true},
 		{"a device named with automations down", func(st *api.Status) { st.Home.Process = false },
-			[]string{"hall-lamp"}, false},
+			[]string{"hardware/hue/0x2"}, false},
 		{"the bridge named while it's down", func(st *api.Status) { st.Matter.Serving = false }, []string{"matter"}, true},
 		{"a device named while the bridge is down", func(st *api.Status) { st.Matter.Serving = false },
-			[]string{"boiler"}, false},
+			[]string{"hardware/opentherm/b1"}, false},
 	} {
 		st := aHealthyHome()
 		tc.break_(st)
@@ -142,17 +143,22 @@ func TestStatusOfARefThatNamesNothingFails(t *testing.T) {
 		args []string
 		want string
 	}{
-		{st, []string{"boilr"}, "Error: there's no device/boilr on record\nHint: oikade list devices lists them\n"},
-		{st, []string{"boiler", "boilr"}, "Error: there's no device/boilr on record\n"},
+		{st, []string{"hardware/opentherm/bl"},
+			"Error: there's no hardware/opentherm/bl on record\nHint: oikade list devices lists them\n"},
+		{st, []string{"hardware/opentherm/b1", "hardware/opentherm/bl"},
+			"Error: there's no hardware/opentherm/bl on record\n"},
+		{st, []string{"device/boiler"}, "Error: there's no device/boiler on record: a device's ref is its hardware's, " +
+			"such as hardware/hue/0x2\nHint: oikade list devices shows each one's\n"},
 		{
-			st, []string{"device/boiler/setpoint"},
-			"Error: device/boiler has no setpoint\nHint: oikade status boiler lists what it has\n",
+			st, []string{"hardware/opentherm/b1/setpoint"},
+			"Error: hardware/opentherm/b1 has no setpoint\nHint: oikade status hardware/opentherm/b1 lists what it has\n",
 		},
 		{st, []string{"room/attic"}, "Error: no device is in room/attic\n"},
 		{st, []string{"room/hall/temperature"}, "Error: no device in room/hall has temperature\n"},
 		{st, []string{"flow/evening"}, "Error: there's no flow/evening in the running version\n"},
 		{st, []string{"plugin/overkiz"}, "Error: there's no plugin/overkiz: your home doesn't import it"},
-		{st, []string{"boilr", "flow/evening"}, "Error: device/boilr and flow/evening name nothing the host has\n"},
+		{st, []string{"hardware/opentherm/bl", "flow/evening"},
+			"Error: hardware/opentherm/bl and flow/evening name nothing the host has\n"},
 		{off, []string{"matter"}, "Error: this host has Matter turned off\n"},
 	} {
 		dir, _ := aHost(t, api.EventLog{}, nil, tc.st)
@@ -190,12 +196,13 @@ func TestStatusJSONKeepsItsShape(t *testing.T) {
 		}
 	}
 	var devices []api.Device
-	if err := json.Unmarshal(got["devices"], &devices); err != nil || len(devices) != 1 || devices[0].Name != "hall-lamp" {
+	if err := json.Unmarshal(got["devices"], &devices); err != nil || len(devices) != 1 ||
+		devices[0].Hardware != "hue/0x2" {
 		t.Errorf("status --json room/hall: devices %s", got["devices"])
 	}
 
 	// A plugin brings its devices, and a capability only itself.
-	got, _ = keys("plugin/opentherm", "device/hall-lamp/on", "matter")
+	got, _ = keys("plugin/opentherm", "hardware/hue/0x2/on", "matter")
 	if err := json.Unmarshal(got["devices"], &devices); err != nil || len(devices) != 2 {
 		t.Fatalf("devices %s", got["devices"])
 	}
@@ -215,17 +222,17 @@ func TestADevicesViewEndsWithItsLastEvents(t *testing.T) {
 	events[0] = api.Event{Type: api.EventDeploy, Time: now.Add(-time.Hour), Message: "v3"}
 	for i := range 12 {
 		events = append(events, api.Event{
-			Type: api.EventChange, Ref: "device/boiler/on", Capability: "on", Value: i%2 == 0,
+			Type: api.EventChange, Ref: "hardware/opentherm/b1/on", Capability: "on", Value: i%2 == 0,
 			Time: now.Add(time.Duration(i-20) * time.Minute),
 		})
 	}
 	dir, asked := aHost(t, api.EventLog{}, events, st)
-	out, errs, code := runOikade(t, cli.Plain, "status", "boiler", "--data-dir", dir)
-	if code != 0 || !strings.HasPrefix(out, "boiler in utility: went offline 3 min ago\n") {
-		t.Fatalf("status boiler exits %d:\n%s%s", code, out, errs)
+	out, errs, code := runOikade(t, cli.Plain, "status", "hardware/opentherm/b1", "--data-dir", dir)
+	if code != 0 || !strings.HasPrefix(out, "hardware/opentherm/b1 in utility: went offline 3 min ago\n") {
+		t.Fatalf("status hardware/opentherm/b1 exits %d:\n%s%s", code, out, errs)
 	}
-	if n := strings.Count(out, "device/boiler/on  "); n != eventsShown || strings.Contains(out, "deployed") {
-		t.Errorf("status boiler shows %d events, want %d without the deploy:\n%s", n, eventsShown, out)
+	if n := strings.Count(out, "hardware/opentherm/b1/on  "); n != eventsShown || strings.Contains(out, "deployed") {
+		t.Errorf("status hardware/opentherm/b1 shows %d events, want %d without the deploy:\n%s", n, eventsShown, out)
 	}
 	// A day had enough of them, so it read no further back.
 	if q := asked(); len(q) != 1 || !strings.Contains(q[0], "since=") {
@@ -234,8 +241,8 @@ func TestADevicesViewEndsWithItsLastEvents(t *testing.T) {
 
 	// With too few in the last day, it reads the whole log.
 	dir, asked = aHost(t, api.EventLog{}, events[:3], st)
-	if _, errs, code := runOikade(t, cli.Plain, "status", "boiler", "--data-dir", dir); code != 0 {
-		t.Fatalf("status boiler exits %d: %s", code, errs)
+	if _, errs, code := runOikade(t, cli.Plain, "status", "hardware/opentherm/b1", "--data-dir", dir); code != 0 {
+		t.Fatalf("status hardware/opentherm/b1 exits %d: %s", code, errs)
 	}
 	if q := asked(); len(q) != 2 || strings.Contains(q[1], "since=") {
 		t.Errorf("asked the host for %q", q)

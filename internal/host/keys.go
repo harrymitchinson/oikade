@@ -28,7 +28,7 @@ var byRule = []string{engine.HoldStatesNamespace, engine.FireStatesNamespace, en
 // keyByHardware starts again what a host saved under the name of a device it now keys by hardware,
 // which nothing would find: its claims, its cases' holds, latches, fires and pauses, the averages of
 // its readings, and the flow runs whose steps name it. A latch that held lets go. A device whose key
-// is its name, simulated or reserved, keeps what it has, and so does a flow that names no such
+// is its name, a reserved one, keeps what it has, and so does a flow that names no such
 // device. The home's settings stay too, as the next hello replaces them. The store says so once it's
 // done, so a host that stopped part way does it again.
 func keyByHardware(data *store.Store, devices registry.Snapshot, log *slog.Logger) error {

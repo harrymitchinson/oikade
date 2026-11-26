@@ -39,7 +39,7 @@ const settleTimeout = 10 * time.Second
 var settleRecheck = time.Millisecond
 
 // instance is the driver instance simulated devices belong to.
-var instance = driver.InstanceKey{Driver: "simulated", Name: "home"}
+var instance = driver.InstanceKey{Driver: driver.Simulated, Name: "home"}
 
 // Home is a home to run. Compile runs again at each restart, as a new process would.
 type Home struct {
@@ -297,7 +297,7 @@ func (s *Sim) set(_ context.Context, dev ident.ID, name string, value any) error
 	}
 	s.mu.Lock()
 	s.writes = append(s.writes, Write{Time: s.clock.Now(), Device: dev.Name, Capability: name, Value: v})
-	s.note("Wrote "+dev.Name+" "+name, fmt.Sprintf(" = %v", v))
+	s.note("Wrote "+ident.CapabilityRef(dev.Name, name).String(), fmt.Sprintf(" = %v", v))
 	s.mu.Unlock()
 	return s.report(dev, name, v)
 }

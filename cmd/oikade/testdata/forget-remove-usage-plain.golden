@@ -1,7 +1,7 @@
 $ oikade forget
 Error: oikade forget takes the devices to forget, or --plugin NAME
 Usage:
-  oikade forget DEVICE... [--allow-safety] [--json]
+  oikade forget hardware/PLUGIN/ID... [--allow-safety] [--json]
   oikade forget --plugin NAME [--allow-safety] [--json]
 Hint: oikade forget --help says more
 exit 2
@@ -9,7 +9,7 @@ exit 2
 $ oikade forget secret/api-key
 Error: secret/api-key isn't a ref: a secret is one of your values now
 Usage:
-  oikade forget DEVICE... [--allow-safety] [--json]
+  oikade forget hardware/PLUGIN/ID... [--allow-safety] [--json]
   oikade forget --plugin NAME [--allow-safety] [--json]
 Hint: your values, passwords included, go in .env beside go.mod: your code reads each with oikade.Var, and oikade deploy sends them
 exit 2
@@ -17,7 +17,7 @@ exit 2
 $ oikade forget client/old-laptop
 Error: oikade forget takes devices, and a client is removed, not forgotten
 Usage:
-  oikade forget DEVICE... [--allow-safety] [--json]
+  oikade forget hardware/PLUGIN/ID... [--allow-safety] [--json]
   oikade forget --plugin NAME [--allow-safety] [--json]
 Hint: oikade remove client/old-laptop removes it
 exit 2
@@ -25,7 +25,7 @@ exit 2
 $ oikade forget plugin/relays
 Error: oikade forget takes devices, not plugin/relays
 Usage:
-  oikade forget DEVICE... [--allow-safety] [--json]
+  oikade forget hardware/PLUGIN/ID... [--allow-safety] [--json]
   oikade forget --plugin NAME [--allow-safety] [--json]
 Hint: oikade forget --plugin relays forgets every device of it
 exit 2
@@ -33,31 +33,31 @@ exit 2
 $ oikade forget room/hall
 Error: oikade forget takes devices, not room/hall
 Usage:
-  oikade forget DEVICE... [--allow-safety] [--json]
+  oikade forget hardware/PLUGIN/ID... [--allow-safety] [--json]
   oikade forget --plugin NAME [--allow-safety] [--json]
-Hint: give each as device/NAME, or its name alone
+Hint: give each by its hardware's ref, such as hardware/hue/0x2, as oikade list devices shows it
 exit 2
 
 $ oikade forget matter
 Error: oikade forget takes devices, and matter is the Matter bridge
 Usage:
-  oikade forget DEVICE... [--allow-safety] [--json]
+  oikade forget hardware/PLUGIN/ID... [--allow-safety] [--json]
   oikade forget --plugin NAME [--allow-safety] [--json]
-Hint: a device called matter is device/matter
+Hint: give each device by its hardware's ref, as oikade list devices shows it
 exit 2
 
-$ oikade forget porch-light --plugin relays
+$ oikade forget hardware/relays/b --plugin relays
 Error: oikade forget takes devices or --plugin NAME, not both
 Usage:
-  oikade forget DEVICE... [--allow-safety] [--json]
+  oikade forget hardware/PLUGIN/ID... [--allow-safety] [--json]
   oikade forget --plugin NAME [--allow-safety] [--json]
 Hint: oikade forget --help says more
 exit 2
 
-$ oikade forget Porch
-Error: "Porch" isn't a device's name, or a ref such as device/desk-plug or flow/morning
+$ oikade forget porch-light
+Error: "porch-light" isn't a ref: a device's is its hardware's, such as hardware/hue/0x2, as oikade list devices shows it
 Usage:
-  oikade forget DEVICE... [--allow-safety] [--json]
+  oikade forget hardware/PLUGIN/ID... [--allow-safety] [--json]
   oikade forget --plugin NAME [--allow-safety] [--json]
 Hint: oikade forget --help says more
 exit 2
@@ -73,14 +73,14 @@ $ oikade remove porch-light
 Error: oikade remove takes client/NAME, not porch-light
 Usage:
   oikade remove client/NAME... [--json]
-Hint: oikade remove client/porch-light removes a client, and oikade forget porch-light forgets a device
+Hint: oikade remove client/porch-light removes a client
 exit 2
 
-$ oikade remove device/porch-light
+$ oikade remove hardware/hue/0x7
 Error: oikade remove doesn't take devices: a device is forgotten, as its plugin may report it again
 Usage:
   oikade remove client/NAME... [--json]
-Hint: oikade forget device/porch-light forgets it
+Hint: oikade forget hardware/hue/0x7 forgets it
 exit 2
 
 $ oikade remove plugin/relays
@@ -116,7 +116,7 @@ exit 2
 
 $ oikade devices remove porch-light
 Error: oikade has no devices command
-Hint: oikade list devices lists them, and oikade forget DEVICE forgets one
+Hint: oikade list devices lists them, and oikade forget hardware/PLUGIN/ID forgets one
 exit 2
 
 $ oikade revoke
@@ -126,7 +126,7 @@ exit 2
 
 $ oikade rm
 Error: oikade has no rm command
-Hint: oikade remove client/NAME removes a client, and oikade forget DEVICE forgets a device
+Hint: oikade remove client/NAME removes a client, and oikade forget hardware/PLUGIN/ID forgets a device
 exit 2
 
 $ oikade add

@@ -357,7 +357,7 @@ func TestCoalescerLogsARefusalAsInfo(t *testing.T) {
 	if strings.Contains(failed, "desk-lamp") {
 		refused, failed = failed, refused
 	}
-	for _, want := range []string{"level=INFO", `msg="Refused Matter write"`, "device=desk-lamp", "capability=on",
+	for _, want := range []string{"level=INFO", `msg="Refused Matter write"`, "device=device/desk-lamp", "capability=on",
 		"value=true", "claim=Rule/hall-too-humid", "claimLevel=" + control.NameSafety} {
 		if !strings.Contains(refused, want) {
 			t.Errorf("%q doesn't say %s", refused, want)

@@ -9,12 +9,13 @@ import (
 	"oikade.dev/internal/ident"
 )
 
-// nameOf is the name an argument gives a thing of kind k: its ref, such as device/desk-plug, or,
-// as a shorthand, its bare name. No name has a '/', so one with a '/' is a ref.
-func nameOf(k ident.Kind, arg string) (string, error) {
+// pluginName is the plugin an argument names: its ref, such as plugin/hue, or, as a shorthand, its
+// bare name. No name has a '/', so one with a '/' is a ref.
+func pluginName(arg string) (string, error) {
 	if !strings.Contains(arg, "/") {
 		return arg, nil
 	}
+	k := ident.Plugin
 	got, parts, err := ident.ParseRef(arg)
 	if err != nil && strings.HasPrefix(arg, string(k)+"/") {
 		return "", cli.UsageErrorf("%s", err) // Of the right kind, so what's wrong is its name.
@@ -25,7 +26,9 @@ func nameOf(k ident.Kind, arg string) (string, error) {
 	return parts[0], nil
 }
 
-// named is a thing an argument names: its ref, and the kind and parts the ref has.
+// named is a thing an argument names: its ref, and the kind and parts the ref has. A device's or a
+// capability's is of kind device, and a case's, with the device's key, its hardware, as their first
+// part.
 type named struct {
 	ref   string
 	kind  ident.Kind
@@ -33,29 +36,44 @@ type named struct {
 }
 
 // refsOf is what a command's arguments name, each by its ref, as every output prints it, so that
-// output pastes back in. A bare word is a device's name, as a shorthand, but for matter, which is
-// always the Matter bridge: a device called matter is device/matter. An argument that's neither is
-// a command typed wrong.
+// output pastes back in: a device by its hardware's, as hardware/hue/0x2. A bare word is matter,
+// the Matter bridge, and any other is a command typed wrong.
 func refsOf(args []string) ([]named, error) {
 	out := make([]named, 0, len(args))
 	for _, arg := range args {
-		ref := arg
 		if !strings.Contains(arg, "/") && arg != string(ident.Matter) {
-			if !ident.ValidName(arg) {
-				return nil, cli.UsageErrorf("%q isn't a device's name, or a ref such as device/desk-plug or flow/morning", arg)
-			}
-			ref = ident.DeviceRef(arg).String()
+			return nil, cli.UsageErrorf("%q isn't a ref: a device's is its hardware's, such as hardware/hue/0x2, as "+
+				"oikade list devices shows it", arg)
 		}
-		if strings.HasPrefix(ref, "secret/") {
+		if strings.HasPrefix(arg, "secret/") {
 			return nil, cli.UsageErrorf("%s isn't a ref: a secret is one of your values now", arg).WithHint("%s", valuesHint)
 		}
-		kind, parts, err := ident.ParseRef(ref)
+		n, err := parseNamed(arg)
 		if err != nil {
 			return nil, cli.UsageErrorf("%s", err)
 		}
-		out = append(out, named{ref: ident.NewRef(kind, parts...).String(), kind: kind, parts: parts})
+		out = append(out, n)
 	}
 	return out, nil
+}
+
+// parseNamed reads a ref, with what it names of a device by the device's key.
+func parseNamed(arg string) (named, error) {
+	kind, parts, err := ident.ParseRef(arg)
+	if err != nil {
+		return named{}, err
+	}
+	key, rest, ok := ident.DeviceOf(kind, parts)
+	switch {
+	case ok && kind == ident.Case:
+		return named{ref: ident.CaseRef(key, rest[0], rest[1]).String(), kind: kind, parts: append([]string{key}, rest...)},
+			nil
+	case ok && len(rest) == 0:
+		return named{ref: ident.DeviceRef(key).String(), kind: ident.Device, parts: []string{key}}, nil
+	case ok:
+		return named{ref: ident.CapabilityRef(key, rest[0]).String(), kind: ident.Device, parts: []string{key, rest[0]}}, nil
+	}
+	return named{ref: ident.NewRef(kind, parts...).String(), kind: kind, parts: parts}, nil
 }
 
 // eventRefs is the refs history and tail take: what the log has events of. A kind with none is
@@ -78,18 +96,18 @@ func eventRefs(command string, args []string) ([]named, error) {
 	return refs, nil
 }
 
-// capabilityOf is the device and capability an argument names by its ref, such as
-// device/desk-plug/on.
+// capabilityOf is the key of the device and the capability an argument names by its ref, such as
+// hardware/hue/0x2/on.
 func capabilityOf(arg string) (device, name string, err error) {
-	k, parts, err := ident.ParseRef(arg)
-	if err != nil && strings.HasPrefix(arg, string(ident.Device)+"/") && strings.Count(arg, "/") == 2 {
+	n, err := parseNamed(arg)
+	if err != nil && strings.HasPrefix(arg, string(ident.Hardware)+"/") && strings.Count(arg, "/") == 3 {
 		return "", "", cli.UsageErrorf("%s", err)
 	}
-	if err != nil || k != ident.Device || len(parts) != 2 {
-		return "", "", cli.UsageErrorf("%s isn't a capability's ref: give one as device/DEVICE/CAPABILITY, "+
-			"such as device/desk-plug/on", arg)
+	if err != nil || n.kind != ident.Device || len(n.parts) != 2 {
+		return "", "", cli.UsageErrorf("%s isn't a capability's ref: give one as hardware/PLUGIN/ID/CAPABILITY, "+
+			"such as hardware/hue/0x2/on", arg)
 	}
-	return parts[0], parts[1], nil
+	return n.parts[0], n.parts[1], nil
 }
 
 // ruleOf checks that an argument is a rule's ref, a case's or a flow's, as command takes one, and not
@@ -105,7 +123,7 @@ func ruleOf(command, arg string) error {
 	case err != nil && (strings.HasPrefix(arg, string(ident.Case)+"/") || strings.HasPrefix(arg, string(ident.Flow)+"/")):
 		return cli.UsageErrorf("%s", err)
 	}
-	return cli.UsageErrorf("%s isn't a rule's ref: oikade %s takes a case's, case/DEVICE/CAPABILITY/CASE, "+
+	return cli.UsageErrorf("%s isn't a rule's ref: oikade %s takes a case's, case/PLUGIN/ID/CAPABILITY/CASE, "+
 		"or a flow's, flow/FLOW", arg, command)
 }
 
@@ -119,7 +137,7 @@ func valueOf(device, name, raw string) (any, error) {
 	case !ok:
 		return parseValue(raw), nil // A newer host's, perhaps, which says what it takes.
 	case !spec.Writable:
-		return nil, cli.Errorf("%s is read-only: %s reports it, and nothing sets it", ref, device)
+		return nil, cli.Errorf("%s is read-only: %s reports it, and nothing sets it", ref, ident.DeviceRef(device))
 	}
 	value := parseValue(raw)
 	switch spec.Kind {

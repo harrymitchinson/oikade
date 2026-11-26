@@ -65,7 +65,7 @@ func TestCompileRejectsAnUnsoundGroup(t *testing.T) {
 		},
 		"Any of a device": {
 			func(h *Home) { h.Decide(hallLamp.On).Case("a", true, hallHeater.On.Any()).Default(false) },
-			"Any of hall-heater on needs a group's",
+			"Any of device/hall-heater/on needs a group's",
 		},
 		"decided on its own too": {
 			func(h *Home) {
@@ -91,7 +91,7 @@ func TestCompileRejectsAnUnsoundGroup(t *testing.T) {
 		},
 		"Then to a device": {
 			func(h *Home) { h.Decide(hallHeater.On).Then(loftHeater.On) },
-			"Then(loft-heater on) needs a group's",
+			"Then(device/loft-heater/on) needs a group's",
 		},
 		"Then to a group it isn't in": {
 			func(h *Home) {
@@ -338,7 +338,7 @@ func TestARoomMadeTwiceIsOne(t *testing.T) {
 		h.Decide(Room("porch").On).Default(false)
 	})
 	_, _, err := h.compile()
-	want := "porch on and room porch on are both decided, and would name their cases alike"
+	want := "device/porch/on and room porch on are both decided, and would name their cases alike"
 	if err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("got %v, want %q", err, want)
 	}

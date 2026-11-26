@@ -5,29 +5,29 @@ To add another controller, run oikade pair matter, or share the bridge from one 
   fabric 1: Home, vendor 0x1349
   fabric 2: vendor 0x1384
 ---
-14:02:07  device/desk-plug/on  true  [2mwas false[0m
-14:02:07  device/office-ac/setpoint  21.5°C
-14:02:07  device/desk-plug/on  wrote false
-14:02:07  device/desk-plug/on  wrote true  [2mby case/desk-plug/on/occupied[0m
-14:02:07  device/office-ac/setpoint  wrote 20°C  [2mby matter[0m
-14:02:07  device/hall-blind/position  wrote 40%  [2mby command[0m
-14:02:07  device/desk-plug/on  refused a Matter write of true  [2mcase/desk-plug/on/hall-too-humid holds it at Safety[0m
+14:02:07  hardware/kasa/desk1/on  true  [2mwas false[0m
+14:02:07  hardware/toshiba/5f1c0c2e/setpoint  21.5°C
+14:02:07  hardware/kasa/desk1/on  wrote false
+14:02:07  hardware/kasa/desk1/on  wrote true  [2mby case/kasa/desk1/on/occupied[0m
+14:02:07  hardware/toshiba/5f1c0c2e/setpoint  wrote 20°C  [2mby matter[0m
+14:02:07  hardware/overkiz/io:%2F%2F0812-4471-2093%2F7/position  wrote 40%  [2mby command[0m
+14:02:07  hardware/kasa/desk1/on  refused a Matter write of true  [2mcase/kasa/desk1/on/hall-too-humid holds it at Safety[0m
 14:02:07  flow/morning  ran
-14:02:07  case/towel-rail/on/after-shower  didn't run: its condition couldn't be read
+14:02:07  case/ewelink-lan/1000a1b2c3/on/after-shower  didn't run: its condition couldn't be read
 14:02:07  flow/morning  paused
 14:02:07  deployed version f113018
 14:02:07  automations connected
-14:02:07  device/porch-light  went offline
-14:02:07  device/garage-relay  went offline  [2mno LAN key[0m
-14:02:07  device/porch-light  came back online
+14:02:07  hardware/ewelink-lan/1000ddeeff  went offline
+14:02:07  hardware/ewelink-lan/1000c0ffee  went offline  [2mno LAN key[0m
+14:02:07  hardware/ewelink-lan/1000ddeeff  came back online
 14:02:07  plugin/overkiz  has a problem: the TaHoma box refused the login
 14:02:07  plugin/overkiz  no longer has a problem
 14:02:07  matter  window opened
 14:02:07  matter  controller paired  [2mfabric 2[0m
 14:02:07  matter  window closed
 14:02:07  matter  controller left  [2mfabric 1[0m
-14:02:07  device/shed-lamp  forgotten
-14:02:07  device/mains-valve  renamed  [2mwas device/valve[0m
+14:02:07  hardware/zigbee2mqtt/0x00158d0001a2b3c4  forgotten
+14:02:07  hardware/relays/valve  renamed mains-valve  [2mwas valve[0m
 14:02:07  flow/morning  called forecast  [2mgot true[0m
 14:02:07  flow/morning  called tariff  [2mgot {"cheap":true,"until":"07:00"}[0m
 14:02:07  flow/morning  called notify and it failed  [2mthe push service timed out[0m

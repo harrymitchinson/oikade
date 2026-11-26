@@ -1,7 +1,7 @@
 NAME         STATE                                      DEVICES
-ewelink-lan  needs setup: run oikade setup ewelink-lan  porch-light
-overkiz                                                 study-blind
-zigbee2mqtt  plugin not imported                        shed-relay
+ewelink-lan  needs setup: run oikade setup ewelink-lan  ewelink-lan/1000ddeeff
+overkiz                                                 overkiz/io:%2F%2F0812-4…
+zigbee2mqtt  plugin not imported                        zigbee2mqtt/0x02
 --- stderr
 Hint: oikade status plugin/NAME says what's wrong with one
 --- none

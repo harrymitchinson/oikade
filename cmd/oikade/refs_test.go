@@ -3,41 +3,39 @@ package main
 import (
 	"strings"
 	"testing"
-
-	"oikade.dev/internal/ident"
 )
 
 func TestACommandTakesARefOrABareName(t *testing.T) {
-	for arg, want := range map[string]string{"desk-plug": "desk-plug", "device/desk-plug": "desk-plug"} {
-		if got, err := nameOf(ident.Device, arg); err != nil || got != want {
-			t.Errorf("nameOf(%s) = %q, %v", arg, got, err)
+	for arg, want := range map[string]string{"overkiz": "overkiz", "plugin/overkiz": "overkiz"} {
+		if got, err := pluginName(arg); err != nil || got != want {
+			t.Errorf("pluginName(%s) = %q, %v", arg, got, err)
 		}
 	}
-	for _, arg := range []string{"flow/morning", "device/desk-plug/on", "device/Desk"} {
-		if _, err := nameOf(ident.Device, arg); err == nil {
-			t.Errorf("%s named a device", arg)
+	for _, arg := range []string{"flow/morning", "plugin/overkiz/x", "plugin/Overkiz"} {
+		if _, err := pluginName(arg); err == nil {
+			t.Errorf("%s named a plugin", arg)
 		}
 	}
-	_, err := nameOf(ident.Device, "flow/morning")
-	if err == nil || !strings.Contains(err.Error(), "give one as device/NAME") {
+	_, err := pluginName("flow/morning")
+	if err == nil || !strings.Contains(err.Error(), "give one as plugin/NAME") {
 		t.Errorf("err = %v", err)
 	}
-	if d, c, err := capabilityOf("device/desk-plug/on"); err != nil || d != "desk-plug" || c != "on" {
+	if d, c, err := capabilityOf("hardware/kasa/desk1/on"); err != nil || d != "kasa/desk1" || c != "on" {
 		t.Errorf("capabilityOf = %q, %q, %v", d, c, err)
 	}
-	if _, _, err := capabilityOf("device/desk-plug"); err == nil {
+	if _, _, err := capabilityOf("hardware/kasa/desk1"); err == nil {
 		t.Error("a device named a capability")
 	}
 }
 
 func TestSetWithoutAValueSaysHowToUseIt(t *testing.T) {
-	err := runSet(t.Context(), []string{"device/desk-plug/on"})
+	err := runSet(t.Context(), []string{"hardware/kasa/desk1/on"})
 	if err == nil || !strings.HasPrefix(err.Error(), "oikade set takes a capability") {
 		t.Errorf("err = %v", err)
 	}
 	// A device and a capability by name aren't a ref.
 	err = runSet(t.Context(), []string{"desk-plug", "on"})
-	if err == nil || !strings.Contains(err.Error(), "give one as device/DEVICE/CAPABILITY") {
+	if err == nil || !strings.Contains(err.Error(), "give one as hardware/PLUGIN/ID/CAPABILITY") {
 		t.Errorf("err = %v", err)
 	}
 }

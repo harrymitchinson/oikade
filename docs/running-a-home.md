@@ -323,7 +323,7 @@ Taking an `oikade.Plugin` out of your home doesn't remove its devices. They stay
 
 - **`oikade check` and `oikade deploy` list those devices,** and call out any a Safety claim holds.
 - **`oikade list devices` and `oikade status` mark them** `plugin not imported`.
-- **To be rid of them,** `oikade forget --plugin NAME` forgets all of that plugin's devices at once, as `oikade forget DEVICE` does one, and needs `--allow-safety` if a Safety claim holds any of them.
+- **To be rid of them,** `oikade forget --plugin NAME` forgets all of that plugin's devices at once, as `oikade forget hardware/PLUGIN/ID` does one, and needs `--allow-safety` if a Safety claim holds any of them.
 
 ## Upgrading the host
 

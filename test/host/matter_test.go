@@ -194,7 +194,8 @@ func (c *controller) reachesHardware(name, id string) {
 		command = turnOn
 	}
 	c.command(endpoint, command)
-	c.r.until(name+" to change", func() bool { return onOf(c.t, c.r.status(), name).Value == want })
+	key := deviceOf(c.t, c.r.devices(), name).Key()
+	c.r.until(name+" to change", func() bool { return onOf(c.t, c.r.status(), key).Value == want })
 	c.r.send(id, "on", !want)
 	c.r.until("the controller to hear "+name, func() bool { return c.isOn(endpoint) != want })
 }
@@ -311,7 +312,7 @@ func TestPairingSurvivesTheHostDying(t *testing.T) {
 func TestANewDeviceAppearsOnTheBridgeAndGoes(t *testing.T) {
 	t.Parallel()
 	c := commissioned(t)
-	c.r.pair("hall-lamp", "hall-lamp")
+	c.r.pair("hall-lamp")
 	endpoint := c.endpoint("hall-lamp")
 	c.r.until("the new device on the bridge", func() bool {
 		_, ok := c.read(endpoint, clusters.IDOnOff, 0)
@@ -319,7 +320,7 @@ func TestANewDeviceAppearsOnTheBridgeAndGoes(t *testing.T) {
 	})
 	c.reaches("hall-lamp")
 
-	c.r.stdout(nil, "forget", "hall-lamp")
+	c.r.stdout(nil, "forget", simRef("hall-lamp"))
 	c.r.until("the device to leave the bridge", func() bool {
 		_, ok := c.read(endpoint, clusters.IDOnOff, 0)
 		return !ok
@@ -358,7 +359,7 @@ func TestAControllerGoesThroughArbitration(t *testing.T) {
 	endpoint := c.endpoint("claimed")
 	c.command(endpoint, turnOff)
 	c.r.until("the Matter claim", func() bool {
-		s := onOf(t, c.r.status(), "claimed")
+		s := onOf(t, c.r.status(), "simulator/claimed")
 		return s.Value == false && winner(s) == "matter"
 	})
 }
@@ -368,18 +369,19 @@ func TestASafetyClaimRefusesAController(t *testing.T) {
 	c := commissioned(t)
 	endpoint := c.endpoint("valve")
 	c.r.change("leak-sensor", "open", true)
-	c.r.waitFor(func(l line) bool { return l.is(wrote, "device", "valve", "value", false) })
+	c.r.waitFor(func(l line) bool { return l.is(wrote, "device", "hardware/simulator/valve", "value", false) })
 	c.r.until("the controller to see the valve shut", func() bool { return !c.isOn(endpoint) })
 
 	c.command(endpoint, turnOn)
 	c.r.waitFor(func(l line) bool {
-		return l.is("Refused Matter write", "capability", "on", "claim", "case/valve/on/leak-shutoff", "claimLevel", "Safety")
+		return l.is("Refused Matter write", "capability", "on", "claim", "case/simulator/valve/on/leak-shutoff", "claimLevel",
+			"Safety")
 	})
 	if n := c.r.count("Failed to set capability from Matter"); n != 0 {
 		t.Errorf("a refusal was logged as a failure %d times", n)
 	}
 	c.r.until("the controller to see it refused", func() bool { return !c.isOn(endpoint) })
-	if n := c.r.count(wrote, "device", "valve", "value", true); n != 0 {
+	if n := c.r.count(wrote, "device", "hardware/simulator/valve", "value", true); n != 0 {
 		t.Errorf("the valve opened %d times", n)
 	}
 }
@@ -397,7 +399,7 @@ func TestATakenPortLeavesTheHomeRunning(t *testing.T) {
 		t.Errorf("it says it's serving: %+v", m)
 	}
 	r.change("leak-sensor", "open", true)
-	r.waitFor(func(l line) bool { return l.is(wrote, "device", "valve", "value", false) })
+	r.waitFor(func(l line) bool { return l.is(wrote, "device", "hardware/simulator/valve", "value", false) })
 	out := string(r.stdout(nil, "status", "matter"))
 	if !strings.Contains(out, "down") || strings.Contains(out, "window") {
 		t.Errorf("oikade status matter says: %s", out)
@@ -409,7 +411,7 @@ func TestAnInterfaceThatIsntThereLeavesTheHomeRunning(t *testing.T) {
 	r := start(t, matterFlag(freeUDP(t)), "--matter-interfaces=nothing0")
 	r.until("the bridge to give up", func() bool { return r.count("Matter bridge stopped") > 0 })
 	r.change("leak-sensor", "open", true)
-	r.waitFor(func(l line) bool { return l.is(wrote, "device", "valve", "value", false) })
+	r.waitFor(func(l line) bool { return l.is(wrote, "device", "hardware/simulator/valve", "value", false) })
 }
 
 func TestMatterOffIsSaid(t *testing.T) {
@@ -478,7 +480,7 @@ func TestUnreadableMatterStateLeavesTheHomeRunning(t *testing.T) {
 // Nothing writes the device, nothing writes over the record, and an operator can clear it.
 func TestAnUnreadableClaimRecordHoldsItsDevice(t *testing.T) {
 	t.Parallel()
-	const record = "valve"
+	const record = "simulator/valve"
 	r := prepare(t)
 	s := r.openStore()
 	if err := s.Namespace("controls").Put(record, []byte("not json")); err != nil {
@@ -489,18 +491,18 @@ func TestAnUnreadableClaimRecordHoldsItsDevice(t *testing.T) {
 	r.launch(matterFlag(port))
 	r.waitFor(func(l line) bool { return l.is(attached) })
 
-	stderr, err := r.oikade(nil, "set", "device/valve/on", "off")
+	stderr, err := r.oikade(nil, "set", "hardware/simulator/valve/on", "off")
 	if err == nil || !strings.Contains(stderr, "unreadable") {
 		t.Errorf("a person's write: %v: %s", err, stderr)
 	}
 	r.change("leak-sensor", "open", true)
 	r.until("a rule's write to be refused", func() bool {
-		return strings.Contains(r.dump(), "unreadable claim record holds valve")
+		return strings.Contains(r.dump(), "unreadable claim record holds hardware/simulator/valve")
 	})
-	if n := r.count(wrote, "device", "valve", "value", false); n != 0 {
+	if n := r.count(wrote, "device", "hardware/simulator/valve", "value", false); n != 0 {
 		t.Errorf("the valve was written %d times", n)
 	}
-	stderr, err = r.oikade(nil, "forget", "valve")
+	stderr, err = r.oikade(nil, "forget", "hardware/simulator/valve")
 	if err == nil || !strings.Contains(stderr, "--allow-safety") {
 		t.Errorf("removing it: %v: %s", err, stderr)
 	}
@@ -513,7 +515,7 @@ func TestAnUnreadableClaimRecordHoldsItsDevice(t *testing.T) {
 
 	r.launch(matterFlag(port))
 	r.waitFor(func(l line) bool { return l.is(attached) })
-	r.stdout(nil, "forget", "valve", "--allow-safety")
+	r.stdout(nil, "forget", "hardware/simulator/valve", "--allow-safety")
 	r.stop()
 	s = r.openStore()
 	defer func() { _ = s.Close() }()
@@ -614,7 +616,7 @@ func TestAControllerLocksASimulatedLock(t *testing.T) {
 			t.Fatalf("command %#x: %+v, %v", tc.command, res, err)
 		}
 		c.r.until("the lock to follow", func() bool {
-			return capabilityOf(t, c.r.status(), "back-door", "locked").Value == tc.locked
+			return capabilityOf(t, c.r.status(), "simulator/back-door", "locked").Value == tc.locked
 		})
 		c.r.until("the controller to read it", func() bool { return state() == tc.state })
 	}
@@ -624,7 +626,7 @@ func TestAControllerLocksASimulatedLock(t *testing.T) {
 func capabilityOf(t *testing.T, st api.Status, device, name string) api.Capability {
 	t.Helper()
 	for _, d := range st.Devices {
-		if d.Name != device {
+		if d.Hardware != device {
 			continue
 		}
 		for _, c := range d.Capabilities {
@@ -656,7 +658,7 @@ func TestARuleSetsAHeatersSetpointThatAControllerReads(t *testing.T) {
 
 	c.r.change("study-go", "open", true)
 	c.r.until("the controller to read the Rule's 18 °C", func() bool { return setpoint() == int64(1800) })
-	if v := capabilityOf(t, c.r.status(), "study-heater", "setpoint").Value; v != 18.0 {
+	if v := capabilityOf(t, c.r.status(), "simulator/study-heater", "setpoint").Value; v != 18.0 {
 		t.Errorf("the host has the setpoint at %v", v)
 	}
 
@@ -668,10 +670,11 @@ func TestARuleSetsAHeatersSetpointThatAControllerReads(t *testing.T) {
 			t.Fatalf("writing %#x = %d: %v, %v", attr, v, status, err)
 		}
 	}
+	on := func() any { return onOf(t, c.r.status(), "simulator/study-heater").Value }
 	write(0x001C, clusters.SystemModeOff)
-	c.r.until("the heater to turn off", func() bool { return onOf(t, c.r.status(), "study-heater").Value == false })
+	c.r.until("the heater to turn off", func() bool { return on() == false })
 	write(0x001C, clusters.SystemModeHeat)
-	c.r.until("the heater to turn on", func() bool { return onOf(t, c.r.status(), "study-heater").Value == true })
+	c.r.until("the heater to turn on", func() bool { return on() == true })
 	if mode() != uint64(clusters.SystemModeHeat) {
 		t.Errorf("SystemMode %v, want Heat", mode())
 	}
@@ -702,7 +705,7 @@ func TestAControllerRunsASimulatedAirConditioner(t *testing.T) {
 			t.Fatalf("writing %#x: %v, %v", id, status, err)
 		}
 	}
-	value := func(name string) any { return capabilityOf(t, c.r.status(), "bedroom-ac", name).Value }
+	value := func(name string) any { return capabilityOf(t, c.r.status(), "simulator/bedroom-ac", name).Value }
 
 	write(systemMode, func(w *tlv.Writer, tag tlv.Tag) { w.PutUint(tag, clusters.SystemModeHeat) })
 	c.r.until("the unit to heat", func() bool { return value("mode") == "heat" && value("on") == true })
@@ -750,14 +753,15 @@ func (c *controller) drives(name string, endpoint uint16, on bool) {
 		command = turnOn
 	}
 	c.command(endpoint, command)
-	c.r.until(name+" to change", func() bool { return onOf(c.t, c.r.status(), name).Value == on })
+	key := deviceOf(c.t, c.r.devices(), name).Key()
+	c.r.until(name+" to change", func() bool { return onOf(c.t, c.r.status(), key).Value == on })
 }
 
 func TestADeclaredRenameKeepsTheBridgedDevice(t *testing.T) {
 	t.Parallel()
 	c := commissionedPlugins(t)
 	endpoint := c.endpoint("valve")
-	c.r.until("valve on the bridge", func() bool { return c.info(endpoint, labelAttribute) == "valve" })
+	c.r.until("simulator/valve on the bridge", func() bool { return c.info(endpoint, labelAttribute) == "valve" })
 	unique := c.info(endpoint, uniqueIDAttribute)
 
 	c.r.mustDeploy("plugins-mains")

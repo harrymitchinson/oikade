@@ -330,7 +330,9 @@ func (r *rig) change(device, capability string, value any) {
 	if _, err := r.stdin.Write(append(raw, '\n')); err != nil {
 		r.t.Fatal(err)
 	}
-	r.waitFor(func(l line) bool { return l.is("Changed capability", "device", device, "capability", capability) })
+	r.waitFor(func(l line) bool {
+		return l.is("Changed capability", "device", simRef(device), "capability", capability)
+	})
 }
 
 // sync returns once your process has answered a change, twice over. A write it started before the
@@ -339,14 +341,14 @@ func (r *rig) sync() {
 	r.t.Helper()
 	for range 2 {
 		r.probe = !r.probe
-		before := r.count(wrote, "device", "probe-out")
+		before := r.count(wrote, "device", "hardware/simulator/probe-out")
 		r.send("probe", "open", r.probe)
 		timeout := time.After(waitLimit)
-		for r.count(wrote, "device", "probe-out") == before {
+		for r.count(wrote, "device", "hardware/simulator/probe-out") == before {
 			r.mu.Lock()
 			grew := r.grew
 			r.mu.Unlock()
-			if r.count(wrote, "device", "probe-out") != before {
+			if r.count(wrote, "device", "hardware/simulator/probe-out") != before {
 				break
 			}
 			select {
@@ -387,8 +389,11 @@ func (r *rig) awaitCount(want int, msg string, fields ...any) {
 
 func (r *rig) wrote(device string, value any) {
 	r.t.Helper()
-	r.waitFor(func(l line) bool { return l.is(wrote, "device", device, "value", value) })
+	r.waitFor(func(l line) bool { return l.is(wrote, "device", simRef(device), "value", value) })
 }
+
+// simRef is a simulated device's ref, by its ID in the simulator, which change and send take.
+func simRef(id string) string { return "hardware/simulator/" + id }
 
 // pid returns the process the last started line names.
 func (r *rig) pid() int {
@@ -457,7 +462,7 @@ func TestKilledProcessLeavesTheHostAndRepeatsNothing(t *testing.T) {
 	r.kill()
 	r.sync()
 	r.hostRunning()
-	if n := r.count(wrote, "device", "fan", "value", true); n != 1 {
+	if n := r.count(wrote, "device", "hardware/simulator/fan", "value", true); n != 1 {
 		t.Fatalf("fan was started %d times, want 1\n%s", n, r.dump())
 	}
 
@@ -473,7 +478,7 @@ func TestKilledProcessLeavesTheHostAndRepeatsNothing(t *testing.T) {
 	r.restarted(old)
 	r.wrote("fan", false)
 	r.sync()
-	if n := r.count(wrote, "device", "fan", "value", false); n != 1 {
+	if n := r.count(wrote, "device", "hardware/simulator/fan", "value", false); n != 1 {
 		t.Fatalf("fan was stopped %d times, want 1\n%s", n, r.dump())
 	}
 }
@@ -494,25 +499,25 @@ func TestLatchedSafetyHoldSurvivesAKillMidWay(t *testing.T) {
 	r.sync()
 	r.kill()
 	r.sync()
-	if n := r.count(wrote, "device", "valve", "value", true); n != 0 {
+	if n := r.count(wrote, "device", "hardware/simulator/valve", "value", true); n != 0 {
 		t.Fatalf("valve reopened while latched\n%s", r.dump())
 	}
-	if n := r.count(wrote, "device", "valve", "value", false); n != 1 {
+	if n := r.count(wrote, "device", "hardware/simulator/valve", "value", false); n != 1 {
 		t.Fatalf("valve was closed %d times, want 1\n%s", n, r.dump())
 	}
 
 	// Only a release ends it. The siren has no arbiter, so its end proves the latch itself came back
 	// from the host: a hold that forgot it would have nothing to end.
-	if n := r.count(wrote, "device", "siren", "value", false); n != 0 {
+	if n := r.count(wrote, "device", "hardware/simulator/siren", "value", false); n != 0 {
 		t.Fatalf("siren stopped while latched\n%s", r.dump())
 	}
 	r.change("reset", "open", true)
 	r.wrote("valve", true)
 	// Your process ends the hold in its own time after the release, which sync doesn't wait for, and
 	// it can land either side of the host's write to the valve.
-	r.awaitCount(1, wrote, "device", "siren", "value", false)
+	r.awaitCount(1, wrote, "device", "hardware/simulator/siren", "value", false)
 	r.sync()
-	if n := r.count(wrote, "device", "siren", "value", false); n != 1 {
+	if n := r.count(wrote, "device", "hardware/simulator/siren", "value", false); n != 1 {
 		t.Fatalf("siren was stopped %d times, want 1\n%s", n, r.dump())
 	}
 }
@@ -547,11 +552,11 @@ func TestDecisionsKeepTheirLingersAndLatchesAcrossAKill(t *testing.T) {
 	}
 	// The heater's decision has no override line, so a tap on it is written back.
 	r.change("garage-heater", "on", true)
-	r.awaitCount(2, wrote, "device", "garage-heater", "value", false)
+	r.awaitCount(2, wrote, "device", "hardware/simulator/garage-heater", "value", false)
 	r.sync()
 	r.change("garage-door", "open", true)
 	r.sync()
-	if c := onOf(t, r.status("garage-heater"), "garage-heater"); c.Value != true {
+	if c := onOf(t, r.status("hardware/simulator/garage-heater"), "simulator/garage-heater"); c.Value != true {
 		t.Fatalf("the door didn't end the latch: %+v\n%s", c, r.dump())
 	}
 }

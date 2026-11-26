@@ -57,9 +57,9 @@ func TestKilledAsTheRegistrySavesKeepsTheChange(t *testing.T) {
 	t.Parallel()
 	r := faultRig(t)
 	r.launchAttached()
-	r.pair("shed-lamp", "shed-lamp")
+	r.pair("shed-lamp")
 	r.plan(fault.RegistrySaved)
-	if _, err := r.oikade(nil, "forget", "shed-lamp"); err == nil {
+	if _, err := r.oikade(nil, "forget", simRef("shed-lamp")); err == nil {
 		t.Fatalf("the removal was answered. The log:\n%s", r.dump())
 	}
 	r.died()
@@ -190,11 +190,13 @@ func TestACaseKilledAsItClaimsKeepsItsLatch(t *testing.T) {
 	r.kill()
 	r.sync()
 	// The latch outlived the kill: a hold that forgot it would turn the heater back on here.
-	if n := r.count(wrote, "device", "garage-heater", "value", true); n != 0 {
+	if n := r.count(wrote, "device", "hardware/simulator/garage-heater", "value", true); n != 0 {
 		t.Fatalf("the heater came back on before the door opened\n%s", r.dump())
 	}
 	r.change("garage-door", "open", true)
-	r.until("the heater back on", func() bool { return onOf(t, r.status("garage-heater"), "garage-heater").Value == true })
+	r.until("the heater back on", func() bool {
+		return onOf(t, r.status("hardware/simulator/garage-heater"), "simulator/garage-heater").Value == true
+	})
 }
 
 // A deploy's values reach disk in the same write as its version. A host killed anywhere from there

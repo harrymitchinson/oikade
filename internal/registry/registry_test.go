@@ -353,7 +353,7 @@ func TestADevicesKeyIsItsHardware(t *testing.T) {
 	}{
 		{Device{Name: "desk-lamp", Driver: "plugin/hue", ID: "0x00178801091863f2"}, "hue/0x00178801091863f2"},
 		{Device{Name: "terrace-blind", Driver: "plugin/overkiz", ID: "io://1234-5678/9 0"}, "overkiz/io:%2F%2F1234-5678%2F9%200"},
-		{Device{Name: "study-heater", Driver: "simulated/simulator", ID: "study-heater"}, "study-heater"},
+		{Device{Name: "study-heater", Driver: "simulated/simulator", ID: "study-heater"}, "simulator/study-heater"},
 		{Device{Name: "greenhouse-fan"}, "greenhouse-fan"},
 	} {
 		if got := tc.d.Key(); got != tc.want || strings.Contains(got, " ") {

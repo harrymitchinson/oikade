@@ -76,10 +76,13 @@ func TestADevicesHistoryIsInTheTailAndTheLog(t *testing.T) {
 	tailStarted(r, events)
 	availability := func(message string) func(api.Event) bool {
 		return func(e api.Event) bool {
-			return e.Type == api.EventAvailability && e.Device == "fan" && e.Ref == "device/fan" && e.Message == message
+			return e.Type == api.EventAvailability && e.Device == "simulator/fan" && e.Ref == "hardware/simulator/fan" &&
+				e.Message == message
 		}
 	}
-	forgotten := func(e api.Event) bool { return e.Type == api.EventForget && e.Device == "fan" && e.Ref == "device/fan" }
+	forgotten := func(e api.Event) bool {
+		return e.Type == api.EventForget && e.Device == "simulator/fan" && e.Ref == "hardware/simulator/fan"
+	}
 
 	r.online("fan", false)
 	awaitEvent(t, events, availability(api.AvailabilityOffline))
@@ -88,7 +91,7 @@ func TestADevicesHistoryIsInTheTailAndTheLog(t *testing.T) {
 	r.online("fan", true)
 	awaitEvent(t, events, availability(api.AvailabilityOnline))
 	r.change("bathroom-sensor", humidityCap, 91)
-	r.stdout(nil, "forget", "fan")
+	r.stdout(nil, "forget", "hardware/simulator/fan")
 	awaitEvent(t, events, forgotten)
 
 	log := r.eventLog()
@@ -102,20 +105,20 @@ func TestADevicesHistoryIsInTheTailAndTheLog(t *testing.T) {
 		t.Errorf("availability events %+v, want the two", went)
 	}
 	logged(t, log, online, "change with the value before it", func(e api.Event) bool {
-		return e.Type == api.EventChange && e.Device == "bathroom-sensor" && e.Value == 91.0 && e.Previous != nil
+		return e.Type == api.EventChange && e.Device == "simulator/bathroom-sensor" && e.Value == 91.0 && e.Previous != nil
 	})
 	logged(t, log, online, "forgotten device", forgotten)
 }
 
-// A device a deploy renames leaves the name it had, so its history can follow it back.
+// A deploy that renames a device says so, by its hardware, with the name it had and has.
 func TestARenameIsInTheTailAndTheLog(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)
 	events := r.tailing()
 	tailStarted(r, events)
 	renamed := func(e api.Event) bool {
-		return e.Type == api.EventRename && e.Device == "mains-valve" && e.Ref == "device/mains-valve" &&
-			e.Previous == "valve"
+		return e.Type == api.EventRename && e.Device == "relays/valve" && e.Ref == "hardware/relays/valve" &&
+			e.Previous == "valve" && e.Message == "mains-valve"
 	}
 	r.mustDeploy("plugins-mains")
 	awaitEvent(t, events, renamed)
@@ -156,10 +159,10 @@ func TestTheHostFiltersItsEvents(t *testing.T) {
 	r.change("bathroom-sensor", humidityCap, 80)
 	r.wrote("fan", true)
 	r.contact("study-go", true)
-	r.until("the flow's write", func() bool { return r.count(wrote, "device", "study-heater") > 0 })
+	r.until("the flow's write", func() bool { return r.count(wrote, "device", "hardware/simulator/study-heater") > 0 })
 	c.command(c.endpoint("claimed"), turnOff)
-	r.until("the controller's write", func() bool { return onOf(t, r.status(), "claimed").Value == false })
-	r.stdout(nil, "set", "device/lamp-0/on", "true")
+	r.until("the controller's write", func() bool { return onOf(t, r.status(), "simulator/claimed").Value == false })
+	r.stdout(nil, "set", "hardware/simulator/lamp-0/on", "true")
 	// Two devices go offline, so a filter has one to leave out.
 	r.online("fan", false)
 	r.online("lamp-1", false)
@@ -179,9 +182,12 @@ func TestTheHostFiltersItsEvents(t *testing.T) {
 		t.Fatalf("the log has none of the home's own events: %+v", all)
 	}
 	for ref, about := range map[string]func(api.Event) bool{
-		"device/fan":         func(e api.Event) bool { return e.Device == "fan" },
-		"device/fan/on":      func(e api.Event) bool { return e.Device == "fan" },
-		"case/fan/on/fan":    func(e api.Event) bool { return e.Rule == "fan on fan" || e.By == "case/fan/on/fan" },
+		"hardware/simulator/fan":    func(e api.Event) bool { return e.Device == "simulator/fan" },
+		"hardware/simulator/fan/on": func(e api.Event) bool { return e.Device == "simulator/fan" },
+		"case/simulator/fan/on/fan": func(e api.Event) bool {
+			return e.Rule == "simulator/fan on fan" ||
+				e.By == "case/simulator/fan/on/fan"
+		},
 		"flow/study-setback": func(e api.Event) bool { return e.Rule == "study-setback" || e.By == "flow/study-setback" },
 		"matter":             func(e api.Event) bool { return e.Type == api.EventMatter || e.By == "matter" },
 		"room/nowhere":       func(api.Event) bool { return false },
@@ -213,7 +219,7 @@ func TestTheHostFiltersItsEvents(t *testing.T) {
 	}
 
 	// The lamp's past, then the lamp as it happens, and nothing of the fan either way.
-	lamp := func(e api.Event) bool { return e.Device == "lamp-0" }
+	lamp := func(e api.Event) bool { return e.Device == "simulator/lamp-0" }
 	past := byHand(lamp)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -222,7 +228,8 @@ func TestTheHostFiltersItsEvents(t *testing.T) {
 	following := make(chan struct{})
 	ended := make(chan error, 1)
 	go func() {
-		ended <- api.Tail(ctx, api.Local{DataDir: r.dir}, api.EventFilter{Refs: []string{"device/lamp-0"}, Since: head.Start},
+		ended <- api.Tail(ctx, api.Local{DataDir: r.dir}, api.EventFilter{Refs: []string{"hardware/simulator/lamp-0"},
+			Since: head.Start},
 			func() { close(following) }, func(e api.Event) error {
 				mu.Lock()
 				defer mu.Unlock()
@@ -243,7 +250,7 @@ func TestTheHostFiltersItsEvents(t *testing.T) {
 	}
 	mu.Unlock()
 	r.change("bathroom-sensor", humidityCap, 40)
-	r.stdout(nil, "set", "device/lamp-0/on", "false")
+	r.stdout(nil, "set", "hardware/simulator/lamp-0/on", "false")
 	r.until("the tail to have the lamp's write", func() bool {
 		mu.Lock()
 		defer mu.Unlock()
@@ -272,16 +279,15 @@ func TestHistoryShowsWhoWroteADevice(t *testing.T) {
 	r.wrote("fan", true)
 	r.sync()
 
-	for _, device := range []string{"device/fan", "fan"} {
-		out := string(r.stdout(nil, "history", device, "--since", "1h"))
-		wrote := strings.Index(out, "device/fan/on  wrote true  by case/fan/on/fan")
-		changed := strings.Index(out, "device/fan/on  true  was false")
-		if wrote < 0 || changed < wrote || strings.Contains(out, "bathroom-sensor") || !strings.Contains(out, ", today\n") {
-			t.Errorf("oikade history %s --since 1h:\n%s", device, out)
-		}
+	out := string(r.stdout(nil, "history", "hardware/simulator/fan", "--since", "1h"))
+	wrote := strings.Index(out, "hardware/simulator/fan/on  wrote true  by case/simulator/fan/on/fan")
+	changed := strings.Index(out, "hardware/simulator/fan/on  true  was false")
+	if wrote < 0 || changed < wrote || strings.Contains(out, "bathroom-sensor") || !strings.Contains(out, ", today\n") {
+		t.Errorf("oikade history hardware/simulator/fan --since 1h:\n%s", out)
 	}
 	var by []string
-	for line := range strings.SplitSeq(strings.TrimSpace(string(r.stdout(nil, "history", "fan", "--json"))), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(r.stdout(nil, "history", "hardware/simulator/fan",
+		"--json"))), "\n") {
 		var e api.Event
 		if err := json.Unmarshal([]byte(line), &e); err != nil {
 			t.Fatalf("history --json printed %q: %v", line, err)
@@ -290,28 +296,28 @@ func TestHistoryShowsWhoWroteADevice(t *testing.T) {
 			by = append(by, e.By)
 		}
 	}
-	if !slices.Equal(by, []string{"case/fan/on/fan"}) {
+	if !slices.Equal(by, []string{"case/simulator/fan/on/fan"}) {
 		t.Errorf("the fan's writes are by %q", by)
 	}
-	if out := string(r.stdout(nil, "history", "fan", "--since", "1h", "--until", "30m")); out != "" {
+	if out := string(r.stdout(nil, "history", "hardware/simulator/fan", "--since", "1h", "--until", "30m")); out != "" {
 		t.Errorf("the fan's history up to half an hour ago:\n%s", out)
 	}
-	stderr, err := r.oikade(nil, "history", "device/nothing")
-	if err != nil || !strings.Contains(stderr, "No events of device/nothing since ") ||
-		!strings.Contains(stderr, "There's no device/nothing on record: oikade list devices lists them.") {
+	stderr, err := r.oikade(nil, "history", "hardware/simulator/nothing")
+	if err != nil || !strings.Contains(stderr, "No events of hardware/simulator/nothing since ") ||
+		!strings.Contains(stderr, "There's no hardware/simulator/nothing on record: oikade list devices lists them.") {
 		t.Errorf("a history of nothing: %v: %s", err, stderr)
 	}
 
-	events := r.tailing("fan", "--since", "1h")
+	events := r.tailing(simRef("fan"), "--since", "1h")
 	fanWrote := func(value bool, by string) func(api.Event) bool {
 		return func(e api.Event) bool {
-			if e.Device != "" && e.Device != "fan" {
+			if e.Device != "" && e.Device != "simulator/fan" {
 				t.Errorf("the fan's tail has %+v", e)
 			}
 			return e.Type == api.EventWrite && e.Value == value && e.By == by
 		}
 	}
-	awaitEvent(t, events, fanWrote(true, "case/fan/on/fan"))
+	awaitEvent(t, events, fanWrote(true, "case/simulator/fan/on/fan"))
 	// With the case over, no rule's claim decides the fan: it goes back to its default, which is nobody's.
 	r.change("bathroom-sensor", humidityCap, 40)
 	awaitEvent(t, events, fanWrote(false, ""))

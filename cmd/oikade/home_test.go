@@ -88,13 +88,28 @@ func TestCheckSaysWhichDevicesADeployHides(t *testing.T) {
 	}}
 	hidden := []wire.HiddenPlugin{{Plugin: "tahoma", Shown: []string{"garage-door"}}}
 	var out bytes.Buffer
-	printHiding(&out, list, hidden, []string{"attic-shutter"})
-	if want := "A deploy hides bedroom-shutter from Matter,"; !strings.HasPrefix(out.String(), want) {
+	printHiding(&out, list, hidden, []string{"tahoma/s3"})
+	if want := "A deploy hides hardware/tahoma/s1 from Matter,"; !strings.HasPrefix(out.String(), want) {
 		t.Errorf("got %q, want %q", out.String(), want)
 	}
 	out.Reset()
-	printHiding(&out, list, hidden, []string{"attic-shutter", "bedroom-shutter"})
+	printHiding(&out, list, hidden, []string{"tahoma/s1", "tahoma/s3"})
 	if out.Len() != 0 {
 		t.Errorf("with nothing new to hide: %q", out.String())
+	}
+}
+
+// A check names the hardware the host has never seen, and says a deploy refuses what's no plugin's.
+func TestCheckSaysWhatTheHostHasNeverSeen(t *testing.T) {
+	var b strings.Builder
+	printUnseen(&b, registry.Snapshot{}, []wire.DeviceDeclaration{
+		{Hardware: "simulator/porch-light"}, {Hardware: "hue/0x9"}, {Name: "lamp", Plugin: "hue", ID: "0x7"},
+	})
+	want := "Warning: the host has never seen hardware/simulator/porch-light, which is no plugin's, so a deploy " +
+		"is refused until it reports\n" +
+		"Warning: the host has never seen hardware/hue/0x9, so its line waits for it to report\n" +
+		"Warning: the host has never seen hardware/hue/0x7, so lamp waits for it to report\n"
+	if b.String() != want {
+		t.Errorf("got\n%s\nwant\n%s", b.String(), want)
 	}
 }

@@ -288,9 +288,7 @@ func (m *matterBridge) connect(devices *hub.Store, known *inventory, options *ho
 	m.Writes = &matterbridge.Coalescer{
 		Setter: &matterWrites{
 			engine: eng, devices: devices, setter: setter, restore: m.Restore, took: m.metrics.writes, emit: emit,
-			names: registryNames(known.registry),
 		},
-		Name: func(dev ident.ID) string { return registryNames(known.registry).Device(dev.Name) },
 		Current: func(dev ident.ID, name string) (any, bool) {
 			snap, ok := devices.Get(dev)
 			if !ok {
@@ -418,8 +416,6 @@ type matterWrites struct {
 	took *metrics.PrometheusHistogram
 	// emit, if set, puts a refused write in the event log.
 	emit func(api.Event)
-	// names name the claim a refusal says holds a device.
-	names control.Names
 }
 
 // Set implements driver.Setter.
@@ -430,7 +426,7 @@ func (w *matterWrites) Set(ctx context.Context, dev ident.ID, name string, value
 	start := time.Now()
 	if holder, wants := heldAtSafety(w.engine, w.devices, dev, name, value); holder != "" {
 		w.restore(dev, name, wants)
-		refused := &driver.Refused{Holder: w.names.SourceRef(holder).String(), Level: control.NameSafety}
+		refused := &driver.Refused{Holder: control.SourceRef(holder).String(), Level: control.NameSafety}
 		if w.emit != nil {
 			w.emit(api.Event{
 				Time: time.Now(), Type: api.EventRefused, Device: dev.Name, Capability: name, Value: value,

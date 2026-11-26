@@ -56,7 +56,7 @@ func TestPorchLightFollowsThePorchSensor(t *testing.T) {
 | `h.Restart()` | Crashes your automations and starts them again |
 | `h.ExpectValue(c, v)` | Fails the test unless a device has this value |
 | `h.ExpectWrite(c, v)` | Fails the test unless your automations have written this value to a device |
-| `h.ExpectClaim(c, source, level)` | Fails the test unless `source`, a ref such as `case/porch-light/on/motion`, holds a claim at this level |
+| `h.ExpectClaim(c, source, level)` | Fails the test unless `source`, a ref such as `case/simulator/porch-light/on/motion`, holds a claim at this level |
 | `h.ExpectFinished(flow)` | Fails the test unless a flow has run to the end |
 | `h.Value(c)`, `h.Writes()`, `h.Claims(c)`, `h.Finished(flow)`, `h.Now()` | Read the same, for a test that checks for itself |
 
@@ -102,19 +102,19 @@ Under `go test` and `oikadetest`, an `oikade.Var` is empty.
 ```text
 $ oikade dev
 Simulating 2 devices from Sat 11:00. Type help for the commands.
-Sat 11:00 Wrote porch-light on = false
-set porch-sensor occupied true
-Sat 11:00 case/porch-light/on/motion applies
-Sat 11:00 Wrote porch-light on = true
-set porch-sensor occupied false
+Sat 11:00 Wrote hardware/simulator/porch-light/on = false
+set hardware/simulator/porch-sensor/occupied true
+Sat 11:00 case/simulator/porch-light/on/motion applies
+Sat 11:00 Wrote hardware/simulator/porch-light/on = true
+set hardware/simulator/porch-sensor/occupied false
 advance 6m
-Sat 11:05 case/porch-light/on/motion no longer applies
-Sat 11:05 Wrote porch-light on = false
+Sat 11:05 case/simulator/porch-light/on/motion no longer applies
+Sat 11:05 Wrote hardware/simulator/porch-light/on = false
 ```
 
 | Command | |
 |---|---|
-| `set DEVICE CAPABILITY VALUE` | Changes a device from outside, as a sensor or an app would. `true`, `on`, `false` and `off` are bools, and a number is a number |
+| `set REF VALUE` | Changes a device from outside, as a sensor or an app would: `REF` is the capability's, as `oikade set` takes it. `true`, `on`, `false` and `off` are bools, and a number is a number |
 | `advance DURATION` | Moves the clock on, as in `advance 90m` |
 | `status` | Shows every device's values, and what holds each |
 | `restart` | Crashes your automations, and starts them again |

@@ -141,12 +141,12 @@ func routineWant(step int, durable bool) wantRoutine {
 func (r *rig) survey() (wantRoutine, []string, error) {
 	r.t.Helper()
 	got := wantRoutine{
-		lamp0: r.count(wrote, "device", "lamp-0"),
-		lamp1: r.count(wrote, "device", "lamp-1"),
-		done:  r.count(wrote, "device", "routine-done"),
+		lamp0: r.count(wrote, "device", "hardware/simulator/lamp-0"),
+		lamp1: r.count(wrote, "device", "hardware/simulator/lamp-1"),
+		done:  r.count(wrote, "device", "hardware/simulator/routine-done"),
 		calls: r.calls(),
 	}
-	if n := r.count(wrote, "device", "routine-wrong"); n != 0 {
+	if n := r.count(wrote, "device", "hardware/simulator/routine-wrong"); n != 0 {
 		return got, nil, fmt.Errorf("took the wrong branch %d times", n)
 	}
 	s := r.openStore()
@@ -258,7 +258,7 @@ func TestChangedFlowIsDroppedAndTheNextTriggerStartsAgain(t *testing.T) {
 		return l.is("Dropped flow run; its code changed while it waited", "rule", "flow/editable")
 	})
 	r.sync()
-	if n := r.count(wrote, "device", "edit-out"); n != 0 {
+	if n := r.count(wrote, "device", "hardware/simulator/edit-out"); n != 0 {
 		t.Fatalf("a changed flow went on to act: %d writes", n)
 	}
 
@@ -310,10 +310,10 @@ func TestFailedRunReleasesItsNormalClaimAndKeepsItsSafetyOne(t *testing.T) {
 	// Each ends with a restart, so what the release decided has to come back from disk.
 	check := func(t *testing.T, r *rig) {
 		t.Helper()
-		if got := r.claimsOf("claimed-normal"); len(got) != 0 {
+		if got := r.claimsOf("simulator/claimed-normal"); len(got) != 0 {
 			t.Fatalf("the normal claim stayed: %+v", got)
 		}
-		if got := r.claimsOf("claimed-safety"); len(got) != 1 || got[0].Level != control.Safety {
+		if got := r.claimsOf("simulator/claimed-safety"); len(got) != 1 || got[0].Level != control.Safety {
 			t.Fatalf("the Safety claim went: %+v", got)
 		}
 	}
@@ -349,7 +349,7 @@ func TestFailedRunReleasesItsNormalClaimAndKeepsItsSafetyOne(t *testing.T) {
 		r.waitFor(failed)
 		r.wrote("claimed-normal", true)
 		survivesRestart(t, r)
-		if n := r.count(wrote, "device", "claimed-safety", "value", true); n != 0 {
+		if n := r.count(wrote, "device", "hardware/simulator/claimed-safety", "value", true); n != 0 {
 			t.Fatalf("the Safety claim's device was written back %d times", n)
 		}
 	})
@@ -358,7 +358,7 @@ func TestFailedRunReleasesItsNormalClaimAndKeepsItsSafetyOne(t *testing.T) {
 	t.Run("the release reaches claims a new host restored", func(t *testing.T) {
 		r := start(t)
 		r.stop()
-		if got := r.claimsOf("claimed-normal"); len(got) != 1 {
+		if got := r.claimsOf("simulator/claimed-normal"); len(got) != 1 {
 			t.Fatalf("the normal claim wasn't saved: %+v", got)
 		}
 		r.launch()
@@ -384,7 +384,7 @@ func TestClaimSurvivesTheHostDyingRightAfterItsAnswer(t *testing.T) {
 	r.died()
 
 	s := r.openStore()
-	raw, ok, err := s.Namespace(engine.ControlStatesNamespace).Get("claimed")
+	raw, ok, err := s.Namespace(engine.ControlStatesNamespace).Get("simulator/claimed")
 	if err != nil || !ok {
 		t.Fatalf("no saved state for the device (%v). The log:\n%s", err, r.dump())
 	}
@@ -430,7 +430,7 @@ func TestTimeOfDayMissedWhileNoProcessRan(t *testing.T) {
 			return l.is("Skipped missed trigger; it is older than the startingDeadline")
 		})
 		r.sync()
-		if n := r.count(wrote, "device", "timed-out"); n != 0 {
+		if n := r.count(wrote, "device", "hardware/simulator/timed-out"); n != 0 {
 			t.Fatalf("a time of day fired 20 minutes late: %d writes", n)
 		}
 	})

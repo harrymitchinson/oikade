@@ -80,12 +80,13 @@ func binary(t *testing.T, name string) string {
 	return filepath.Join(binDir, name)
 }
 
-// run runs a binary in dir, with GOPROXY off to prove a home needs only Go and the binary.
+// run runs a binary in dir, with GOPROXY off to prove a home needs only Go and the binary, and a
+// config of its own, so no command reaches a host this machine's contexts name.
 func run(t *testing.T, bin, dir, stdin string, args ...string) (string, error) {
 	t.Helper()
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GOPROXY=off", "GOFLAGS=-mod=mod")
+	cmd.Env = append(os.Environ(), "GOPROXY=off", "GOFLAGS=-mod=mod", "XDG_CONFIG_HOME="+t.TempDir())
 	cmd.Stdin = strings.NewReader(stdin)
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
@@ -157,7 +158,7 @@ func TestTypesAddsEachDeviceOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	line := `KitchenCeiling = oikade.Device[oikade.DimmableLight]("Kitchen%20ceiling", Kitchen)`
+	line := `KitchenCeiling = oikade.Device[oikade.DimmableLight]("simulator/Kitchen%20ceiling", Kitchen)`
 	if !strings.Contains(string(first), line) {
 		t.Errorf("devices.go is:\n%s", first)
 	}
@@ -170,6 +171,36 @@ func TestTypesAddsEachDeviceOnce(t *testing.T) {
 	}
 	if out, err := run(t, bin, dir, "", "test"); err != nil {
 		t.Fatalf("oikade test: %v\n%s", err, out)
+	}
+}
+
+// oikade status takes a device by its hardware's ref, as oikade list devices shows it, and a room by
+// the name oikade types gives its oikade.Room.
+func TestStatusTakesAHardwareRefAndARoom(t *testing.T) {
+	t.Parallel()
+	bin := oikade(t)
+	dir := newHome(t, bin)
+	data := startHost(t, `[
+		{"name": "porch-light", "capabilities": ["on"]},
+		{"name": "Plafond", "room": "Cuisine", "capabilities": ["on"]}
+	]`)
+	out, err := run(t, bin, dir, "", "list", "devices", "--data-dir", data)
+	if err != nil || !strings.Contains(out, "hardware/simulator/porch-light ") {
+		t.Fatalf("oikade list devices: %v\n%s", err, out)
+	}
+	out, err = run(t, bin, dir, "", "status", "hardware/simulator/porch-light", "--data-dir", data)
+	if err != nil || !strings.HasPrefix(out, "hardware/simulator/porch-light\n") || strings.Contains(out, "Plafond") {
+		t.Errorf("oikade status hardware/simulator/porch-light: %v\n%s", err, out)
+	}
+	if out, err := run(t, bin, dir, "", "types", "--data-dir", data); err != nil {
+		t.Fatalf("oikade types: %v\n%s", err, out)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(dir, "devices.go")); !strings.Contains(string(raw), `oikade.Room("cuisine")`) {
+		t.Errorf("devices.go is:\n%s", raw)
+	}
+	out, err = run(t, bin, dir, "", "status", "room/cuisine", "--data-dir", data)
+	if err != nil || !strings.Contains(out, "hardware/simulator/Plafond ") || strings.Contains(out, "porch-light") {
+		t.Errorf("oikade status room/cuisine: %v\n%s", err, out)
 	}
 }
 
@@ -296,7 +327,7 @@ func TestCheckFailsOn(t *testing.T) {
 		{"a result that isn't used", writing("discard.go", discarded),
 			[]string{"the result of For isn't used", "the result of To isn't used"}},
 		{"an option given twice", replacing(lingers, lingers+".Linger(time.Minute)"),
-			[]string{`decision porch-light on: Case "motion": Linger is given twice`}},
+			[]string{`decision hardware/simulator/porch-light/on: Case "motion": Linger is given twice`}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -492,7 +523,7 @@ func TestDevFiresAtSunsetForTheHomesLocation(t *testing.T) {
 			want = at.Add(-20 * time.Minute)
 		}
 	}
-	line := want.Format("Mon 15:04") + " Wrote porch-light on = true"
+	line := want.Format("Mon 15:04") + " Wrote hardware/simulator/porch-light/on = true"
 	if !strings.Contains(out, line) {
 		t.Errorf("no %q in:\n%s", line, out)
 	}
@@ -520,9 +551,9 @@ func TestDevShowsAHoldStartingAndEnding(t *testing.T) {
 	bin := oikade(t)
 	dir := newHome(t, bin)
 	script := strings.Join([]string{
-		"set porch-sensor occupied true",
+		"set hardware/simulator/porch-sensor/occupied true",
 		"status",
-		"set porch-sensor occupied false",
+		"set hardware/simulator/porch-sensor/occupied false",
 		"advance 6m",
 		"bogus",
 		"quit",
@@ -531,13 +562,14 @@ func TestDevShowsAHoldStartingAndEnding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("oikade dev: %v\n%s", err, out)
 	}
-	started := strings.Index(out, "case/porch-light/on/motion applies")
-	ended := strings.Index(out, "case/porch-light/on/motion no longer applies")
+	started := strings.Index(out, "case/simulator/porch-light/on/motion applies")
+	ended := strings.Index(out, "case/simulator/porch-light/on/motion no longer applies")
 	if started < 0 || ended < started {
 		t.Errorf("no hold starting then ending in:\n%s", out)
 	}
 	for _, want := range []string{
-		"Wrote porch-light on = true", "Wrote porch-light on = false", "that isn't a command",
+		"Wrote hardware/simulator/porch-light/on = true", "Wrote hardware/simulator/porch-light/on = false",
+		"hardware/simulator/porch-sensor/occupied: true", "that isn't a command",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("no %q in:\n%s", want, out)

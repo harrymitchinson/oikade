@@ -62,12 +62,12 @@ func TestARenameKeepsClaimsAndAHeldLatchWithNothingMoved(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)
 	r.change("leak-sensor", opened, true)
-	r.untilValue("valve", false)
+	r.untilValue("relays/valve", false)
 	// The leak is gone, and the latch holds the valve shut until a reset.
 	r.change("leak-sensor", opened, false)
 	r.sync()
 	r.until("the leak shutoff", func() bool {
-		return strings.Contains(string(r.stdout(nil, "status", "valve")), "leak-shutoff wants false")
+		return strings.Contains(string(r.stdout(nil, "status", "hardware/relays/valve")), "leak-shutoff wants false")
 	})
 
 	stderr, err := r.deploy("plugins-mains")
@@ -80,12 +80,13 @@ func TestARenameKeepsClaimsAndAHeldLatchWithNothingMoved(t *testing.T) {
 	}
 	for _, launch := range []func(){func() {}, func() { r.launchedPlugins() }} {
 		launch()
-		if status := string(r.stdout(nil, "status", "mains-valve")); !strings.Contains(status, "leak-shutoff wants false") {
+		if status := string(r.stdout(nil, "status", "hardware/relays/valve")); !strings.Contains(status,
+			"leak-shutoff wants false") {
 			t.Errorf("the latch didn't hold:\n%s", status)
 		}
 		// The fixture's plugin opens its valve whenever it starts, as a deploy restarts it, and the
 		// latched Safety claim closes it again.
-		r.untilValue("mains-valve", false)
+		r.untilValue("relays/valve", false)
 		r.stop()
 		r.expectLatched()
 	}
@@ -115,7 +116,7 @@ func (r *rig) expectLatched() {
 func TestADeviceNotInYourCodeSaysHowToDeclareIt(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)
-	r.untilValue("valve", true)
+	r.untilValue("relays/valve", true)
 	want := `home.Device("valve").Hardware("relays", "valve")`
 	if stderr, err := r.oikade(nil, "list", "devices"); err != nil || !strings.Contains(stderr, want) {
 		t.Errorf("oikade devices said %v:\n%s", err, stderr)
@@ -148,11 +149,11 @@ func TestADeclaredSwapOfHardwareStartsItsClaimsAgain(t *testing.T) {
 	r.mustDeploy("plugins-valve")
 	before := deviceOf(t, r.devices(), "valve")
 	r.change("leak-sensor", opened, true)
-	r.untilValue("valve", false)
+	r.untilValue("relays/valve", false)
 
 	// The valve failed: its declaration's ID moves onto the spare.
 	stderr, err := r.deploy("plugins-swapped")
-	if err == nil || !strings.Contains(stderr, `Safety case "relays/valve on leak-shutoff" is gone`) {
+	if err == nil || !strings.Contains(stderr, "Safety case case/relays/valve/on/leak-shutoff is gone") {
 		t.Fatalf("a swap that ends the old hardware's Safety case went ahead: %v: %s", err, stderr)
 	}
 	r.mustDeploy("plugins-swapped", "--allow-safety")
@@ -160,7 +161,7 @@ func TestADeclaredSwapOfHardwareStartsItsClaimsAgain(t *testing.T) {
 	if after.ID != "spare-relay" || after.Endpoint != before.Endpoint {
 		t.Errorf("got %+v, was %+v", after, before)
 	}
-	r.untilValue("valve", false)
+	r.untilValue("relays/spare-relay", false)
 	r.stop()
 	got := r.ruleClaims("relays/spare-relay")
 	if !holdsClaim(got, "Rule/relays/spare-relay on leak-shutoff", control.Safety) {
@@ -182,7 +183,8 @@ func TestADeclaredTypeThatTakesADeviceOutOfASafetyRoomWaitsForAllowSafety(t *tes
 	})
 	r.mustDeploy("plugins-porch-plug")
 	stderr, err := r.deploy("plugins-porch-light")
-	if err == nil || !strings.Contains(stderr, "relay would leave the devices porch on porch-leak writes at Safety") {
+	if err == nil || !strings.Contains(stderr,
+		"hardware/relays/relay would leave the devices case/porch/on/porch-leak writes at Safety") {
 		t.Fatalf("declared the porch's plug a light: %v: %s", err, stderr)
 	}
 	if d := deviceOf(t, r.devices(), "relay"); d.DeviceType != devicetype.OnOffPlugInUnit {
@@ -230,8 +232,8 @@ func TestAStoreKeptByNameStartsItsClaimsAndLatchesAgain(t *testing.T) {
 		t.Errorf("logged that the two started again %d times. The log:\n%s", got, r.dump())
 	}
 	// Nothing holds the valve shut, so it stays open, as its plugin starts it.
-	r.untilValue("valve", true)
-	if status := string(r.stdout(nil, "status", "valve")); strings.Contains(status, "leak-shutoff") {
+	r.untilValue("relays/valve", true)
+	if status := string(r.stdout(nil, "status", "hardware/relays/valve")); strings.Contains(status, "leak-shutoff") {
 		t.Errorf("the old latch holds:\n%s", status)
 	}
 	r.stop()
@@ -279,8 +281,14 @@ func TestARoomFollowsTheSensorPlacedInIt(t *testing.T) {
 		light.DeviceType != devicetype.OnOffLight || light.Label != "Plafond" {
 		t.Errorf("the sensor is %+v, and the light %+v", motion, light)
 	}
+	// Neither has a room in its app, so room/cuisine is oikade.Room's.
+	if out := string(r.stdout(nil, "status", "room/cuisine")); !strings.Contains(out,
+		"hardware/simulator/cuisine-motion ") ||
+		!strings.Contains(out, "hardware/simulator/cuisine-light ") {
+		t.Errorf("status room/cuisine:\n%s", out)
+	}
 	r.change("cuisine-motion", "occupied", true)
-	r.untilValue("cuisine-light", true)
+	r.untilValue("simulator/cuisine-light", true)
 	r.change("cuisine-motion", "occupied", false)
-	r.untilValue("cuisine-light", false)
+	r.untilValue("simulator/cuisine-light", false)
 }

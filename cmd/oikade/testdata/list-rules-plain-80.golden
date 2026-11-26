@@ -1,7 +1,7 @@
-NAME                              KIND  STATE
-case/office-ac/on/too-warm        case
-flow/morning                      flow
-case/mains-valve/on/leak-shutoff  case  Safety, paused
+NAME                               KIND  STATE
+case/toshiba/5f1c0c2e/on/too-warm  case
+flow/morning                       flow
+case/mains-valve/on/leak-shutoff   case  Safety, paused
 --- stderr
 Hint: oikade status REF shows what one is doing now
 --- none

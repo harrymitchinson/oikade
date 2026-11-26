@@ -205,7 +205,7 @@ func TestDeclaringARemovedDeviceSaysItsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := declareOK(t, r, Declaration{Name: "lamp", Driver: "sim", ID: "0x1"})
-	if !slices.Equal(got.Changes, []string{"Brought back lamp, which was removed"}) || !slices.Contains(got.Touched, "0x1") {
+	if !slices.Equal(got.Changes, []string{"Brought back lamp, which was removed"}) || !slices.Contains(got.Touched, "sim/0x1") {
 		t.Errorf("got %+v", got)
 	}
 }
@@ -216,7 +216,7 @@ func TestWhatADeclarationTouchesIsSaid(t *testing.T) {
 	report(t, r, "0x3", "Other")
 	declareOK(t, r, Declaration{Name: "hall-sensor", Driver: "sim", ID: "0x1"}, Declaration{Name: "shed-fan"})
 	got := declareOK(t, r, Declaration{Name: "hall-sensor", Driver: "sim", ID: "0x9"})
-	if !slices.Equal(got.Removed, []string{"shed-fan"}) || !slices.Equal(got.Touched, []string{"0x9"}) {
+	if !slices.Equal(got.Removed, []string{"shed-fan"}) || !slices.Equal(got.Touched, []string{"sim/0x9"}) {
 		t.Errorf("got %+v, want hall-sensor touched by its new hardware's key, shed-fan removed, other untouched", got)
 	}
 }
@@ -323,6 +323,10 @@ func TestHardwareDeclaredByItselfIsChecked(t *testing.T) {
 			"hue/0x1 has no temperature, which its line in your code gives it: it has on",
 		},
 		"no plugin's, and not on record": {[]Declaration{{Hardware: "sim-2"}}, "sim-2 isn't on record"},
+		"the simulator's, and not on record": {
+			[]Declaration{{Hardware: "simulator/sim-2", Driver: "simulated/simulator", ID: "sim-2"}},
+			"simulator/sim-2 isn't on record: it's no plugin's",
+		},
 		"twice": {
 			[]Declaration{{Hardware: "sim-1"}, {Hardware: "sim-1"}}, "sim-1 is declared twice",
 		},
@@ -349,7 +353,7 @@ func TestHardwareDeclaredByItselfIsChecked(t *testing.T) {
 	if d := get(t, r, "kitchen-ceiling"); d.Key() != "hue/0x9" || !d.Declared {
 		t.Errorf("paired, it's %+v", r.List())
 	}
-	if _, err := r.Plan([]Declaration{{Hardware: "sim-1", Capabilities: []string{"on"}}}); err != nil {
+	if _, err := r.Plan([]Declaration{{Hardware: "sim/sim-1", Capabilities: []string{"on"}}}); err != nil {
 		t.Errorf("hardware of no plugin, on record, is refused: %v", err)
 	}
 }

@@ -21,8 +21,8 @@ import (
 type Hardware struct {
 	// Key is how the host knows the hardware: its ref without hardware/, as oikade list devices --wide
 	// shows it, which is its plugin's name and the ID the plugin gives it, percent-encoded, such as
-	// hue/0x00178801091863f2. A simulated device's is its ID, and a reserved name's the name. A rename
-	// doesn't change it.
+	// hue/0x00178801091863f2. A simulated device's is simulator/ and its ID, and a reserved name's the
+	// name. A rename doesn't change it.
 	Key string
 }
 
@@ -442,7 +442,7 @@ func (h *Home) checkHardwareInventory() error {
 		imported := func(plugin string) bool {
 			return slices.ContainsFunc(h.plugins, func(p *Plugin) bool { return p.name == plugin })
 		}
-		if plugin, _, ok := strings.Cut(d.key, "/"); ok && !imported(plugin) {
+		if plugin, _, ok := strings.Cut(d.key, "/"); ok && plugin != ident.Simulator && !imported(plugin) {
 			bad(fmt.Errorf("its hardware is plugin %s's, which this home doesn't import with Plugin", plugin))
 		}
 		if name, ok := byName[d.key]; ok {

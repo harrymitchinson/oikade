@@ -1,15 +1,15 @@
 Wed 18 Nov, yesterday
 16:20:03  deployed version f113018
 16:20:04  automations connected
-16:41:00  device/porch-light/on  wrote true  by case/porch-light/on/dusk
-16:41:01  device/porch-light/on  true  was false
-23:05:12  device/porch-light/on  wrote false  by matter
-23:05:12  device/porch-light/on  false  was true
+16:41:00  hardware/hue/0x2/on  wrote true  by case/hue/0x2/on/dusk
+16:41:01  hardware/hue/0x2/on  true  was false
+23:05:12  hardware/hue/0x2/on  wrote false  by matter
+23:05:12  hardware/hue/0x2/on  false  was true
 Thu 19 Nov, today
-03:00:40  device/porch-light  went offline  no answer on the LAN
-03:02:09  device/porch-light  came back online
-07:00:00  device/porch-light/brightness  wrote 40%  by flow/morning
-07:00:01  device/porch-light/brightness  40%  was 100%
+03:00:40  hardware/hue/0x2  went offline  no answer on the LAN
+03:02:09  hardware/hue/0x2  came back online
+07:00:00  hardware/hue/0x2/brightness  wrote 40%  by flow/morning
+07:00:01  hardware/hue/0x2/brightness  40%  was 100%
 09:30:00  automations disconnected
 --- stderr
 The event log starts 4 days ago: nothing from before then is kept.

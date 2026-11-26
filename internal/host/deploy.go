@@ -19,6 +19,7 @@ import (
 	"oikade.dev/internal/flow"
 	"oikade.dev/internal/host/api"
 	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/ident"
 	"oikade.dev/internal/registry"
 )
 
@@ -283,7 +284,7 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool,
 	// it will run.
 	manifest, err := runCheck(ctx, d.versions.path(id), d.vars, in.vars)
 	if err != nil {
-		return reject(api.Response{Error: namedText(err.Error(), d.srv.registry())})
+		return reject(api.Response{Error: err.Error()})
 	}
 	if missing := missingVars(manifest.Vars, in.vars); len(missing) > 0 {
 		return reject(api.Response{Error: missingError(missing, in.whose), MissingVars: missing})
@@ -325,7 +326,7 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool,
 		// claims the host holds, which safetyFindings reads.
 		old.Rules = nil
 	}
-	findings := safetyFindings(old, manifest, d.srv.engine.RuleClaims(), d.srv.safetyHeld, declaredNames(manifest.Inventory, d.srv.names))
+	findings := safetyFindings(old, manifest, d.srv.engine.RuleClaims(), d.srv.safetyHeld)
 	if d.srv.leavingSafety != nil {
 		// The rules running now, and the ones that will.
 		findings = append(findings, d.srv.leavingSafety(manifest.Inventory, old.Rules, manifest.Rules)...)
@@ -357,7 +358,7 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool,
 	var late []string
 	vet := func() error {
 		if !allow {
-			late = safetyFindings(old, manifest, d.srv.engine.RuleClaims(), d.srv.safetyHeld, d.srv.names)
+			late = safetyFindings(old, manifest, d.srv.engine.RuleClaims(), d.srv.safetyHeld)
 			if len(late) > 0 {
 				return errLateClaim
 			}
@@ -412,7 +413,7 @@ func (d *deployer) declaredWarning(next, old wire.Manifest) string {
 	}
 	warnings := kept
 	keep := func(rule string) bool { return rules[rule] }
-	if w := emptiedWarning(d.srv.emptyReads(change.before, change.after, keep, declaredNames(next.Inventory, d.srv.names))); w != "" {
+	if w := emptiedWarning(d.srv.emptyReads(change.before, change.after, keep)); w != "" {
 		warnings = append([]string{w}, warnings...)
 	}
 	return strings.Join(warnings, "; ")
@@ -584,9 +585,9 @@ func (d *deployer) state() (v version, ok, busy bool) {
 // reopen a valve, and a latch dies with its key, so a rule that's another key is one removed: a case
 // of other hardware is. A rename isn't, as a case is keyed by its device's hardware. held catches a
 // Safety claim the old version's declaration doesn't show, such as one an older binary's rule made,
-// since a home declares every rule that can make one. names name what the findings say.
+// since a home declares every rule that can make one.
 func safetyFindings(old, next wire.Manifest, held map[string]control.Level,
-	safetyHeld func(device, capability string) bool, names control.Names,
+	safetyHeld func(device, capability string) bool,
 ) []string {
 	has := func(name string) bool {
 		return slices.ContainsFunc(next.Rules, func(r wire.RuleInfo) bool { return r.Name == name })
@@ -598,7 +599,7 @@ func safetyFindings(old, next wire.Manifest, held map[string]control.Level,
 			continue
 		}
 		named[r.Name] = true
-		finding := fmt.Sprintf("Safety %s %q is gone", r.Kind, names.Rule(r.Name))
+		finding := fmt.Sprintf("Safety %s %s is gone", r.Kind, control.RuleRef(r.Name))
 		if r.Latch {
 			finding += ", and its latch would be lost if it was renamed"
 		}
@@ -606,7 +607,8 @@ func safetyFindings(old, next wire.Manifest, held map[string]control.Level,
 	}
 	for rule, level := range held {
 		if level >= control.Safety && !named[rule] && !has(rule) {
-			findings = append(findings, fmt.Sprintf("rule %q is gone and holds a Safety claim, which would end", names.Rule(rule)))
+			findings = append(findings, fmt.Sprintf("%s is gone and holds a Safety claim, which would end",
+				control.RuleRef(rule)))
 		}
 	}
 	// A device stops being arbitrated with its Control, and that ends every claim on it.
@@ -616,8 +618,8 @@ func safetyFindings(old, next wire.Manifest, held map[string]control.Level,
 			return n.Device == c.Device && n.Room == c.Room && n.Entry.Capability == c.Entry.Capability
 		})
 		if !kept && c.Device != "" && safetyHeld(c.Device, c.Entry.Capability) {
-			findings = append(findings, fmt.Sprintf("%s on %s has no Control any more, which would end a Safety claim on it",
-				c.Entry.Capability, names.Device(c.Device)))
+			findings = append(findings, fmt.Sprintf("%s has no Control any more, which would end a Safety claim on it",
+				ident.CapabilityRef(c.Device, c.Entry.Capability)))
 		}
 	}
 	slices.Sort(findings)

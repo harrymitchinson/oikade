@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,8 +18,10 @@ import (
 
 	"oikade.dev/internal/cli"
 	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/driver"
 	"oikade.dev/internal/host/api"
 	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/ident"
 	"oikade.dev/internal/registry"
 )
 
@@ -210,7 +211,7 @@ func sameProtocol(m wire.Manifest) error {
 }
 
 // printUnseen warns of the hardware your home declares that the host has never seen, whose name
-// waits for it to report.
+// waits for it to report, or, for hardware no plugin's, which a deploy refuses until it has.
 func printUnseen(out io.Writer, list registry.Snapshot, inventory []wire.DeviceDeclaration) {
 	for _, d := range wire.Declarations(inventory) {
 		if d.ID == "" || slices.ContainsFunc(list.Devices, func(r registry.Device) bool {
@@ -218,8 +219,16 @@ func printUnseen(out io.Writer, list registry.Snapshot, inventory []wire.DeviceD
 		}) {
 			continue
 		}
-		_, _ = fmt.Fprintf(out, "Warning: the host has never seen %s, so %s waits for it to report\n",
-			registry.DescribeHardware(d.Driver, d.ID), cmp.Or(d.Name, d.Hardware))
+		hardware := ident.DeviceRef(d.Key())
+		switch {
+		case !strings.HasPrefix(d.Driver, driver.Plugin+"/"):
+			_, _ = fmt.Fprintf(out, "Warning: the host has never seen %s, which is no plugin's, so a deploy is refused "+
+				"until it reports\n", hardware)
+		case d.Name != "":
+			_, _ = fmt.Fprintf(out, "Warning: the host has never seen %s, so %s waits for it to report\n", hardware, d.Name)
+		default:
+			_, _ = fmt.Fprintf(out, "Warning: the host has never seen %s, so its line waits for it to report\n", hardware)
+		}
 	}
 }
 
@@ -264,9 +273,9 @@ func isPlugins(d registry.Device, plugin string) bool {
 // printHiding says which devices a deploy of the home would take off Matter, before it does.
 func printHiding(out io.Writer, list registry.Snapshot, hidden []wire.HiddenPlugin, hiddenNow []string) {
 	var hiding []string
-	for _, name := range api.HiddenDevices(list, hidden) {
-		if !slices.Contains(hiddenNow, name) {
-			hiding = append(hiding, name)
+	for _, key := range api.HiddenDevices(list, hidden) {
+		if !slices.Contains(hiddenNow, key) {
+			hiding = append(hiding, ident.DeviceRef(key).String())
 		}
 	}
 	if len(hiding) > 0 {
@@ -476,8 +485,8 @@ func moduleFromSource(dir, name, source string) error {
 // homeFiles are a new home's files, by path.
 func homeFiles() (map[string][]byte, error) {
 	devices, _, err := addDevices(nil, "main", nil, []newDevice{
-		{name: "porch-light", key: "porch-light", room: "porch", typ: devicetype.OnOffLight},
-		{name: "porch-sensor", key: "porch-sensor", room: "porch", typ: devicetype.OccupancySensor},
+		{name: "porch-light", key: "simulator/porch-light", room: "porch", typ: devicetype.OnOffLight},
+		{name: "porch-sensor", key: "simulator/porch-sensor", room: "porch", typ: devicetype.OccupancySensor},
 	})
 	if err != nil {
 		return nil, errors.New("writing the example devices: " + err.Error())

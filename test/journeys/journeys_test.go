@@ -145,13 +145,13 @@ func (h *host) status() (api.Status, bool) {
 	return s, err == nil && json.Unmarshal(out, &s) == nil
 }
 
-// value is a device's value, or nil.
+// value is a simulated device's value, or nil.
 func (h *host) value(device, capability string) any {
 	s, ok := h.status()
 	if !ok {
 		return nil
 	}
-	i := slices.IndexFunc(s.Devices, func(d api.Device) bool { return d.Name == device })
+	i := slices.IndexFunc(s.Devices, func(d api.Device) bool { return d.Hardware == "simulator/"+device })
 	if i < 0 {
 		return nil
 	}
@@ -229,7 +229,7 @@ func TestANewHomeRunsOnAHost(t *testing.T) {
 	page := "http://" + address + "/metrics"
 	until(t, "the metrics Grafana reads", func() bool {
 		return strings.Contains(metrics(t.Context(), page),
-			`oikade_capability_value{capability="on",device="porch-light"`)
+			`oikade_capability_value{capability="on",device="hardware/simulator/porch-light"`)
 	})
 
 	h.stop()

@@ -137,8 +137,8 @@ type Request struct {
 	Device     string `json:"device,omitempty"`
 	Capability string `json:"capability,omitempty"`
 	Value      any    `json:"value,omitempty"`
-	// Devices are a forget's, by name, and Plugin one in their place: every device of that plugin on
-	// record.
+	// Devices are a forget's, by their hardware, and Plugin one in their place: every device of that
+	// plugin on record. Device is a set's, by its hardware.
 	Devices []string `json:"devices,omitempty"`
 	Plugin  string   `json:"plugin,omitempty"`
 	// WindowSeconds is how long a Matter window stays open: 180 to 900, and 0 for 900.
@@ -280,12 +280,12 @@ func HiddenFromMatter(hidden []wire.HiddenPlugin, d registry.Device) bool {
 	return ok && Bridgeable(d) && wire.Hidden(hidden, plugin, d.Name)
 }
 
-// HiddenDevices names the devices on record that hidden keeps off Matter, by name.
+// HiddenDevices are the devices on record that hidden keeps off Matter, by their hardware.
 func HiddenDevices(list registry.Snapshot, hidden []wire.HiddenPlugin) []string {
 	var out []string
 	for _, d := range list.Devices {
 		if HiddenFromMatter(hidden, d) {
-			out = append(out, d.Name)
+			out = append(out, d.Key())
 		}
 	}
 	slices.Sort(out)
@@ -293,7 +293,7 @@ func HiddenDevices(list registry.Snapshot, hidden []wire.HiddenPlugin) []string 
 }
 
 // UnimportedOf lists the devices on record of plugins that are neither imported nor outside, by
-// name. safety says whether a Safety claim holds a device, and may be nil.
+// their hardware. safety says whether a Safety claim holds a device, by its hardware, and may be nil.
 func UnimportedOf(list registry.Snapshot, imported, outside []string, safety func(device string) bool) []Unimported {
 	var out []Unimported
 	for _, d := range list.Devices {
@@ -301,9 +301,9 @@ func UnimportedOf(list registry.Snapshot, imported, outside []string, safety fun
 		if !ok || d.Removed || slices.Contains(imported, plugin) || slices.Contains(outside, plugin) {
 			continue
 		}
-		u := Unimported{Device: d.Name, Ref: ident.DeviceRef(d.Name).String(), Plugin: plugin}
+		u := Unimported{Device: d.Key(), Ref: ident.DeviceRef(d.Key()).String(), Plugin: plugin}
 		if safety != nil {
-			u.Safety = safety(d.Name)
+			u.Safety = safety(d.Key())
 		}
 		out = append(out, u)
 	}
@@ -451,16 +451,17 @@ type Plugin struct {
 	Problem string `json:"problem,omitempty"`
 	// NeedsSetup is a plugin that says it can't serve its devices until oikade setup runs.
 	NeedsSetup bool `json:"needsSetup,omitempty"`
-	// Devices are the devices on record that it reports, by name.
+	// Devices are the devices on record that it reports, by their hardware.
 	Devices []string `json:"devices"`
 }
 
 type Device struct {
-	Name string `json:"name"`
-	// Ref is its ref, such as device/desk-plug.
-	Ref    string `json:"ref"`
-	Room   string `json:"room,omitempty"`
-	Online *bool  `json:"online,omitempty"`
+	// Hardware is what its line in your code says it is, such as hue/0x2, and Ref its ref, such as
+	// hardware/hue/0x2.
+	Hardware string `json:"hardware"`
+	Ref      string `json:"ref"`
+	Room     string `json:"room,omitempty"`
+	Online   *bool  `json:"online,omitempty"`
 	// OfflineSince is when it went offline, while it's offline, if the host heard it go.
 	OfflineSince *time.Time        `json:"offlineSince,omitempty"`
 	Plugin       string            `json:"plugin,omitempty"`
@@ -478,7 +479,7 @@ type Device struct {
 // Capability is a device's capability, and who has it if it's arbitrated.
 type Capability struct {
 	Name string `json:"name"`
-	// Ref is its ref, such as device/desk-plug/on.
+	// Ref is its ref, such as hardware/hue/0x2/on.
 	Ref   string `json:"ref"`
 	Value any    `json:"value,omitempty"`
 	// Level is the winning level: Default, Normal, Override or Safety. Empty means it isn't
@@ -588,8 +589,8 @@ const (
 	EventMatter = "matter"
 	// EventForget is a device forgotten, so its history says why it stops.
 	EventForget = "forget"
-	// EventRename is a device renamed by a deploy: Device is its name from then on, and Previous the
-	// one before. The log keeps its key in Device and the name in Message.
+	// EventRename is a device renamed by a deploy: Device is its key, Message its name from then on,
+	// and Previous the one before.
 	EventRename = "rename"
 	// EventSignal is a signal changing, as the host saved it: Ref is the signal's, Value what it is
 	// now, and Previous what it was.
@@ -619,8 +620,8 @@ type Event struct {
 	Type string    `json:"type"`
 	// Device, Capability and Value are a change's, a write's or a refused write's, and Previous a
 	// change's. Value and Previous are also a signal's. Device is also the device that went offline
-	// or came back, was forgotten, or was renamed, with Previous its name before. The log keeps a
-	// device by its key, its hardware, and the API names it, in Device, Ref, Rule and By alike.
+	// or came back, was forgotten, or was renamed, with Previous its name before. Device is a device's
+	// key, its hardware, as Rule is a rule's, and Ref and By are refs.
 	Device     string `json:"device,omitempty"`
 	Capability string `json:"capability,omitempty"`
 	Value      any    `json:"value,omitempty"`
@@ -633,7 +634,7 @@ type Event struct {
 	Ref    string `json:"ref,omitempty"`
 	Result string `json:"result,omitempty"`
 	// By is whose write it is, as a ref: the rule whose claim won or whose step set it
-	// (case/porch-light/on/dusk, flow/morning), matter for a Matter controller, or command for oikade
+	// (case/hue/0x2/on/dusk, flow/morning), matter for a Matter controller, or command for oikade
 	// set. A write has none when no rule's claim decided it, as when a capability goes back to its
 	// default, and when it's from before writes said.
 	By string `json:"by,omitempty"`
