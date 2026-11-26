@@ -144,3 +144,30 @@ func TestCompileErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestRestPlansWhatsLeftOfTheDay(t *testing.T) {
+	b, err := CompileSpec(drying(), dehumidifierControl())
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := func(hhmm string) time.Time { return saturday.Add(time.Duration(hm(hhmm)) * time.Minute) }
+	for name, tc := range map[string]struct {
+		now             string
+		minutes, starts int
+		lastOff         time.Time
+		want            string
+	}{
+		"from now":                  {now: "22:00", minutes: 120, want: "22:00-00:00"},
+		"resting since it went off": {now: "22:00", minutes: 120, lastOff: at("22:00"), want: "22:30-00:00"},
+		"two blocks":                {now: "08:00", minutes: 360, want: "08:00-12:00 22:00-00:00"},
+		"one start left":            {now: "08:00", minutes: 360, starts: 3, want: "08:00-14:00"},
+		"no starts left":            {now: "08:00", minutes: 360, starts: 4},
+	} {
+		t.Run(name, func(t *testing.T) {
+			day := Plan(b.Rest(2026, time.July, 4, at(tc.now), paris, tc.minutes, tc.starts, tc.lastOff))
+			if got := local(day.Blocks); got != tc.want {
+				t.Errorf("blocks %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

@@ -182,6 +182,7 @@ func TestStatusSaysWhatEachHoldIsDoing(t *testing.T) {
 		{Name: "porch-light", Kind: "hold", Active: &yes, Since: at("21:00:00"), Latched: true},
 		{Name: "towel-rail", Kind: "hold", Active: &no, Budget: &api.RuleBudget{
 			Date: "2026-11-08", TargetMinutes: 120, PlannedMinutes: 90, RunMinutes: 45, MissedMinutes: 15,
+			ReplannedAt: at("21:00:00"),
 		}},
 		{Name: "aquarium", Kind: "hold", Paused: true},
 		{Name: "study-heater", Kind: "hold", Active: &yes, Since: at("08:00:00").AddDate(0, 0, -1), OffAt: at("23:00:00")},
@@ -196,7 +197,7 @@ func TestStatusSaysWhatEachHoldIsDoing(t *testing.T) {
 		"hall-heater  hold  inactive  stopped: no device in room hall has reported occupancy",
 		"lounge-lamp  hold  active since 23:07, off at 23:10",
 		"porch-light  hold  active since 21:00, latched",
-		"towel-rail  hold  inactive, 2026-11-08: planned 90 of 120 min, run 45, missed 15",
+		"towel-rail  hold  inactive, 2026-11-08: planned 90 of 120 min, run 45, missed 15, replanned at 21:00",
 		"aquarium  hold  paused",
 		"study-heater  hold  active since 2026-11-07 08:00:00, off at 23:00 (passed)",
 		"garden-lights  hold  inactive, on at 2026-11-09 06:30:00",

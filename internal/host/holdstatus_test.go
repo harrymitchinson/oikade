@@ -32,6 +32,7 @@ func TestStatusHasEachHoldsStateAndWhyItStopped(t *testing.T) {
 
 	since := time.Date(2026, 11, 7, 23, 7, 5, 0, time.UTC)
 	offAt := since.Add(3 * time.Minute)
+	replanned := since.Add(-time.Hour)
 	if err := c.Put(ctx, ident.ID{Name: "lamp-on"}, engine.HoldState{
 		Active: true, Since: since, OffAt: offAt, Latched: true,
 		Target: engine.HoldTarget{Device: "lamp", Capability: "on", Value: true},
@@ -39,7 +40,7 @@ func TestStatusHasEachHoldsStateAndWhyItStopped(t *testing.T) {
 		t.Fatal(err)
 	}
 	budget, err := json.Marshal(map[string]any{"today": engine.BudgetDay{
-		Date: "2026-11-07", TargetMinutes: 120, ScheduledMinutes: 90, RunMinutes: 45, MissedMinutes: 30,
+		Date: "2026-11-07", TargetMinutes: 120, ScheduledMinutes: 90, RunMinutes: 45, MissedMinutes: 30, ReplannedAt: replanned,
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -61,8 +62,16 @@ func TestStatusHasEachHoldsStateAndWhyItStopped(t *testing.T) {
 		t.Errorf("heater: got %+v", heater)
 	}
 	rail := rules["rail"]
-	if b := rail.Budget; b == nil || *b != (api.RuleBudget{Date: "2026-11-07", TargetMinutes: 120, PlannedMinutes: 90, RunMinutes: 45, MissedMinutes: 30}) {
+	// A time back from JSON has lost its location, so it's compared on its own.
+	want := api.RuleBudget{Date: "2026-11-07", TargetMinutes: 120, PlannedMinutes: 90, RunMinutes: 45, MissedMinutes: 30, ReplannedAt: replanned}
+	if b := rail.Budget; b == nil || !b.ReplannedAt.Equal(want.ReplannedAt) {
 		t.Errorf("rail: got budget %+v", rail.Budget)
+	} else {
+		got := *b
+		got.ReplannedAt, want.ReplannedAt = time.Time{}, time.Time{}
+		if got != want {
+			t.Errorf("rail: got budget %+v", got)
+		}
 	}
 	if gate := rules["gate"]; gate.Active != nil {
 		t.Errorf("a moment has a hold's state: %+v", gate)

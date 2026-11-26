@@ -397,7 +397,7 @@ Flows start when a trigger fires and the condition holds, and run in `internal/f
 
 ### The day planner
 
-`internal/schedule` lays out a day in slots of 15, 30 or 60 minutes, 30 unless a budget's `SlotMinutes` says, which rules require, forbid or prefer, and spends a daily budget across them. A budget is a `schedule.Spec`, and its plan lives in `HoldState.Budget`, so it survives a deploy.
+`internal/schedule` lays out a day in slots of 15, 30 or 60 minutes, 30 unless a budget's `SlotMinutes` says, which rules require, forbid or prefer, and spends a daily budget across them. A budget is a `schedule.Spec`, and its plan lives in `HoldState.Budget`, so it survives a deploy. When a block ends with minutes missed, the engine plans the rest of the day again with `Budget.Rest`, keeping the blocks gone by, and saves the missed minutes not yet made up with the plan, so a restart in the middle of a block still makes them up.
 
 ### A report is applied as a whole
 

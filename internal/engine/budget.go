@@ -79,6 +79,10 @@ type BudgetDay struct {
 	// MissedMinutes is how much of the planned blocks went by with the target off while the
 	// budget's conditions were true, updated as RunMinutes is.
 	MissedMinutes int32 `json:"missedMinutes,omitempty"`
+	// PendingMinutes are the missed minutes not yet replanned, and ReplannedAt when the plan was
+	// last made again for the blocks to come and the minutes missed.
+	PendingMinutes int32     `json:"pendingMinutes,omitempty"`
+	ReplannedAt    time.Time `json:"replannedAt,omitzero"`
 	// Starts counts the planned runs the hold has started today.
 	Starts int32 `json:"starts"`
 }
@@ -141,8 +145,12 @@ type budgetPlan struct {
 	end time.Time
 	day schedule.Day
 	run time.Duration
-	// missed is how much of the planned blocks went by with the target off and the conditions true.
-	missed time.Duration
+	// missed is how much of the planned blocks went by with the target off and the conditions true,
+	// and pending how much of it hasn't been replanned. replanned is when it last was.
+	missed, pending time.Duration
+	replanned       time.Time
+	// lastOff is when the target was last seen going off.
+	lastOff time.Time
 	// starts counts the blocks the hold has started, and started is the start of the last one.
 	starts  int
 	started time.Time
@@ -253,6 +261,10 @@ func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices 
 		e.metrics.budget.missed.Add(0, ruleRef(key))
 	}
 
+	if p.away == nil && p.pending > 0 && !p.inBlock(now) {
+		e.replan(key, b, p, y, m, d, now)
+	}
+
 	next = p.end
 	for _, blk := range p.day.Blocks {
 		switch {
@@ -361,7 +373,8 @@ func (e *Engine) restorePlan(key ident.ID, saved, date string, end, now time.Tim
 	}
 	p := &budgetPlan{
 		date: date, end: end, run: time.Duration(today.RunMinutes) * time.Minute,
-		missed: time.Duration(today.MissedMinutes) * time.Minute, starts: int(today.Starts), failure: failure,
+		missed: time.Duration(today.MissedMinutes) * time.Minute, pending: time.Duration(today.PendingMinutes) * time.Minute,
+		replanned: today.ReplannedAt, starts: int(today.Starts), failure: failure,
 	}
 	p.day = schedule.Day{
 		TargetSource:     schedule.TargetSource(today.TargetSource),
@@ -413,9 +426,54 @@ func (p *budgetPlan) credit(now time.Time, t target, m budgetMetrics, key ident.
 		}
 		p.away = nil
 	}
-	p.run, p.missed = p.run+run, p.missed+missed
+	p.run, p.missed, p.pending = p.run+run, p.missed+missed, p.pending+missed
 	m.credited(key, run, missed)
+	if p.on && t.online && !t.on {
+		p.lastOff = now
+	}
 	p.credited, p.on = now, t.on && t.online && p.away == nil
+}
+
+// inBlock says whether a planned block is under way at t.
+func (p *budgetPlan) inBlock(t time.Time) bool {
+	return slices.ContainsFunc(p.day.Blocks, func(b schedule.Block) bool { return !t.Before(b.Start) && t.Before(b.End) })
+}
+
+// replan plans the rest of the day again, once no block is under way, for the blocks still to come
+// and the minutes missed, keeping the blocks gone by. Less than a minute missed, as a slow write
+// leaves, isn't made up. Call with e.mu held.
+func (e *Engine) replan(key ident.ID, b *schedule.Budget, p *budgetPlan, y int, m time.Month, d int, now time.Time) {
+	missed := int(p.pending / time.Minute)
+	p.pending = 0
+	if missed == 0 || p.failure != "" {
+		return
+	}
+	toCome := int(p.planned(now, p.end) / time.Minute)
+	lastOff := p.lastOff
+	if p.on {
+		// It's on as its block ends, so it's about to go off.
+		lastOff = now
+	}
+	rest := schedule.Plan(b.Rest(y, m, d, now, e.Location, toCome+missed, p.starts, lastOff))
+	for _, err := range rest.Errors {
+		e.Log.Info("Budget replanned with an error", "rule", ruleRef(key), "err", err)
+	}
+	blocks := slices.DeleteFunc(slices.Clone(p.day.Blocks), func(b schedule.Block) bool { return b.End.After(now) })
+	for _, blk := range rest.Blocks {
+		// A run that carries straight on from the block just gone, with the target on, is that block,
+		// not a new start.
+		if n := len(blocks); p.on && n > 0 && blocks[n-1].End.Equal(blk.Start) {
+			blocks[n-1].End = blk.End
+			continue
+		}
+		blocks = append(blocks, blk)
+	}
+	p.day.Blocks = blocks
+	p.day.ScheduledMinutes += rest.ScheduledMinutes - toCome - missed
+	p.day.ShortfallMinutes = max(0, p.day.TargetMinutes-p.day.ScheduledMinutes)
+	p.replanned = now
+	e.Log.Info("Replanned budget", "rule", ruleRef(key), "missed", missed, "scheduled", rest.ScheduledMinutes,
+		"blocks", len(rest.Blocks))
 }
 
 // planned is how much of the time from start to end the plan's blocks cover.
@@ -452,6 +510,8 @@ func (p *budgetPlan) status() *BudgetDay {
 		ShortfallMinutes: int32(p.day.ShortfallMinutes),
 		RunMinutes:       int32(math.Floor(p.run.Minutes())),
 		MissedMinutes:    int32(math.Floor(p.missed.Minutes())),
+		PendingMinutes:   int32(math.Floor(p.pending.Minutes())),
+		ReplannedAt:      p.replanned,
 		Starts:           int32(p.starts),
 	}
 	for _, b := range p.day.Blocks {
@@ -468,13 +528,14 @@ func planMessage(d schedule.Day) string {
 	return msg
 }
 
-// reportBudget reports a budget hold's status, unless only its run and missed minutes changed and
-// they were reported less than checkpointEvery ago. Call with e.mu held.
+// reportBudget reports a budget hold's status, unless only its run, missed and pending minutes
+// changed and they were reported less than checkpointEvery ago. Call with e.mu held.
 func (e *Engine) reportBudget(key ident.ID, s *state, now time.Time, r BudgetReport) {
 	bs := s.hold.budget
 	r.Generation = s.c.Generation
 	if prev := bs.reported; prev != nil && sameBudget(*prev, r) {
-		if prev.Today == nil || prev.Today.RunMinutes == r.Today.RunMinutes && prev.Today.MissedMinutes == r.Today.MissedMinutes ||
+		x, y := prev.Today, r.Today
+		if x == nil || x.RunMinutes == y.RunMinutes && x.MissedMinutes == y.MissedMinutes && x.PendingMinutes == y.PendingMinutes ||
 			now.Sub(bs.checkpointed) < checkpointEvery {
 			return
 		}
@@ -497,7 +558,7 @@ func (e *Engine) reportBudget(key ident.ID, s *state, now time.Time, r BudgetRep
 	}
 }
 
-// sameBudget compares two reports apart from run and missed minutes.
+// sameBudget compares two reports apart from run, missed and pending minutes.
 func sameBudget(a, b BudgetReport) bool {
 	if a.Generation != b.Generation || a.Unplanned != b.Unplanned || a.Reason != b.Reason || a.Message != b.Message ||
 		(a.Today == nil) != (b.Today == nil) {
@@ -507,10 +568,10 @@ func sameBudget(a, b BudgetReport) bool {
 		return true
 	}
 	x, y := *a.Today, *b.Today
-	x.RunMinutes, y.RunMinutes, x.MissedMinutes, y.MissedMinutes = 0, 0, 0, 0
+	x.RunMinutes, y.RunMinutes, x.MissedMinutes, y.MissedMinutes, x.PendingMinutes, y.PendingMinutes = 0, 0, 0, 0, 0, 0
 	return x.Date == y.Date && x.TargetSource == y.TargetSource && x.TargetMinutes == y.TargetMinutes &&
 		x.ScheduledMinutes == y.ScheduledMinutes && x.ShortfallMinutes == y.ShortfallMinutes &&
-		x.Starts == y.Starts && slices.EqualFunc(x.Blocks, y.Blocks, func(p, q BudgetBlock) bool {
+		x.Starts == y.Starts && x.ReplannedAt.Equal(y.ReplannedAt) && slices.EqualFunc(x.Blocks, y.Blocks, func(p, q BudgetBlock) bool {
 		return p.Start.Equal(q.Start) && p.End.Equal(q.End)
 	})
 }
