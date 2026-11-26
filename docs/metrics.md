@@ -40,7 +40,8 @@ Then import [`config/grafana/oikade-home.json`](../config/grafana/oikade-home.js
 | `oikade_rule_active{rule}` | 1 while a case applies, 0 otherwise |
 | `oikade_rule_budget_target_minutes{rule}` | A budget's minutes for the current planning day |
 | `oikade_rule_budget_scheduled_minutes{rule}` | How many of them today's plan places |
-| `oikade_rule_budget_run_minutes_total{rule}` | Minutes a budget's device has been on and available |
+| `oikade_rule_budget_run_minutes_total{rule}` | Minutes a budget's device has been on and available, and offline when it was on as it went and its first report back said on. A stretch offline is added once that report comes, all at once |
+| `oikade_rule_budget_missed_minutes_total{rule}` | Minutes of a budget's planned runs that went by with its device off while its conditions were true |
 | `oikade_rule_budget_today_run_minutes{rule}` | Those minutes in the current planning day |
 | `oikade_rule_budget_desired{rule}` | 1 while a budget's plan wants its device on, 0 otherwise |
 | `oikade_rule_events_dropped_total` | Capability changes your automations dropped because they fell behind |

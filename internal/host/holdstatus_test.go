@@ -39,7 +39,7 @@ func TestStatusHasEachHoldsStateAndWhyItStopped(t *testing.T) {
 		t.Fatal(err)
 	}
 	budget, err := json.Marshal(map[string]any{"today": engine.BudgetDay{
-		Date: "2026-11-07", TargetMinutes: 120, ScheduledMinutes: 90, RunMinutes: 45,
+		Date: "2026-11-07", TargetMinutes: 120, ScheduledMinutes: 90, RunMinutes: 45, MissedMinutes: 30,
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -61,7 +61,7 @@ func TestStatusHasEachHoldsStateAndWhyItStopped(t *testing.T) {
 		t.Errorf("heater: got %+v", heater)
 	}
 	rail := rules["rail"]
-	if b := rail.Budget; b == nil || *b != (api.RuleBudget{Date: "2026-11-07", TargetMinutes: 120, PlannedMinutes: 90, RunMinutes: 45}) {
+	if b := rail.Budget; b == nil || *b != (api.RuleBudget{Date: "2026-11-07", TargetMinutes: 120, PlannedMinutes: 90, RunMinutes: 45, MissedMinutes: 30}) {
 		t.Errorf("rail: got budget %+v", rail.Budget)
 	}
 	if gate := rules["gate"]; gate.Active != nil {

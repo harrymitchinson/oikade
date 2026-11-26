@@ -42,6 +42,7 @@ func newMetrics(rules, controls *vm.Set) engineMetrics {
 			target:    series.NewVec(rules, "oikade_rule_budget_target_minutes", labelRule),
 			scheduled: series.NewVec(rules, "oikade_rule_budget_scheduled_minutes", labelRule),
 			run:       series.NewVec(rules, "oikade_rule_budget_run_minutes_total", labelRule),
+			missed:    series.NewVec(rules, "oikade_rule_budget_missed_minutes_total", labelRule),
 			todayRun:  series.NewVec(rules, "oikade_rule_budget_today_run_minutes", labelRule),
 			desired:   series.NewVec(rules, "oikade_rule_budget_desired", labelRule),
 		},
@@ -61,12 +62,15 @@ type budgetMetrics struct {
 	// run is the minutes a budget hold's target has been on and available, and todayRun those in the
 	// current planning day, to compare with target.
 	run, todayRun series.Vec
+	// missed is the minutes of a budget hold's planned blocks that went by with its target off while
+	// its conditions were true.
+	missed series.Vec
 	// desired is 1 while a budget hold's plan wants its target on, and 0 otherwise.
 	desired series.Vec
 }
 
 func (m budgetMetrics) all() []series.Vec {
-	return []series.Vec{m.target, m.scheduled, m.run, m.todayRun, m.desired}
+	return []series.Vec{m.target, m.scheduled, m.run, m.todayRun, m.missed, m.desired}
 }
 
 // ruleRef is a rule's ref, as its series' rule label and its log lines name it.

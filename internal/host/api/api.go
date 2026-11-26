@@ -552,6 +552,9 @@ type RuleBudget struct {
 	PlannedMinutes int32 `json:"plannedMinutes"`
 	// RunMinutes is how long the target has been on that day, saved at most every 5 minutes.
 	RunMinutes int32 `json:"runMinutes"`
+	// MissedMinutes is how much of the plan went by with the target off while the budget's
+	// conditions were true, saved as RunMinutes is.
+	MissedMinutes int32 `json:"missedMinutes"`
 }
 
 // Event kinds.
