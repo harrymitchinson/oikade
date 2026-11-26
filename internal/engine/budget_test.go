@@ -736,3 +736,45 @@ func TestARestartInTheMiddleOfABlockStillMakesItUp(t *testing.T) {
 		t.Errorf("missed %d, replanned at %v, blocks %s, want at least 55 made up from 02:00", today.MissedMinutes, today.ReplannedAt, blocks(today))
 	}
 }
+
+func TestCreditRecordsTheTargetsStartsAndRest(t *testing.T) {
+	t0 := local("2026-10-21 01:00 BST")
+	at := func(m int) time.Time { return t0.Add(time.Duration(m) * time.Minute) }
+	key := ident.ID{Name: "pump-daily"}
+	p := &budgetPlan{end: at(24 * 60), credited: t0}
+	for _, s := range []struct {
+		minute     int
+		on, online bool
+		seen       int
+	}{
+		{10, true, true, 10}, {20, false, true, 20}, // a start, and off at 20
+		{30, true, true, 30}, {40, true, false, 30}, {50, true, true, 50}, // a start, then on through a blip
+		{60, true, false, 50}, {70, false, true, 70}, // off some time while it was away
+	} {
+		p.credit(at(s.minute), target{on: s.on, online: s.online, seen: at(s.seen)}, budgetMetrics{}, key)
+		if s.minute == 20 && !p.lastOff.Equal(at(20)) {
+			t.Errorf("at 20, last off %v, want then", p.lastOff)
+		}
+	}
+	if p.turnedOn != 2 || !p.lastOff.Equal(at(70)) {
+		t.Errorf("turned on %d and last off %v, want 2 and the report back at 70", p.turnedOn, p.lastOff)
+	}
+}
+
+func TestAReplanAfterARestartStillRestsTheTarget(t *testing.T) {
+	states := newMemoryStates[HoldState]()
+	h := fixedBudget(90, nil, daily("00:30", "02:00", 10))
+	r := pumpRig(t, "2026-10-22 00:00 BST", h, states)
+	r.at("2026-10-22 00:30 BST")
+	r.report("pump", capability.On, true)
+	// Switched off at the pump at 01:50, so it rests until 02:20, past the 02:00 slot.
+	r.at("2026-10-22 01:50 BST")
+	r.report("pump", capability.On, false)
+	r.at("2026-10-22 01:55 BST")
+	r.stop()
+	r = pumpRig(t, "2026-10-22 01:55 BST", h, states)
+	r.at("2026-10-22 02:00 BST")
+	if got := blocks(r.budget("pump-daily").Today); got != "00:30-02:00 02:30-03:00" {
+		t.Errorf("blocks %s, want the 10 minutes made up after its rest, at 02:30", got)
+	}
+}

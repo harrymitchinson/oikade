@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/json"
+	"errors"
 	"math"
 	"reflect"
 	"slices"
@@ -83,6 +84,8 @@ type BudgetDay struct {
 	// last made again for the blocks to come and the minutes missed.
 	PendingMinutes int32     `json:"pendingMinutes,omitempty"`
 	ReplannedAt    time.Time `json:"replannedAt,omitzero"`
+	// LastOff is when the target was last seen going off, which a replan rests it from.
+	LastOff time.Time `json:"lastOff,omitzero"`
 	// Starts counts the planned runs the hold has started today.
 	Starts int32 `json:"starts"`
 }
@@ -149,8 +152,9 @@ type budgetPlan struct {
 	// and pending how much of it hasn't been replanned. replanned is when it last was.
 	missed, pending time.Duration
 	replanned       time.Time
-	// lastOff is when the target was last seen going off.
-	lastOff time.Time
+	// lastOff is when the target was last seen going off, and turnedOn how often it was seen going on.
+	lastOff  time.Time
+	turnedOn int
 	// starts counts the blocks the hold has started, and started is the start of the last one.
 	starts  int
 	started time.Time
@@ -320,7 +324,7 @@ func (e *Engine) planDay(key ident.ID, b *schedule.Budget, y int, m time.Month, 
 // belongs to p. A stretch offline over the day's end goes on, and its part before it counts in the
 // totals once it settles.
 func (p *budgetPlan) carry(prev *budgetPlan, last budgetPlan) {
-	p.credited, p.on, p.when = prev.end, last.on, last.when
+	p.credited, p.on, p.when, p.lastOff = prev.end, last.on, last.when, prev.lastOff
 	if a := last.away; a != nil {
 		p.away = &awayStretch{on: a.on, seen: a.seen}
 		if open := prev.away; open != nil {
@@ -374,7 +378,7 @@ func (e *Engine) restorePlan(key ident.ID, saved, date string, end, now time.Tim
 	p := &budgetPlan{
 		date: date, end: end, run: time.Duration(today.RunMinutes) * time.Minute,
 		missed: time.Duration(today.MissedMinutes) * time.Minute, pending: time.Duration(today.PendingMinutes) * time.Minute,
-		replanned: today.ReplannedAt, starts: int(today.Starts), failure: failure,
+		replanned: today.ReplannedAt, lastOff: today.LastOff, starts: int(today.Starts), failure: failure,
 	}
 	p.day = schedule.Day{
 		TargetSource:     schedule.TargetSource(today.TargetSource),
@@ -413,25 +417,35 @@ func (p *budgetPlan) credit(now time.Time, t target, m budgetMetrics, key ident.
 			missed = planned
 		}
 	}
+	ranThrough := false
 	switch a := p.away; {
 	case a == nil && !t.online:
 		p.away = &awayStretch{on: t.on, seen: t.seen}
 	case a != nil && t.online && t.seen.After(a.seen):
-		if a.on && t.on {
+		ranThrough = a.on && t.on
+		if ranThrough {
 			run += a.today.length
 			m.credited(key, a.earlier.length, 0)
 		} else {
 			missed += a.today.planned
 			m.credited(key, 0, a.earlier.planned)
+			if a.on {
+				// It went off some time while it was away.
+				p.lastOff = now
+			}
 		}
 		p.away = nil
 	}
 	p.run, p.missed, p.pending = p.run+run, p.missed+missed, p.pending+missed
 	m.credited(key, run, missed)
-	if p.on && t.online && !t.on {
+	on := t.on && t.online && p.away == nil
+	switch {
+	case p.on && t.online && !t.on:
 		p.lastOff = now
+	case !p.on && on && !ranThrough:
+		p.turnedOn++
 	}
-	p.credited, p.on = now, t.on && t.online && p.away == nil
+	p.credited, p.on = now, on
 }
 
 // inBlock says whether a planned block is under way at t.
@@ -454,9 +468,13 @@ func (e *Engine) replan(key ident.ID, b *schedule.Budget, p *budgetPlan, y int, 
 		// It's on as its block ends, so it's about to go off.
 		lastOff = now
 	}
-	rest := schedule.Plan(b.Rest(y, m, d, now, e.Location, toCome+missed, p.starts, lastOff))
-	for _, err := range rest.Errors {
-		e.Log.Info("Budget replanned with an error", "rule", ruleRef(key), "err", err)
+	// The arbiter counts the target's own starts, a tap's among them, and the plan the blocks it began.
+	starts := max(p.starts, p.turnedOn)
+	rest := schedule.Plan(b.Rest(y, m, d, now, e.Location, toCome+missed, starts, lastOff))
+	if len(rest.Errors) > 0 {
+		// A rule left out would let the minutes into hours it forbids, so the plan stays as it was.
+		e.Log.Error("Failed to replan budget", "err", errors.Join(rest.Errors...), "rule", ruleRef(key), "missed", missed)
+		return
 	}
 	blocks := slices.DeleteFunc(slices.Clone(p.day.Blocks), func(b schedule.Block) bool { return b.End.After(now) })
 	for _, blk := range rest.Blocks {
@@ -512,6 +530,7 @@ func (p *budgetPlan) status() *BudgetDay {
 		MissedMinutes:    int32(math.Floor(p.missed.Minutes())),
 		PendingMinutes:   int32(math.Floor(p.pending.Minutes())),
 		ReplannedAt:      p.replanned,
+		LastOff:          p.lastOff,
 		Starts:           int32(p.starts),
 	}
 	for _, b := range p.day.Blocks {
@@ -571,7 +590,7 @@ func sameBudget(a, b BudgetReport) bool {
 	x.RunMinutes, y.RunMinutes, x.MissedMinutes, y.MissedMinutes, x.PendingMinutes, y.PendingMinutes = 0, 0, 0, 0, 0, 0
 	return x.Date == y.Date && x.TargetSource == y.TargetSource && x.TargetMinutes == y.TargetMinutes &&
 		x.ScheduledMinutes == y.ScheduledMinutes && x.ShortfallMinutes == y.ShortfallMinutes &&
-		x.Starts == y.Starts && x.ReplannedAt.Equal(y.ReplannedAt) && slices.EqualFunc(x.Blocks, y.Blocks, func(p, q BudgetBlock) bool {
+		x.Starts == y.Starts && x.ReplannedAt.Equal(y.ReplannedAt) && x.LastOff.Equal(y.LastOff) && slices.EqualFunc(x.Blocks, y.Blocks, func(p, q BudgetBlock) bool {
 		return p.Start.Equal(q.Start) && p.End.Equal(q.End)
 	})
 }
