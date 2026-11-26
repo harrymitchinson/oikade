@@ -359,7 +359,7 @@ home.Decide(LoftFan.On).
 |---|---|
 | `oikade.Bands` | The day's minutes from the band the reading falls in at `PlanningTime`: the first whose `Below` it's under, and `Otherwise` for the rest. `Missing` applies when it hasn't reported within `MaxAge` (default 30 minutes). The reading can be an [average](#averages). |
 | `NewBudget`'s function | Or a function of the home at planning time. If it panics or reads a device that hasn't reported, the day's budget is zero, and the log says why. |
-| `PlanningTime(hhmm)` | When each planning day starts, `"HH:MM"` local time. The day is planned then, and the plan is frozen until the next one. Defaults to `"00:00"`. |
+| `PlanningTime(hhmm)` | When each planning day starts, `"HH:MM"` local time. The day is planned then, and planned again only to make up a run it missed. Defaults to `"00:00"`. |
 | `SlotMinutes(m)` | The day is planned in slots of 15, 30 or 60 minutes. Defaults to 30. |
 | `Prefer(hours, score)` | A `Daily` the minutes go in first. Each slot it touches gains the score, from -100 to 100, and overlapping ones add up. Give it once per `Daily`. |
 | `Forbid(hours…)` | `Daily`s the minutes never go in. |
@@ -372,10 +372,11 @@ A budget's conditions come after it, as a case's do: `Budget("summer-extra", tru
 
 ### How a day runs
 
-- **At `PlanningTime`,** your process plans the day and freezes the plan. The line applies in the planned blocks, so a line above it or a Home app tap still beats it.
+- **At `PlanningTime`,** your process plans the day. The line applies in the planned blocks, so a line above it or a Home app tap still beats it.
 - **Run minutes count** while the device reports on and is available. A stretch offline counts too if the device was on as it went and its first report once back says on, so a relay that ran through a network blip isn't short.
 - **Missed minutes count** a planned run going by with the device off while the budget's conditions are true, whatever kept it off: a line above, a Home app tap, a lost write or a stretch offline. A pause misses nothing, and neither does a slot the conditions rule out. `oikade status` says `missed 30` beside the run (OIK-390).
-- **The host keeps the plan and its run and missed minutes,** so a deploy in the middle of the day doesn't run it again. Editing a budget takes effect at the next `PlanningTime`.
+- **A run missed is made up the same day.** When a block ends with a minute or more missed, or once the device is back if it was offline then, the rest of the day is planned again for the blocks still to come and the minutes missed. It plans in whole slots, within the `Forbid`s, the `Prefer`s and the decision's `Limits`, counting the starts already made and the rest since the device went off, and the blocks gone by stay in the plan. A tap off in a block is made up once its `OverrideFor` ends: a run planned while the tap still holds is missed and planned again, and a run made up and missed again counts as missed again. Minutes that don't fit before the planning day ends are lost, and the next day plans afresh. `oikade status` says `replanned at 07:00`.
+- **The host keeps the plan and its run and missed minutes,** so a deploy in the middle of the day doesn't run it again. Editing a budget's minutes takes effect at the next `PlanningTime`, and a replan places them by its `Prefer`s, `Forbid`s and `Limits` as they are then.
 - **Automations that start with no plan for today** plan from then, so the hours already gone are lost to the day.
 - **A run due in the slot under way,** a minute or more into it, counts its `MinimumOn` from then, not from the slot's start. It starts there only if the slot is longer than `MinimumOn`, and otherwise at a later slot, so `MinimumOn` doesn't hold it on past its block.
 

@@ -211,6 +211,31 @@ func (out *Budget) Input(year int, month time.Month, day int, now time.Time, loc
 	return in
 }
 
+// Rest returns the PlanInput that places minutes in what's left, from now, of the planning day that
+// starts on the given local date, as a replan does. The starts already made that day count against
+// MaximumStarts, and lastOff, when the target last went off, against MinimumRest.
+func (out *Budget) Rest(year int, month time.Month, day int, now time.Time, loc *time.Location, minutes, starts int,
+	lastOff time.Time,
+) PlanInput {
+	c := out.Constraints
+	if c.MaximumStarts > 0 {
+		if starts >= c.MaximumStarts {
+			minutes = 0
+		}
+		// Zero would be unlimited.
+		c.MaximumStarts = max(c.MaximumStarts-starts, 1)
+	}
+	return PlanInput{
+		Now:         now,
+		NotBefore:   now,
+		Slots:       DaySlots(year, month, day, out.PlanningMinute, out.SlotMinutes, loc),
+		Minutes:     &Minutes{Expression: func() (int, error) { return minutes, nil }},
+		Rules:       out.Rules,
+		Constraints: c,
+		LastOff:     lastOff,
+	}
+}
+
 func compileWindow(w WindowSpec) (*Window, error) {
 	var errs []error
 	start, err := minuteOfDay(w.Start)

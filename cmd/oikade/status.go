@@ -881,6 +881,9 @@ func holdState(r api.Rule, now time.Time) []string {
 		if b.MissedMinutes > 0 {
 			day += fmt.Sprintf(", missed %d", b.MissedMinutes)
 		}
+		if !b.ReplannedAt.IsZero() {
+			day += ", replanned at " + clock(b.ReplannedAt, now)
+		}
 		state = append(state, day)
 	}
 	line := []string{strings.Join(state, ", ")}

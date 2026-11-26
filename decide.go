@@ -179,7 +179,8 @@ func (d *Decision[T]) onCase(option string, f func(*line)) *Decision[T] {
 //
 //	Budget("summer-extra", true, extra, oikade.Yearly("1 Jun", "15 Sep"))
 //
-// It needs a Bool, with v true. A slot the conditions rule out isn't made up later.
+// It needs a Bool, with v true. A planned run missed while the conditions are true is made up later
+// the same day, and a slot they rule out isn't.
 func (d *Decision[T]) Budget(name string, v T, b Budget, when ...Condition) *Decision[T] {
 	return d.add(line{kind: budgetLine, name: name, value: v, budget: &b, when: slices.Clone(when)})
 }

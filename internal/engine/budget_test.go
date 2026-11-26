@@ -374,11 +374,7 @@ func TestABudgetCountsTheMinutesItMisses(t *testing.T) {
 		run    int32
 		missed int32
 	}{
-		"on throughout": {during: func(r *rig) {
-			r.report("pump", capability.On, true)
-			r.at("2026-10-22 02:00 BST")
-			r.report("pump", capability.On, false)
-		}, run: 60},
+		"on throughout":  {during: func(r *rig) { r.report("pump", capability.On, true) }, run: 60},
 		"off throughout": {missed: 60},
 		"switched off half way": {during: func(r *rig) {
 			r.report("pump", capability.On, true)
@@ -400,10 +396,14 @@ func TestABudgetCountsTheMinutesItMisses(t *testing.T) {
 			if tc.during != nil {
 				tc.during(r)
 			}
-			r.at("2026-10-22 02:10 BST")
+			// At the block's end, before any run that makes it up.
+			r.at("2026-10-22 02:00 BST")
 			today := r.budget("pump-daily").Today
 			if today.RunMinutes != tc.run || today.MissedMinutes != tc.missed {
 				t.Errorf("run %d and missed %d, want %d and %d", today.RunMinutes, today.MissedMinutes, tc.run, tc.missed)
+			}
+			if replanned := !today.ReplannedAt.IsZero(); replanned != (tc.missed > 0) {
+				t.Errorf("replanned at %v, want a replan only for missed minutes", today.ReplannedAt)
 			}
 			if got := r.e.metrics.budget.missed.FloatCounter("flow/pump-daily").Get(); got != float64(tc.missed) {
 				t.Errorf("oikade_rule_budget_missed_minutes_total %v, want %d", got, tc.missed)
@@ -426,7 +426,7 @@ func TestAPausedBudgetMissesNothing(t *testing.T) {
 	r.e.Load(holdRule(t, "pump-daily", hourBudget(nil)))
 	r.settle()
 	r.at("2026-10-22 02:20 BST")
-	if today := r.budget("pump-daily").Today; blocks(today) != "01:00-02:00" || today.MissedMinutes != 0 {
+	if today := r.budget("pump-daily").Today; blocks(today) != "01:00-02:00" || today.MissedMinutes != 0 || !today.ReplannedAt.IsZero() {
 		t.Errorf("after a pause through its block, plan %s and missed %d, want 01:00-02:00 and none", blocks(today), today.MissedMinutes)
 	}
 }
@@ -550,14 +550,17 @@ func TestABudgetCountsAStretchOfflineItRanThrough(t *testing.T) {
 			r.at("2026-10-22 01:42 BST")
 			r.report("pump", capability.On, back)
 			r.at("2026-10-22 02:00 BST")
+			atEnd := r.budget("pump-daily").Today
 			r.report("pump", capability.On, false)
 			r.at("2026-10-22 02:10 BST")
-			today := r.budget("pump-daily").Today
-			if back && (today.RunMinutes != 60 || today.MissedMinutes != 0) {
-				t.Errorf("run %d and missed %d, want 60 and 0", today.RunMinutes, today.MissedMinutes)
+			later := r.budget("pump-daily").Today
+			if back && (later.RunMinutes != 60 || later.MissedMinutes != 0 || !later.ReplannedAt.IsZero()) {
+				t.Errorf("run %d, missed %d and replanned at %v, want 60, 0 and no replan", later.RunMinutes, later.MissedMinutes, later.ReplannedAt)
 			}
-			if !back && (today.RunMinutes < 10 || today.RunMinutes > 11 || today.MissedMinutes < 49 || today.MissedMinutes > 50) {
-				t.Errorf("run %d and missed %d, want 10 or 11 and 49 or 50", today.RunMinutes, today.MissedMinutes)
+			// Replanned at its end, which reports it at once.
+			if !back && (atEnd.RunMinutes < 10 || atEnd.RunMinutes > 11 || atEnd.MissedMinutes < 49 || atEnd.MissedMinutes > 50 ||
+				!atEnd.ReplannedAt.Equal(local("2026-10-22 02:00 BST"))) {
+				t.Errorf("run %d, missed %d and replanned at %v, want 10 or 11, 49 or 50 and 02:00", atEnd.RunMinutes, atEnd.MissedMinutes, atEnd.ReplannedAt)
 			}
 		})
 	}
@@ -602,5 +605,176 @@ func TestABudgetThatCantPlanMissesNothing(t *testing.T) {
 	r.at("2026-10-22 02:16 BST")
 	if got := r.budget("pump-daily").Today.MissedMinutes; got < 19 || got > 21 {
 		t.Errorf("missed %d, want the 20 before it couldn't plan", got)
+	}
+}
+
+// filtration is a pool pump's control entry: half-hour runs and rests, three starts a day, and a tap
+// holds for an hour.
+func filtration() control.Entry {
+	e := entry(capability.On, "false", control.NameOverride, "1h")
+	e.MinimumOn, e.MinimumOff = control.Duration(30*time.Minute), control.Duration(30*time.Minute)
+	e.MaximumStartsPerDay = 3
+	return e
+}
+
+// fixedBudget runs the pump for minutes a day, preferring each window by its score.
+func fixedBudget(minutes int, forbid []schedule.WindowSpec, prefer ...schedule.PreferSpec) Hold {
+	return Hold{Device: "pump", Capability: capability.On, Value: true, Budget: &schedule.Spec{
+		Minutes: func(map[string]any, time.Time, *time.Location) (int, error) { return minutes, nil },
+		Prefer:  prefer, Forbid: forbid,
+	}}
+}
+
+func daily(start, end string, score int) schedule.PreferSpec {
+	return schedule.PreferSpec{Window: schedule.WindowSpec{Start: start, End: end}, Score: score}
+}
+
+func pumpRig(t *testing.T, now string, h Hold, states HoldStates) *rig {
+	t.Helper()
+	return startRigWith(t, rigOptions{
+		now: local(now), holds: states,
+		values:  map[string]map[string]any{"pump": {capability.On: false}},
+		control: map[string][]control.Entry{"pump": {filtration()}},
+	}, holdRule(t, "pump-daily", h))
+}
+
+// blockMinutes adds up the minutes of the blocks that start at or after from.
+func blockMinutes(today *BudgetDay, from time.Time) (n int) {
+	for _, b := range today.Blocks {
+		if !b.Start.Before(from) {
+			n += int(b.End.Sub(b.Start) / time.Minute)
+		}
+	}
+	return n
+}
+
+func TestABudgetMakesUpANightItMissed(t *testing.T) {
+	// The real home's 24 November: the night's block never ran, first for a network outage, then a
+	// lost write. The swimming hours are forbidden.
+	swimming := []schedule.WindowSpec{{Start: "10:00", End: "14:00"}}
+	r := pumpRig(t, "2026-11-24 00:00 GMT", fixedBudget(360, swimming, daily("01:30", "07:00", 10), daily("15:00", "15:30", 5)), nil)
+	if got := blocks(r.budget("pump-daily").Today); got != "01:30-07:00 15:00-15:30" {
+		t.Fatalf("blocks %s, want 01:30-07:00 15:00-15:30", got)
+	}
+	r.at("2026-11-24 07:00 GMT")
+	seven := local("2026-11-24 07:00 GMT")
+	today := r.budget("pump-daily").Today
+	if today.MissedMinutes != 330 || !today.ReplannedAt.Equal(seven) {
+		t.Fatalf("missed %d, replanned at %v, want 330 at 07:00", today.MissedMinutes, today.ReplannedAt)
+	}
+	if !strings.HasPrefix(blocks(today), "01:30-07:00 ") || blockMinutes(today, seven) != 360 {
+		t.Errorf("blocks %s, want 01:30-07:00 kept and 360 minutes from 07:00", blocks(today))
+	}
+	for _, b := range today.Blocks {
+		if b.Start.Before(local("2026-11-24 14:00 GMT")) && b.End.After(local("2026-11-24 10:00 GMT")) {
+			t.Errorf("block %s in the swimming hours", blocks(today))
+		}
+	}
+	if today.TargetMinutes != 360 || today.ScheduledMinutes != 360 || today.ShortfallMinutes != 0 || today.PendingMinutes != 0 {
+		t.Errorf("planned %d of %d, short %d and pending %d, want 360 of 360", today.ScheduledMinutes, today.TargetMinutes,
+			today.ShortfallMinutes, today.PendingMinutes)
+	}
+	if got := r.e.metrics.budget.scheduled.Gauge("flow/pump-daily").Get(); got != 360 {
+		t.Errorf("oikade_rule_budget_scheduled_minutes %v, want 360", got)
+	}
+	if !r.logs.Has("Replanned budget", "rule=flow/pump-daily", "missed=330", "scheduled=360") {
+		t.Errorf("no Replanned budget line in the log")
+	}
+}
+
+func TestATapOffIsMadeUpOnceItsOverrideEnds(t *testing.T) {
+	r := pumpRig(t, "2026-10-22 00:00 BST", fixedBudget(120, nil, daily("01:00", "03:00", 10)), nil)
+	if got := blocks(r.budget("pump-daily").Today); got != "01:00-03:00" {
+		t.Fatalf("blocks %s, want 01:00-03:00", got)
+	}
+	r.at("2026-10-22 01:00 BST")
+	r.report("pump", capability.On, true)
+	// Switched off at the pump, which holds for an hour.
+	r.at("2026-10-22 01:30 BST")
+	r.report("pump", capability.On, false)
+	r.at("2026-10-22 02:30 BST")
+	r.report("pump", capability.On, true)
+	r.at("2026-10-22 03:00 BST")
+	today := r.budget("pump-daily").Today
+	if today.MissedMinutes != 60 || !today.ReplannedAt.Equal(local("2026-10-22 03:00 BST")) {
+		t.Fatalf("missed %d, replanned at %v, want 60 at 03:00", today.MissedMinutes, today.ReplannedAt)
+	}
+	// It rests for its MinimumOff after the block before it runs again.
+	if got := blocks(today); got != "01:00-03:00 03:30-04:30" {
+		t.Errorf("blocks %s, want the hour made up at 03:30", got)
+	}
+}
+
+func TestMinutesMissedThatDontFitAreLost(t *testing.T) {
+	r := pumpRig(t, "2026-10-22 22:00 BST", fixedBudget(60, nil, daily("22:30", "23:30", 10)), nil)
+	r.at("2026-10-22 23:30 BST")
+	today := r.budget("pump-daily").Today
+	if got := blocks(today); got != "22:30-23:30 23:30-00:00" {
+		t.Errorf("blocks %s, want the half hour that's left", got)
+	}
+	if today.ScheduledMinutes != 30 || today.ShortfallMinutes != 30 {
+		t.Errorf("planned %d, short %d, want 30 and 30", today.ScheduledMinutes, today.ShortfallMinutes)
+	}
+	// The next day plans afresh.
+	r.at("2026-10-23 00:01 BST")
+	if next := r.budget("pump-daily").Today; next.Date != "2026-10-23" || next.TargetMinutes != 60 || next.ScheduledMinutes != 60 ||
+		next.MissedMinutes != 0 || !next.ReplannedAt.IsZero() {
+		t.Errorf("the next day %+v, want 60 planned afresh", next)
+	}
+}
+
+func TestARestartInTheMiddleOfABlockStillMakesItUp(t *testing.T) {
+	states := newMemoryStates[HoldState]()
+	h := fixedBudget(60, nil, daily("01:00", "02:00", 10))
+	r := pumpRig(t, "2026-10-22 00:00 BST", h, states)
+	r.at("2026-10-22 01:31 BST")
+	r.stop()
+	r = pumpRig(t, "2026-10-22 01:31 BST", h, states)
+	r.at("2026-10-22 02:00 BST")
+	today := r.budget("pump-daily").Today
+	if !today.ReplannedAt.Equal(local("2026-10-22 02:00 BST")) || today.MissedMinutes < 55 || blockMinutes(today, local("2026-10-22 02:00 BST")) != 60 {
+		t.Errorf("missed %d, replanned at %v, blocks %s, want at least 55 made up from 02:00", today.MissedMinutes, today.ReplannedAt, blocks(today))
+	}
+}
+
+func TestCreditRecordsTheTargetsStartsAndRest(t *testing.T) {
+	t0 := local("2026-10-21 01:00 BST")
+	at := func(m int) time.Time { return t0.Add(time.Duration(m) * time.Minute) }
+	key := ident.ID{Name: "pump-daily"}
+	p := &budgetPlan{end: at(24 * 60), credited: t0}
+	for _, s := range []struct {
+		minute     int
+		on, online bool
+		seen       int
+	}{
+		{10, true, true, 10}, {20, false, true, 20}, // a start, and off at 20
+		{30, true, true, 30}, {40, true, false, 30}, {50, true, true, 50}, // a start, then on through a blip
+		{60, true, false, 50}, {70, false, true, 70}, // off some time while it was away
+	} {
+		p.credit(at(s.minute), target{on: s.on, online: s.online, seen: at(s.seen)}, budgetMetrics{}, key)
+		if s.minute == 20 && !p.lastOff.Equal(at(20)) {
+			t.Errorf("at 20, last off %v, want then", p.lastOff)
+		}
+	}
+	if p.turnedOn != 2 || !p.lastOff.Equal(at(70)) {
+		t.Errorf("turned on %d and last off %v, want 2 and the report back at 70", p.turnedOn, p.lastOff)
+	}
+}
+
+func TestAReplanAfterARestartStillRestsTheTarget(t *testing.T) {
+	states := newMemoryStates[HoldState]()
+	h := fixedBudget(90, nil, daily("00:30", "02:00", 10))
+	r := pumpRig(t, "2026-10-22 00:00 BST", h, states)
+	r.at("2026-10-22 00:30 BST")
+	r.report("pump", capability.On, true)
+	// Switched off at the pump at 01:50, so it rests until 02:20, past the 02:00 slot.
+	r.at("2026-10-22 01:50 BST")
+	r.report("pump", capability.On, false)
+	r.at("2026-10-22 01:55 BST")
+	r.stop()
+	r = pumpRig(t, "2026-10-22 01:55 BST", h, states)
+	r.at("2026-10-22 02:00 BST")
+	if got := blocks(r.budget("pump-daily").Today); got != "00:30-02:00 02:30-03:00" {
+		t.Errorf("blocks %s, want the 10 minutes made up after its rest, at 02:30", got)
 	}
 }

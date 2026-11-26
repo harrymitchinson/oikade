@@ -555,6 +555,9 @@ type RuleBudget struct {
 	// MissedMinutes is how much of the plan went by with the target off while the budget's
 	// conditions were true, saved as RunMinutes is.
 	MissedMinutes int32 `json:"missedMinutes"`
+	// ReplannedAt is when the plan was last made again, for the rest of the day, to make up the
+	// minutes missed. Missing if it hasn't been.
+	ReplannedAt time.Time `json:"replannedAt,omitzero"`
 }
 
 // Event kinds.
