@@ -99,28 +99,30 @@ func TestStatusSaysWhenAutomationsWentDown(t *testing.T) {
 func TestStatusStartsWithWhatsLeftToSetUp(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	st := &api.Status{Devices: []api.Device{
-		{Name: "attic-fan", Problem: "no key", Capabilities: []api.Capability{{Name: "on"}}},
-		{Name: "desk-lamp", Capabilities: []api.Capability{{Name: "on"}}},
-		{Name: "shed-relay", PluginNotImported: true, Capabilities: []api.Capability{{Name: "on"}}},
+		{Hardware: "zigbee2mqtt/0x01", Ref: "hardware/zigbee2mqtt/0x01", Problem: "no key",
+			Capabilities: []api.Capability{{Name: "on"}}},
+		{Hardware: "kasa/desk1", Ref: "hardware/kasa/desk1", Capabilities: []api.Capability{{Name: "on"}}},
+		{Hardware: "zigbee2mqtt/0x02", Ref: "hardware/zigbee2mqtt/0x02", PluginNotImported: true,
+			Capabilities: []api.Capability{{Name: "on"}}},
 	}, Matter: &api.Matter{Serving: true}}
 	printStatus(cli.Plain(&stdout, 0), cli.Plain(&stderr, 0), st, false, time.Now())
 	want := []string{
 		"No home deployed. Run oikade deploy from your home's module.",
 		"The Matter bridge has no controller. oikade status matter says how to pair one.",
-		"Devices with a problem: attic-fan. Their STATE says what's wrong.",
-		"Devices whose plugin isn't imported: shed-relay. " +
+		"Devices with a problem: hardware/zigbee2mqtt/0x01. Their STATE says what's wrong.",
+		"Devices whose plugin isn't imported: hardware/zigbee2mqtt/0x02. " +
 			"Import it in your home and run oikade deploy, or forget its devices with oikade forget --plugin NAME.",
 	}
 	if got := strings.Split(strings.TrimSpace(stderr.String()), "\n"); !slices.Equal(got, want) {
 		t.Errorf("stderr:\n%s\nwant:\n%s", stderr.String(), strings.Join(want, "\n"))
 	}
-	if !strings.Contains(stdout.String(), "attic-fan") {
+	if !strings.Contains(stdout.String(), "hardware/zigbee2mqtt/0x01") {
 		t.Errorf("stdout %q", stdout.String())
 	}
 
 	// Asked about a device, it says only what it was asked.
 	stderr.Reset()
-	refs, err := statusRefs([]string{"desk-lamp"})
+	refs, err := statusRefs([]string{"hardware/kasa/desk1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,8 +134,8 @@ func TestStatusStartsWithWhatsLeftToSetUp(t *testing.T) {
 
 func TestAHomeFullySetUpHasNothingLeftToSetUp(t *testing.T) {
 	st := &api.Status{Home: api.Home{Version: "v3", Process: true}, Devices: []api.Device{
-		{Name: "desk-lamp", Capabilities: []api.Capability{{Name: "on"}}},
-	}, Plugins: []api.Plugin{{Name: "kasa", Devices: []string{"desk-lamp"}}}}
+		{Hardware: "kasa/desk1", Ref: "hardware/kasa/desk1", Capabilities: []api.Capability{{Name: "on"}}},
+	}, Plugins: []api.Plugin{{Name: "kasa", Devices: []string{"kasa/desk1"}}}}
 	st.Matter = &api.Matter{Serving: true, Fabrics: []api.Fabric{{Index: 1}}}
 	if gaps := setupGaps(st); len(gaps) != 0 {
 		t.Errorf("got %q", gaps)
@@ -172,12 +174,12 @@ func TestAPluginsProblemIsLeftToSetUp(t *testing.T) {
 	st := &api.Status{Home: api.Home{Version: "v3", Process: true}, Plugins: []api.Plugin{
 		{Name: "blinds", Problem: "hub unreachable"},
 		{Name: "thermostats", Problem: `login refused: check its Password`},
-	}, Devices: []api.Device{{Name: "study-heater", Problem: "not found"}}}
+	}, Devices: []api.Device{{Hardware: "thermostats/h1", Ref: "hardware/thermostats/h1", Problem: "not found"}}}
 	got := setupGaps(st)
 	want := []string{
 		"Plugin blinds: hub unreachable",
 		`Plugin thermostats: login refused: check its Password`,
-		"Devices with a problem: study-heater. Their STATE says what's wrong.",
+		"Devices with a problem: hardware/thermostats/h1. Their STATE says what's wrong.",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("got %q", got)

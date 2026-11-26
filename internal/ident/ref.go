@@ -7,10 +7,11 @@ import (
 	"strings"
 )
 
-// The kinds a ref may have besides those whose names Oikade owns. Device is a capability's kind
-// too, as device/desk-plug/on, and on its own the claim source of a change made on the device.
+// The kinds a ref may have besides those whose names Oikade owns. Device on its own is the claim
+// source of a change made on the device, and device/NAME a device with no hardware yet.
 const (
-	// Hardware is a device's hardware: hardware/<plugin>/<id>, by the ID its driver gives it.
+	// Hardware is a device, by its hardware: hardware/<plugin>/<id>, by the ID its driver gives it,
+	// and a capability of it is hardware/<plugin>/<id>/<capability>.
 	Hardware Kind = "hardware"
 	// Matter is the claim source of a change a Matter controller made.
 	Matter Kind = "matter"
@@ -20,17 +21,17 @@ const (
 
 // Ref is the one string that names a thing a home is made of, the same in every command, --json,
 // log line, metric label and error: its kind, then its name and any parts, each a URI path
-// segment, such as case/desk-plug/on/night. Every ref is a relative URI reference.
+// segment, such as case/hue/0x2/on/night. Every ref is a relative URI reference.
 type Ref string
 
 // refShape is what a kind's ref holds after its kind, by the parts' names. A kind with several
 // shapes takes any of them.
 var refShape = map[Kind][][]string{
 	Device:   {{}, {partDevice}, {partDevice, partCapability}},
-	Hardware: {{"PLUGIN", "ID"}},
+	Hardware: {{partPlugin, "ID"}, {partPlugin, "ID", partCapability}},
 	Room:     {{"ROOM"}, {"ROOM", partCapability}},
 	Group:    {{"GROUP"}, {"GROUP", partCapability}},
-	Case:     {{partDevice, partCapability, "CASE"}},
+	Case:     {{partDevice, partCapability, "CASE"}, {partPlugin, "ID", partCapability, "CASE"}},
 	Flow:     {{"FLOW"}},
 	Signal:   {{"SIGNAL"}},
 	Plugin:   {{"PLUGIN"}},
@@ -43,6 +44,7 @@ var refShape = map[Kind][][]string{
 // isn't a kind.
 const (
 	partDevice     = "DEVICE"
+	partPlugin     = "PLUGIN"
 	partCapability = "CAPABILITY"
 )
 
@@ -56,17 +58,43 @@ func NewRef(k Kind, parts ...string) Ref {
 	b.WriteString(string(k))
 	for _, p := range parts {
 		b.WriteByte('/')
-		e := url.PathEscape(p)
-		if e == "." || e == ".." {
-			e = strings.ReplaceAll(e, ".", "%2E") // a dot segment would be resolved away, as in a URI
-		}
-		b.WriteString(e)
+		b.WriteString(segment(p))
 	}
 	return Ref(b.String())
 }
 
-// DeviceRef is a device's ref, such as device/desk-plug.
-func DeviceRef(name string) Ref { return NewRef(Device, name) }
+func segment(p string) string {
+	e := url.PathEscape(p)
+	if e == "." || e == ".." {
+		e = strings.ReplaceAll(e, ".", "%2E") // a dot segment would be resolved away, as in a URI
+	}
+	return e
+}
+
+// DeviceRef is the ref of the device whose key is key: its hardware's, such as hardware/hue/0x2, or
+// device/NAME for one with no hardware yet, whose key is its name.
+func DeviceRef(key string) Ref {
+	if strings.Contains(key, "/") {
+		return Ref(string(Hardware) + "/" + key)
+	}
+	return NewRef(Device, key)
+}
+
+// DeviceOf is the key of the device a ref of kind k names with its first parts, and the parts after
+// them, or false for a ref that names no device: a hardware's, a device's or a case's.
+func DeviceOf(k Kind, parts []string) (key string, rest []string, ok bool) {
+	switch {
+	case k == Hardware && len(parts) >= 2, k == Case && len(parts) == 4:
+		return HardwareKey(parts[0], parts[1]), parts[2:], true
+	case k == Device && len(parts) >= 1, k == Case && len(parts) == 3:
+		return parts[0], parts[1:], true
+	}
+	return "", nil, false
+}
+
+// Simulator is the plugin name simulated hardware goes by, as in hardware/simulator/porch-light, so
+// no plugin may have it.
+const Simulator = "simulator"
 
 // HardwareRef is a device's hardware's ref, such as hardware/overkiz/io:%2F%2F1234%2F5: the
 // plugin's name and the ID it knows the device by, percent-encoded where it isn't safe in a ref.
@@ -78,11 +106,17 @@ func HardwareKey(plugin, id string) string {
 	return strings.TrimPrefix(HardwareRef(plugin, id).String(), string(Hardware)+"/")
 }
 
-// CapabilityRef is a device's capability's ref, such as device/desk-plug/on.
-func CapabilityRef(device, capability string) Ref { return NewRef(Device, device, capability) }
+// CapabilityRef is the ref of a capability of the device whose key is key, such as hardware/hue/0x2/on.
+func CapabilityRef(key, capability string) Ref {
+	return Ref(DeviceRef(key).String() + "/" + segment(capability))
+}
 
-// CaseRef is a decision's case's ref, such as case/desk-plug/on/night.
-func CaseRef(device, capability, name string) Ref { return NewRef(Case, device, capability, name) }
+// CaseRef is the ref of a decision's case of the device whose key is key, such as
+// case/hue/0x2/on/night.
+func CaseRef(key, capability, name string) Ref {
+	device := strings.TrimPrefix(strings.TrimPrefix(DeviceRef(key).String(), string(Hardware)+"/"), string(Device)+"/")
+	return Ref(string(Case) + "/" + device + "/" + segment(capability) + "/" + segment(name))
+}
 
 func (r Ref) String() string { return string(r) }
 
@@ -120,6 +154,8 @@ func checkPart(part, p string) error {
 	switch part {
 	case "ID":
 		return nil
+	case partPlugin:
+		return CheckName(Plugin, p)
 	case partCapability:
 		if !ValidName(p) {
 			return fmt.Errorf("%q isn't a capability", p)

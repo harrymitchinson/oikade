@@ -3,5 +3,5 @@ exit 2
 --- stderr
 Error: oikade set takes a capability's ref and its value
 Usage:
-  oikade set device/DEVICE/CAPABILITY VALUE [--json]
+  oikade set hardware/PLUGIN/ID/CAPABILITY VALUE [--json]
 Hint: oikade set --help says more

@@ -1,37 +1,37 @@
-[1moffice-ac[0m[2m: not in your code[0m
+[1mhardware/toshiba/5f1c0c2e[0m[2m: not in your code[0m
 
 [1mCAPABILITY[0m   [1mVALUE[0m    [1mWHY[0m
 mode         cool
-on           true     case/office-ac/on/too-warm wants true, on for its MinimumOn until 14:04
+on           true     case/toshiba/5f1c0c2e/on/too-warm wants true, on for its MinimumOn until 14:04
 setpoint     21.5°C
 temperature  24.25°C
 
 [1mTue 17 Nov, yesterday[0m
-12:00:00  device/office-ac  came back online
+12:00:00  hardware/toshiba/5f1c0c2e  came back online
 [1mWed 18 Nov, today[0m
-13:52:00  device/office-ac/on  wrote true  [2mby case/office-ac/on/too-warm[0m
-13:52:01  device/office-ac/on  true  [2mwas false[0m
-13:59:00  device/office-ac/temperature  24.25°C
+13:52:00  hardware/toshiba/5f1c0c2e/on  wrote true  [2mby case/toshiba/5f1c0c2e/on/too-warm[0m
+13:52:01  hardware/toshiba/5f1c0c2e/on  true  [2mwas false[0m
+13:59:00  hardware/toshiba/5f1c0c2e/temperature  24.25°C
 
-[1mstudy-blind[0m in study: went offline today 12:25
+[1mhardware/overkiz/io:%2F%2F0812-4471-2093%2F5[0m in study: went offline today 12:25
 
 [1mCAPABILITY[0m  [1mVALUE[0m  [1mWHY[0m
 position    40%
 
-[2mNo events of device/study-blind/position in the host's event log.[0m
+[2mNo events of hardware/overkiz/io:%2F%2F0812-4471-2093%2F5/position in the host's event log.[0m
 
 [1mroom/hall[0m
-[1mNAME[0m       [1mROOM[0m  [1mVALUES[0m    [1mSTATE[0m
-hall-lamp  hall  on false
+[1mDEVICE[0m                           [1mROOM[0m  [1mVALUES[0m    [1mSTATE[0m
+hardware/ewelink-lan/1000aabbcc  hall  on false
 
-case/office-ac/on/too-warm  case  active since 13:52
-device/office-ac/on is true: case/office-ac/on/too-warm wants true, on for its MinimumOn until 14:04
+case/toshiba/5f1c0c2e/on/too-warm  case  active since 13:52
+hardware/toshiba/5f1c0c2e/on is true: case/toshiba/5f1c0c2e/on/too-warm wants true, on for its MinimumOn until 14:04
 
 flow/morning  flow
 
 signal/anyone-home  true since 12:25, false at 2026-11-19 20:00:00
 Its conditions are false: group/presence/occupied isn't true on any of them
-It leaves out device/landing-sensor: offline, or quiet past its MaxAge.
+It leaves out hardware/hue/0x9: offline, or quiet past its MaxAge.
 
 [1mMon 16 Nov[0m
 12:00:00  signal/anyone-home  false  [2mwas true[0m
@@ -39,8 +39,8 @@ It leaves out device/landing-sensor: offline, or quiet past its MaxAge.
 12:25:00  signal/anyone-home  true  [2mwas false[0m
 
 [1mplugin/overkiz[0m: login refused: check overkiz.Local's Token
-[1mNAME[0m         [1mVALUES[0m                                     [1mSTATE[0m
-study-blind  position 40%, target-position 40, moving…  went offline today 12:25
+[1mDEVICE[0m                                    [1mVALUES[0m        [1mSTATE[0m
+hardware/overkiz/io:%2F%2F0812-4471-209…  position 40…  went offline today 12:25
 
 Matter bridge: serving on UDP port 5540
 To add another controller, run oikade pair matter, or share the bridge from one that's paired.
@@ -49,4 +49,4 @@ To add another controller, run oikade pair matter, or share the bridge from one 
   fabric 1: Home, vendor 0x0000
 --- stderr
 [2mHint: --wide shows ROOM[0m
-[2moffice-ac isn't in your code: oikade list devices shows how to declare it[0m
+[2mhardware/toshiba/5f1c0c2e isn't in your code: oikade list devices shows how to declare it[0m

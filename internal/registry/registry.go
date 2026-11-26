@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -88,15 +87,15 @@ type Device struct {
 // that isn't paired yet is the name. A key has no space, so a case's key can hold one.
 func (d Device) Key() string { return KeyOf(d.Driver, d.ID, d.Name) }
 
-// KeyOf is the key of a device of a driver instance with an ID, or of the name, with no ID.
+// KeyOf is the key of a device of a driver instance with an ID, or of the name, with no ID. A
+// device is its plugin's, or, for a driver that isn't one, its instance's, as simulator/porch-light,
+// so every device's ref has the same shape.
 func KeyOf(instance, id, name string) string {
-	switch plugin, ok := strings.CutPrefix(instance, driver.Plugin+"/"); {
-	case id == "":
+	if id == "" {
 		return name
-	case ok:
-		return ident.HardwareKey(plugin, id)
 	}
-	return url.PathEscape(id)
+	_, source, _ := strings.Cut(instance, "/")
+	return ident.HardwareKey(cmp.Or(source, instance), id)
 }
 
 // DeviceTypes are what it is: yours, else its driver's, else what its capabilities say.
@@ -258,7 +257,8 @@ func (r *Registry) Report(report Report) (device Device, changed bool, err error
 	}
 	r.mu.RLock()
 	i := hardware(r.state, report.Driver, report.ID)
-	same := i >= 0 && !r.state.Devices[i].Removed && slices.Equal(r.state.Devices[i].Capabilities, report.Capabilities) &&
+	same := i >= 0 && !r.state.Devices[i].Removed && r.state.Devices[i].Driver == report.Driver &&
+		slices.Equal(r.state.Devices[i].Capabilities, report.Capabilities) &&
 		r.state.Devices[i].DriverDeviceType == report.DeviceType && !newAppName(r.state.Devices[i], report) &&
 		!newAppRoom(r.state.Devices[i], report) &&
 		!newProduct(r.state.Devices[i], report) &&
@@ -289,6 +289,7 @@ func (r *Registry) Report(report Report) (device Device, changed bool, err error
 		if d.Removed {
 			d.Removed, d.Name = false, uniqueName(*s, d.Name)
 		}
+		d.Driver = report.Driver
 		unseen := len(d.Capabilities) == 0
 		d.Capabilities, d.DriverDeviceType = slices.Clone(report.Capabilities), report.DeviceType
 		appRoom := d.AppRoom
@@ -373,8 +374,11 @@ func live(s Snapshot, name string) int {
 	return slices.IndexFunc(s.Devices, func(d Device) bool { return d.Name == name && !d.Removed })
 }
 
+// hardware finds a driver instance's device by its key, so a line in your code that took hardware
+// before its driver reported it, which can only guess the driver, has it.
 func hardware(s Snapshot, instance, id string) int {
-	return slices.IndexFunc(s.Devices, func(d Device) bool { return d.ID == id && d.Driver == instance })
+	key := KeyOf(instance, id, "")
+	return slices.IndexFunc(s.Devices, func(d Device) bool { return d.ID != "" && d.Key() == key })
 }
 
 func checkName(name string) error { return ident.CheckName(ident.Device, name) }

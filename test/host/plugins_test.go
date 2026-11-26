@@ -89,7 +89,7 @@ func (r *rig) launchPlugins(args ...string) {
 func (r *rig) setting(device, value string) {
 	r.t.Helper()
 	r.until("a write to "+device, func() bool {
-		_, err := r.oikade(nil, "set", "device/"+device+"/on", value)
+		_, err := r.oikade(nil, "set", "hardware/"+device+"/on", value)
 		return err == nil
 	})
 }
@@ -103,7 +103,7 @@ func (r *rig) untilValue(device string, want any) {
 	r.t.Helper()
 	r.until(fmt.Sprintf("%s to be %v", device, want), func() bool {
 		for _, d := range r.status().Devices {
-			if d.Name != device {
+			if d.Hardware != device {
 				continue
 			}
 			for _, c := range d.Capabilities {
@@ -119,9 +119,9 @@ func (r *rig) untilValue(device string, want any) {
 func TestAnImportedPluginsDevicesAreUsableAtOnce(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)
-	r.untilValue("relay", false)
-	r.stdout(nil, "set", "device/relay/on", "on")
-	r.untilValue("relay", true)
+	r.untilValue("relays/relay", false)
+	r.stdout(nil, "set", "hardware/relays/relay/on", "on")
+	r.untilValue("relays/relay", true)
 	if d := deviceOf(t, r.devices(), "relay"); d.Driver != "plugin/relays" || d.Endpoint == 0 ||
 		d.Manufacturer != "Oikade" || d.Model != "Simulated switch" || !strings.HasPrefix(d.SerialNumber, "SIM-") ||
 		d.FirmwareVersion != "1.0.0" {
@@ -138,7 +138,7 @@ func TestADeviceSaysWhatItsPluginSaysIsWrong(t *testing.T) {
 	if listed := string(r.stdout(nil, "list", "devices", "--json")); strings.Contains(listed, problem) {
 		t.Errorf("list devices --json: %s", listed)
 	}
-	if status := string(r.stdout(nil, "status", "locked")); !strings.Contains(status, problem) {
+	if status := string(r.stdout(nil, "status", "hardware/quiet/locked.needs-key")); !strings.Contains(status, problem) {
 		t.Errorf("status: %s", status)
 	}
 }
@@ -170,20 +170,20 @@ func TestAPluginSaysWhatsWrongWithItUntilItsFixed(t *testing.T) {
 func TestADeviceYouRemoveStaysRemovedWhileItsPluginLists(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)
-	r.untilValue("relay", false)
-	r.stdout(nil, "forget", "relay", "--allow-safety")
+	r.untilValue("relays/relay", false)
+	r.stdout(nil, "forget", "hardware/relays/relay", "--allow-safety")
 	// Closed now, so that the valve opening again shows the restarted plugin has published every
 	// relay: it opens it last.
-	r.setting("valve", "off")
-	r.untilValue("valve", false)
+	r.setting("relays/valve", "off")
+	r.untilValue("relays/valve", false)
 	rejected := r.count(rejectedMessage, "reason", "undeclared_device")
 
 	// A restart is the plugin listing everything again.
 	connected := r.count(pluginConnected)
-	r.oikade(nil, "set", "device/panics/on", "on") //nolint:errcheck // It dies taking this.
+	r.oikade(nil, "set", "hardware/relays/panics/on", "on") //nolint:errcheck // It dies taking this.
 	r.until("the plugin to come back", func() bool { return r.count(pluginConnected) > connected })
-	r.untilValue("panics", false)
-	r.untilValue("valve", true)
+	r.untilValue("relays/panics", false)
+	r.untilValue("relays/valve", true)
 	for _, d := range r.devices().Devices {
 		if d.ID == "relay" && !d.Removed {
 			t.Fatalf("it came back: %+v", d)
@@ -216,59 +216,59 @@ func TestEachPluginIsItsOwnProcess(t *testing.T) {
 func TestAPluginThatPanicsIsRestartedWhileTheRestCarriesOn(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)
-	r.untilValue("relay", false)
-	r.stdout(nil, "set", "device/relay/on", "on")
-	r.untilValue("relay", true)
+	r.untilValue("relays/relay", false)
+	r.stdout(nil, "set", "hardware/relays/relay/on", "on")
+	r.untilValue("relays/relay", true)
 	automations := r.pid()
-	r.stdout(nil, "set", "device/panics/on", "on")
+	r.stdout(nil, "set", "hardware/relays/panics/on", "on")
 	r.waitFor(func(l line) bool { return l.is(pluginRestarted, "plugin", "relays") })
 	r.until("the plugin to come back", func() bool { return r.count(pluginConnected, "plugin", "relays") == 2 })
 	if r.pid() != automations || r.count(attached) != 1 || r.count(pluginConnected, "plugin", "quiet") != 1 {
 		t.Fatalf("it reached further than the plugin. The log:\n%s", r.dump())
 	}
 	// A relay starts off, as a device that lost power does.
-	r.untilValue("relay", false)
-	r.setting("relay", "on")
-	r.untilValue("relay", true)
+	r.untilValue("relays/relay", false)
+	r.setting("relays/relay", "on")
+	r.untilValue("relays/relay", true)
 	r.sync()
 }
 
 func TestAPluginThatHangsIsKilledAndRestarted(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t, "--heartbeat-timeout=1s", "--plugin-set-timeout=100ms")
-	r.untilValue("relay", false)
+	r.untilValue("relays/relay", false)
 	automations := r.pid()
-	r.stdout(nil, "set", "device/hangs/on", "on")
+	r.stdout(nil, "set", "hardware/relays/hangs/on", "on")
 	r.waitFor(func(l line) bool { return l.is(pluginKilled, "plugin", "relays") })
 	r.until("the plugin to come back", func() bool { return r.count(pluginConnected, "plugin", "relays") == 2 })
 	if r.pid() != automations {
 		t.Fatalf("automations went too. The log:\n%s", r.dump())
 	}
-	r.setting("relay", "on")
-	r.untilValue("relay", true)
+	r.setting("relays/relay", "on")
+	r.untilValue("relays/relay", true)
 }
 
 func TestASafetyClaimOutlastsItsPlugin(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)
-	r.untilValue("valve", true)
+	r.untilValue("relays/valve", true)
 	r.change("leak-sensor", opened, true)
-	r.untilValue("valve", false)
+	r.untilValue("relays/valve", false)
 
 	// Its valve starts open, so coming back is a change the claim has to undo.
 	const changed = "Changed capability"
-	before := r.count(changed, "device", "valve")
-	r.stdout(nil, "set", "device/panics/on", "on")
+	before := r.count(changed, "device", "hardware/relays/valve")
+	r.stdout(nil, "set", "hardware/relays/panics/on", "on")
 	r.waitFor(func(l line) bool { return l.is(pluginRestarted, "plugin", "relays") })
 	r.until("the plugin to come back", func() bool { return r.count(pluginConnected, "plugin", "relays") == 2 })
 	r.until("the valve to be seen open and shut again", func() bool {
-		return r.count(changed, "device", "valve") >= before+2 && r.value("valve") == false
+		return r.count(changed, "device", "hardware/relays/valve") >= before+2 && r.value("relays/valve") == false
 	})
-	st := onOf(t, r.status(), "valve")
+	st := onOf(t, r.status(), "relays/valve")
 	if st.Level != "Safety" {
 		t.Fatalf("got %+v. The log:\n%s", st, r.dump())
 	}
-	if _, err := r.oikade(nil, "set", "device/valve/on", "on"); err == nil {
+	if _, err := r.oikade(nil, "set", "hardware/relays/valve/on", "on"); err == nil {
 		t.Fatal("a write beat the Safety claim")
 	}
 }
@@ -276,13 +276,13 @@ func TestASafetyClaimOutlastsItsPlugin(t *testing.T) {
 func TestAWriteToADownPluginFailsOutLoud(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)
-	r.untilValue("relay", false)
+	r.untilValue("relays/relay", false)
 	if err := os.WriteFile(filepath.Join(r.dir, "plugin-down"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	r.stdout(nil, "set", "device/panics/on", "on")
+	r.stdout(nil, "set", "hardware/relays/panics/on", "on")
 	r.waitFor(func(l line) bool { return l.is(pluginRestarted, "plugin", "relays") })
-	stderr, err := r.oikade(nil, "set", "device/relay/on", "on")
+	stderr, err := r.oikade(nil, "set", "hardware/relays/relay/on", "on")
 	if err == nil || !strings.Contains(stderr, "offline") {
 		t.Fatalf("got %v, %q", err, stderr)
 	}
@@ -291,16 +291,16 @@ func TestAWriteToADownPluginFailsOutLoud(t *testing.T) {
 	}
 	// A process told to stay down still connects before it gives up, so counting connections
 	// can't say it's back. A write it takes can.
-	r.setting("relay", "on")
-	r.untilValue("relay", true)
+	r.setting("relays/relay", "on")
+	r.untilValue("relays/relay", true)
 }
 
 func TestTheDeployCheckSeesAClaimOnADeviceWhosePluginIsDown(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t, settle)
-	r.untilValue("valve", true)
+	r.untilValue("relays/valve", true)
 	r.change("leak-sensor", opened, true)
-	r.untilValue("valve", false)
+	r.untilValue("relays/valve", false)
 	r.sync()
 	r.stop()
 	if err := os.WriteFile(filepath.Join(r.dir, "plugin-down"), nil, 0o600); err != nil {
@@ -312,7 +312,8 @@ func TestTheDeployCheckSeesAClaimOnADeviceWhosePluginIsDown(t *testing.T) {
 	if err == nil {
 		t.Fatalf("the deploy went ahead. The log:\n%s", r.dump())
 	}
-	if !strings.Contains(stderr, `"valve on leak-shutoff"`) || !strings.Contains(stderr, "--allow-safety") {
+	if !strings.Contains(stderr, "Safety case case/relays/valve/on/leak-shutoff is gone") ||
+		!strings.Contains(stderr, "--allow-safety") {
 		t.Fatalf("got %q", stderr)
 	}
 }
@@ -321,7 +322,7 @@ func TestAControllerDrivesAPluginsDevice(t *testing.T) {
 	t.Parallel()
 	r := preparePlugins(t)
 	port := r.serveMatter(freeUDP(t), func(flag string) { r.launchedPlugins(flag) })
-	r.untilValue("relay", false)
+	r.untilValue("relays/relay", false)
 	r.until("the commissioning window", func() bool { return r.matter().Window })
 	c := &controller{t: t, r: r, port: port, cm: nodetest.New(t)}
 	c.admin = c.cm.Commission(nodetest.Addr(port), r.matter().Passcode)
@@ -335,8 +336,8 @@ func TestAControllerDrivesAPluginsDevice(t *testing.T) {
 		t.Errorf("SerialNumber %v and SoftwareVersionString %v, want what the plugin says", serial, firmware)
 	}
 	c.command(endpoint, turnOn)
-	r.untilValue("relay", true)
-	r.stdout(nil, "set", "device/relay/on", "off")
+	r.untilValue("relays/relay", true)
+	r.stdout(nil, "set", "hardware/relays/relay/on", "off")
 	r.until("the controller to hear relay", func() bool { return !c.isOn(endpoint) })
 }
 
@@ -344,7 +345,7 @@ func TestAHomeKeepsAPluginsDevicesOffMatter(t *testing.T) {
 	t.Parallel()
 	r := preparePlugins(t)
 	port := r.serveMatter(freeUDP(t), func(flag string) { r.launchedPlugins(flag) })
-	r.untilValue("relay", false)
+	r.untilValue("relays/relay", false)
 	r.until("the commissioning window", func() bool { return r.matter().Window })
 	c := &controller{t: t, r: r, port: port, cm: nodetest.New(t)}
 	c.admin = c.cm.Commission(nodetest.Addr(port), r.matter().Passcode)
@@ -365,8 +366,8 @@ func TestAHomeKeepsAPluginsDevicesOffMatter(t *testing.T) {
 		t.Error("ShowOnMatter's valve went too")
 	}
 	// The host still drives it.
-	r.setting("relay", "on")
-	r.untilValue("relay", true)
+	r.setting("relays/relay", "on")
+	r.untilValue("relays/relay", true)
 	var listed []struct {
 		Name   string `json:"name"`
 		Driver string `json:"driver"`
@@ -417,7 +418,7 @@ func TestAFailedDeployLeavesThePluginsDevicesOnMatter(t *testing.T) {
 	r.launchPlugins(matterFlag(port), longSettle)
 	r.waitFor(func(l line) bool { return l.is(attached) })
 	r.until("the relay", func() bool { return r.count(pluginConnected, "plugin", "relays") >= 1 })
-	r.untilValue("relay", false)
+	r.untilValue("relays/relay", false)
 
 	bin := variant(t, "plugins-hidden-crash")
 	done := make(chan error, 1)
@@ -455,11 +456,11 @@ func (s *switchedOn) set(ctx context.Context, p *plugin.Plugin, cmd contract.Set
 func TestAWriteLostToACrashIsWrittenAgain(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)
-	r.untilValue("once", false)
+	r.untilValue("relays/once", false)
 	r.change("once-sensor", opened, true)
 	r.until("the plugin to come back", func() bool { return r.count(pluginConnected, "plugin", "relays") == 2 })
 	// Taken for somebody turning it off, it'd stay off under an hour's override of a Normal claim.
-	r.untilValue("once", true)
+	r.untilValue("relays/once", true)
 }
 
 func TestOutsidePluginsConnectToABrokerThatStartsLate(t *testing.T) {
@@ -493,7 +494,7 @@ func TestOutsidePluginsConnectToABrokerThatStartsLate(t *testing.T) {
 	r.until("the kettle", func() bool {
 		_ = p.SetState(ctx, "kettle", contract.State{"on": false})
 		_ = p.SetDevices(ctx, []contract.DeviceReport{{ID: "kettle", Found: true, Capabilities: []string{"on"}}}, 0)
-		return slices.ContainsFunc(r.status().Devices, func(d api.Device) bool { return d.Name == "kettle" })
+		return slices.ContainsFunc(r.status().Devices, func(d api.Device) bool { return d.Hardware == "kettle/kettle" })
 	})
 }
 
@@ -529,9 +530,9 @@ func TestAnOutsideProcessSpeaksMQTT(t *testing.T) {
 	if err := p.SetState(ctx, "kettle", contract.State{"on": false}); err != nil {
 		t.Fatal(err)
 	}
-	r.untilValue("kettle", false)
-	r.stdout(nil, "set", "device/kettle/on", "on")
-	r.untilValue("kettle", true)
+	r.untilValue("kettle/kettle", false)
+	r.stdout(nil, "set", "hardware/kettle/kettle/on", "on")
+	r.untilValue("kettle/kettle", true)
 	if device.sets.Load() != 1 {
 		t.Fatalf("got %d sets", device.sets.Load())
 	}
@@ -540,7 +541,7 @@ func TestAnOutsideProcessSpeaksMQTT(t *testing.T) {
 func TestAVersionThatDropsAPluginSaysWhatItLeftBehind(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t, settle)
-	r.untilValue("relay", false)
+	r.untilValue("relays/relay", false)
 	// The fixture's module, built as it is, imports no plugins.
 	env := []string{"GOFLAGS=-mod=mod", "GOPROXY=off"}
 	if stderr, err := r.oikade(env, "check", "--module", filepath.Join(buildDir, "module")); err != nil ||
@@ -569,10 +570,10 @@ func TestAVersionThatDropsAPluginSaysWhatItLeftBehind(t *testing.T) {
 		}
 		return slices.Contains(list, listed{Name: "relay", PluginNotImported: true})
 	})
-	if !slices.ContainsFunc(r.status().Devices, func(d api.Device) bool { return d.Name == "relay" && d.PluginNotImported }) {
+	if !slices.ContainsFunc(r.status().Devices, func(d api.Device) bool { return d.Hardware == "relays/relay" && d.PluginNotImported }) {
 		t.Fatal("status doesn't mark relay")
 	}
-	if strings.Contains(string(r.stdout(nil, "status", "--json", "leak-sensor")), "pluginNotImported") {
+	if strings.Contains(string(r.stdout(nil, "status", "--json", simRef("leak-sensor"))), "pluginNotImported") {
 		t.Error("status marks a simulated device")
 	}
 

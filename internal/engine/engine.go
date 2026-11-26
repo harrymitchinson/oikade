@@ -156,8 +156,6 @@ type Engine struct {
 	// arbs are the arbitrated capabilities by device, and controlDue the devices to look at again.
 	arbs       map[ident.ID]map[string]*arb
 	controlDue map[ident.ID]bool
-	// controlLabels are the device names the control gauges have, so a rename's replace them.
-	controlLabels map[ident.ID]string
 	// saveDue are the devices whose arbiters saveControls saves next.
 	saveDue  map[ident.ID]bool
 	saveWake chan struct{}
@@ -225,7 +223,6 @@ func (e *Engine) Init() {
 	e.signals.next = e.Clock.Now()
 	e.arbs = map[ident.ID]map[string]*arb{}
 	e.controlDue = map[ident.ID]bool{}
-	e.controlLabels = map[ident.ID]string{}
 	e.saveDue = map[ident.ID]bool{}
 	e.saveWake = make(chan struct{}, 1)
 	e.bridgeWrites = map[ident.ID]map[string]bridgeWrite{}
@@ -875,7 +872,7 @@ func (e *Engine) act(ctx context.Context, key ident.ID, a action) (ok bool, arbi
 		return true, nil
 	}
 	if err := e.Setter.Set(writtenFor(ctx, ruleSource(key.Name)), dev, a.capability, a.value); err != nil {
-		e.Log.Error("Failed to run Rule action", "err", err, "rule", e.ruleRef(key), "device", e.names().Device(a.device), "capability", a.capability)
+		e.Log.Error("Failed to run Rule action", "err", err, "rule", e.ruleRef(key), "device", ident.DeviceRef(a.device), "capability", a.capability)
 		return false, nil
 	}
 	return true, nil
@@ -912,7 +909,7 @@ func (e *Engine) setRoom(ctx context.Context, key ident.ID, a action) (ok bool, 
 			}
 		}
 		if err := e.Setter.Set(writtenFor(ctx, ruleSource(key.Name)), dev, a.capability, a.value); err != nil {
-			log.Error("Failed to run Rule action", "err", err, "device", e.name(dev), "room", a.room, "capability", a.capability)
+			log.Error("Failed to run Rule action", "err", err, "device", ref(dev), "room", a.room, "capability", a.capability)
 			ok = false
 		}
 	}

@@ -1,3 +1,3 @@
 --- stderr
-No events of device/porch-light since yesterday 14:00.
+No events of hardware/hue/0x2 since yesterday 14:00.
 [2mHint: --since WHEN looks further back: the event log starts 4 days ago[0m

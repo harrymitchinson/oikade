@@ -36,7 +36,7 @@ func deviceOf(t *testing.T, list registry.Snapshot, name string) registry.Device
 }
 
 // pair simulates pairing hardware, and waits until the host has it.
-func (r *rig) pair(id, app string) {
+func (r *rig) pair(id string) {
 	r.t.Helper()
 	raw, err := json.Marshal(map[string]any{"pair": map[string]any{
 		"name": id, "capabilities": []string{"on"}, "values": map[string]any{"on": false},
@@ -47,19 +47,19 @@ func (r *rig) pair(id, app string) {
 	if _, err := r.stdin.Write(append(raw, '\n')); err != nil {
 		r.t.Fatal(err)
 	}
-	r.waitFor(func(l line) bool { return l.is("Changed capability", "device", app) })
+	r.waitFor(func(l line) bool { return l.is("Changed capability", "device", simRef(id)) })
 }
 
 func TestAPairedDeviceIsUsableAtOnce(t *testing.T) {
 	t.Parallel()
 	r := start(t)
-	r.pair("hall-lamp", "hall-lamp")
+	r.pair("hall-lamp")
 
 	d := deviceOf(t, r.devices(), "hall-lamp")
 	if d.ID != "hall-lamp" || d.Endpoint < registry.FirstEndpoint {
 		t.Errorf("got %+v", d)
 	}
-	r.stdout(nil, "set", "device/hall-lamp/on", "on")
+	r.stdout(nil, "set", simRef("hall-lamp")+"/on", "on")
 	r.wrote("hall-lamp", true)
 	if !strings.Contains(string(r.stdout(nil, "list", "devices")), "hall-lamp") {
 		t.Error("the table left it out")
@@ -70,24 +70,24 @@ func TestAPairedDeviceIsUsableAtOnce(t *testing.T) {
 func TestAForgottenDeviceComesBackOnItsOwnEndpoint(t *testing.T) {
 	t.Parallel()
 	r := start(t)
-	r.pair("shed-lamp", "shed-lamp")
+	r.pair("shed-lamp")
 	endpoint := deviceOf(t, r.devices(), "shed-lamp").Endpoint
-	said := string(r.stdout(nil, "forget", "shed-lamp"))
-	if !strings.HasPrefix(said, "Forgot device/shed-lamp") ||
+	said := string(r.stdout(nil, "forget", simRef("shed-lamp")))
+	if !strings.HasPrefix(said, "Forgot hardware/simulator/shed-lamp") ||
 		!strings.Contains(said, "It comes back when its driver next reports it") {
 		t.Errorf("forget said:\n%s", said)
 	}
-	if _, err := r.oikade(nil, "set", "device/shed-lamp/on", "on"); err == nil {
+	if _, err := r.oikade(nil, "set", simRef("shed-lamp")+"/on", "on"); err == nil {
 		t.Error("set a removed device")
 	}
 	if strings.Contains(string(r.stdout(nil, "list", "devices")), "shed-lamp") {
 		t.Error("the table still lists it")
 	}
-	r.pair("other-lamp", "other-lamp")
+	r.pair("other-lamp")
 	if got := deviceOf(t, r.devices(), "other-lamp").Endpoint; got == endpoint {
 		t.Errorf("another device took endpoint %d", got)
 	}
-	r.pair("shed-lamp", "shed-lamp")
+	r.pair("shed-lamp")
 	if got := deviceOf(t, r.devices(), "shed-lamp").Endpoint; got != endpoint {
 		t.Errorf("came back on %d, want %d", got, endpoint)
 	}
@@ -127,7 +127,7 @@ func TestTypesNeverChangesALineThatsThere(t *testing.T) {
 		t.Fatalf("code naming its devices didn't compile: %v\n%s", err, first)
 	}
 
-	r.stdout(nil, "forget", "fan")
+	r.stdout(nil, "forget", "hardware/simulator/fan")
 	r.stdout(nil, "types", "--out", out)
 	if again, _ := os.ReadFile(out); string(again) != string(first) {
 		t.Errorf("devices.go changed:\n%s\n%s", first, again)
@@ -142,10 +142,10 @@ func TestASafetyDeviceCanBeRemovedOnPurpose(t *testing.T) {
 	r := start(t)
 	r.sync()
 	r.change("leak-sensor", "open", true)
-	r.waitFor(func(l line) bool { return l.is(wrote, "device", "valve", "value", false) })
+	r.waitFor(func(l line) bool { return l.is(wrote, "device", "hardware/simulator/valve", "value", false) })
 	r.sync()
-	r.stdout(nil, "forget", "valve", "--allow-safety")
-	if _, err := r.oikade(nil, "status", "valve"); err == nil {
+	r.stdout(nil, "forget", "hardware/simulator/valve", "--allow-safety")
+	if _, err := r.oikade(nil, "status", "hardware/simulator/valve"); err == nil {
 		t.Error("the valve stayed")
 	}
 }
@@ -159,7 +159,7 @@ func TestRemovalAfterARestartSeesASavedSafetyClaim(t *testing.T) {
 	r.wrote("valve", false)
 	r.sync()
 	r.stop()
-	if got := r.ruleClaims("valve"); !holdsClaim(got, "Rule/valve on leak-shutoff", 3) {
+	if got := r.ruleClaims("simulator/valve"); !holdsClaim(got, "Rule/simulator/valve on leak-shutoff", 3) {
 		t.Fatalf("no Safety claim: %+v", got)
 	}
 	file, _ := filepath.Abs("testdata/devices-novalve.json")
@@ -167,20 +167,20 @@ func TestRemovalAfterARestartSeesASavedSafetyClaim(t *testing.T) {
 	r.awaitLoaded()
 	r.sync()
 	r.stop()
-	if got := r.ruleClaims("valve"); !holdsClaim(got, "Rule/valve on leak-shutoff", 3) {
+	if got := r.ruleClaims("simulator/valve"); !holdsClaim(got, "Rule/simulator/valve on leak-shutoff", 3) {
 		t.Fatalf("restart lost the claim: %+v", got)
 	}
 	r.launchWithout("--home", homeBin, "--simulate", file, settle)
 	r.awaitLoaded()
 	r.sync()
-	stderr, err := r.oikade(nil, "forget", "valve")
+	stderr, err := r.oikade(nil, "forget", "hardware/simulator/valve")
 	if !strings.Contains(stderr, "--allow-safety") {
 		t.Errorf("got %q", stderr)
 	}
 	r.stop()
 	s := r.openStore()
 	defer func() { _ = s.Close() }()
-	_, ok, _ := s.Namespace("controls").Get("valve")
+	_, ok, _ := s.Namespace("controls").Get("simulator/valve")
 	if err == nil {
 		t.Fatalf("a Safety claim's device was removed without --allow-safety")
 	}
@@ -206,16 +206,16 @@ func TestASafetyClaimIsEnforcedBeforeItsDeviceReports(t *testing.T) {
 	r.awaitLoaded()
 	r.sync()
 
-	st := r.status("valve")
+	st := r.status("hardware/simulator/valve")
 	c := api.Capability{}
 	if len(st.Devices) == 1 && len(st.Devices[0].Capabilities) > 0 {
 		c = st.Devices[0].Capabilities[0]
 	}
-	if c.Level != "Safety" || winner(c) != "case/valve/on/leak-shutoff" {
+	if c.Level != "Safety" || winner(c) != "case/simulator/valve/on/leak-shutoff" {
 		t.Errorf("the arbiter didn't load before the device reported: %+v", st.Devices)
 	}
 	stderr, err := r.deploy("renamed")
-	if err == nil || !strings.Contains(stderr, `"valve on leak-shutoff"`) {
+	if err == nil || !strings.Contains(stderr, "Safety case case/simulator/valve/on/leak-shutoff is gone") {
 		t.Errorf("the deploy check missed the claim: %v: %s", err, stderr)
 	}
 }
@@ -254,7 +254,7 @@ func TestRemovingARoomsLastSensorWarnsOfTheHoldsThatReadIt(t *testing.T) {
 	r.wrote("dehumidifier", true)
 
 	// The dry sensor is left in the cellar, so nothing warns, and the remove happens.
-	stderr, err := r.oikade(nil, "forget", "damp-sensor")
+	stderr, err := r.oikade(nil, "forget", "hardware/simulator/damp-sensor")
 	if err != nil || strings.Contains(stderr, "Warning") {
 		t.Errorf("got %v: %q, want no warning while the cellar has a sensor", err, stderr)
 	}
@@ -271,16 +271,18 @@ func TestRemovingARoomsLastSensorWarnsOfTheHoldsThatReadIt(t *testing.T) {
 		Refs      []string        `json:"refs"`
 		Forgotten []api.Forgotten `json:"forgotten"`
 	}
-	if err := json.Unmarshal(r.stdout(nil, "forget", "dry-sensor", "--json"), &removed); err != nil {
+	if err := json.Unmarshal(r.stdout(nil, "forget", "hardware/simulator/dry-sensor", "--json"), &removed); err != nil {
 		t.Fatal(err)
 	}
-	if !removed.OK || len(removed.Forgotten) != 1 || !slices.Equal(removed.Refs, []string{"device/dry-sensor"}) ||
+	if !removed.OK || len(removed.Forgotten) != 1 || !slices.Equal(removed.Refs,
+		[]string{"hardware/simulator/dry-sensor"}) ||
 		!strings.Contains(removed.Warning, "cellar-damp") ||
 		!strings.Contains(removed.Warning, "cellar") {
 		t.Errorf("got %+v, want a warning naming cellar-damp and the cellar", removed)
 	}
 	// Out of a room no hold reads, it says nothing.
-	if stderr, err := r.oikade(nil, "forget", "fan"); err != nil || strings.Contains(stderr, "Warning") {
+	if stderr, err := r.oikade(nil, "forget", "hardware/simulator/fan"); err != nil || strings.Contains(stderr,
+		"Warning") {
 		t.Errorf("got %v: %q from a room no hold reads", err, stderr)
 	}
 }
@@ -296,7 +298,7 @@ func TestAClaimOnAModeSurvivesARestart(t *testing.T) {
 	r.wrote("bedroom-ac", "dry")
 	r.sync()
 	r.stop()
-	claims := r.savedClaims("bedroom-ac", "mode")
+	claims := r.savedClaims("simulator/bedroom-ac", "mode")
 	if !holdsClaim(claims, "Rule/bedroom-dry-out", control.Normal) {
 		t.Fatalf("no claim from the flow: %+v", claims)
 	}
@@ -309,10 +311,10 @@ func TestAClaimOnAModeSurvivesARestart(t *testing.T) {
 	r.launch(settle)
 	r.awaitLoaded()
 	r.sync()
-	if n := r.count(wrote, "device", "bedroom-ac", "value", "dry"); n != 2 {
+	if n := r.count(wrote, "device", "hardware/simulator/bedroom-ac", "value", "dry"); n != 2 {
 		t.Fatalf("dry was written %d times, want again after the restart. The log:\n%s", n, r.dump())
 	}
-	c := capabilityOf(t, r.status("bedroom-ac"), "bedroom-ac", "mode")
+	c := capabilityOf(t, r.status("hardware/simulator/bedroom-ac"), "simulator/bedroom-ac", "mode")
 	if c.Value != "dry" || c.Level != "Normal" || len(c.Claims) == 0 || c.Claims[0].Value != "dry" {
 		t.Errorf("status has the mode as %+v", c)
 	}

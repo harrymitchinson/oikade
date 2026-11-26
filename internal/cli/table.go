@@ -16,6 +16,9 @@ type Column struct {
 	Drop int
 	// Shrink lets its cells be shortened, with an ellipsis, once no column is left to go.
 	Shrink bool
+	// ShrinkLast shortens it only once no other Shrink column can give, for what a row is, such as a
+	// ref to paste into the next command.
+	ShrinkLast bool
 	// Dim is for a column of what's secondary, such as refs.
 	Dim bool
 	// DimIf dims the cells it's true of, in a column where only some cells are secondary.
@@ -116,18 +119,25 @@ func fit(columns []Column, widths []int, shown []bool, limit int) (dropped []str
 		shown[next] = false
 		dropped = append(dropped, columns[next].Header)
 	}
-	for over := total() - limit; over > 0; over-- {
+	widest := func(last bool) int {
 		widest := -1
 		for i, c := range columns {
-			if shown[i] && c.Shrink && widths[i] > max(minShrunk, width(c.Header)) &&
+			if shown[i] && c.Shrink && c.ShrinkLast == last && widths[i] > max(minShrunk, width(c.Header)) &&
 				(widest < 0 || widths[i] > widths[widest]) {
 				widest = i
 			}
 		}
-		if widest < 0 {
+		return widest
+	}
+	for over := total() - limit; over > 0; over-- {
+		next := widest(false)
+		if next < 0 {
+			next = widest(true)
+		}
+		if next < 0 {
 			break
 		}
-		widths[widest]--
+		widths[next]--
 	}
 	return dropped
 }

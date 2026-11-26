@@ -84,12 +84,8 @@ func (m budgetMetrics) all() []series.Vec {
 	return []series.Vec{m.target, m.scheduled, m.run, m.todayRun, m.missed, m.desired}
 }
 
-// ruleRef is a rule's ref, as its series' rule label and its log lines name it, with its device
-// named.
-func (e *Engine) ruleRef(key ident.ID) string { return e.names().RuleRef(key.Name).String() }
+// ruleRef is a rule's ref, as its series' rule label and its log lines name it.
+func (e *Engine) ruleRef(key ident.ID) string { return control.RuleRef(key.Name).String() }
 
-// names are what the store calls the devices, for log lines and metric labels.
-func (e *Engine) names() control.Names { return e.Store.Names() }
-
-// name is a device's name, for a log line.
-func (e *Engine) name(dev ident.ID) string { return e.names().Device(dev.Name) }
+// ref is a device's ref, for a log line.
+func ref(dev ident.ID) string { return ident.DeviceRef(dev.Name).String() }

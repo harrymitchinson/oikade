@@ -35,9 +35,10 @@ func listings(now time.Time) []listing {
 		})
 		s.Plugins[0].NeedsSetup = true
 		s.Plugins = append(s.Plugins, api.Plugin{
-			Name: "zigbee2mqtt", Ref: "plugin/zigbee2mqtt", Devices: []string{"shed-relay"},
+			Name: "zigbee2mqtt", Ref: "plugin/zigbee2mqtt", Devices: []string{"zigbee2mqtt/0x02"},
 		})
-		s.Devices = append(s.Devices, api.Device{Name: "shed-relay", Plugin: "zigbee2mqtt", PluginNotImported: true})
+		s.Devices = append(s.Devices, api.Device{Hardware: "zigbee2mqtt/0x02", Ref: "hardware/zigbee2mqtt/0x02",
+			Plugin: "zigbee2mqtt", PluginNotImported: true})
 		return s
 	}
 	return []listing{
@@ -153,7 +154,7 @@ func TestListTakesOneKind(t *testing.T) {
 	for args, want := range map[string]string{
 		"list":                        "Error: oikade list takes one kind\n",
 		"list devices rules":          "Error: oikade list takes one kind\n",
-		"list device/hall-lamp":       "Error: oikade list doesn't take device/hall-lamp\n",
+		"list hardware/hue/0x2":       "Error: oikade list doesn't take hardware/hue/0x2\n",
 		"list rules --all":            "Error: --all is only for oikade list devices\n",
 		"list contexts --context lab": "Error: --context picks a host, and oikade list contexts asks none\n",
 		"list contexts --data-dir /x": "Error: --data-dir picks a host, and oikade list contexts asks none\n",
@@ -191,12 +192,13 @@ func TestListDevicesLeavesForgottenOnesOut(t *testing.T) {
 	if err := printDeviceList(cli.Plain(&out, 0), cli.Plain(io.Discard, 0), resp, listOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out.String(), "old-plug") || len(list.Devices) != 2 {
+	if strings.Contains(out.String(), "ewelink-lan/p") || len(list.Devices) != 2 {
 		t.Errorf("without --all:\n%s", out.String())
 	}
 	out.Reset()
 	err := printDeviceList(cli.Plain(&out, 0), cli.Plain(&stderr, 0), resp, listOptions{all: true})
-	if err != nil || !strings.Contains(out.String(), "old-plug") || !strings.Contains(out.String(), "forgotten") {
+	if err != nil || !strings.Contains(out.String(), "hardware/ewelink-lan/p  ") || !strings.Contains(out.String(),
+		"forgotten") {
 		t.Errorf("with --all:\n%s", out.String())
 	}
 }

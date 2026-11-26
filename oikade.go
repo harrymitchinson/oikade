@@ -824,8 +824,7 @@ func (h *Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 	for _, d := range decided {
 		for _, f := range d.own {
 			if !slices.Contains(h.flows, f) {
-				errs = append(errs, fmt.Errorf("decision %s %s: Flows(%s) is a flow this home doesn't have", d.device,
-					d.capability, f.name))
+				errs = append(errs, fmt.Errorf("%s: Flows(%s) is a flow this home doesn't have", d.name(), f.name))
 			}
 		}
 		for _, c := range d.cases {
@@ -854,6 +853,9 @@ func (h *Home) compile() ([]*engine.Compiled, map[string]*flow.Flow, error) {
 		switch named := ident.CheckName(ident.Plugin, p.name); {
 		case named != nil:
 			errs = append(errs, named)
+		case p.name == ident.Simulator:
+			errs = append(errs, fmt.Errorf("plugin %s: %s is simulated hardware's: import it under another name", p.name,
+				p.name))
 		case plugins[p.name]:
 			errs = append(errs, fmt.Errorf("plugin %q is declared twice", p.name))
 		case p.factory == nil:

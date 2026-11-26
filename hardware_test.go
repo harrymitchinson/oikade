@@ -9,6 +9,7 @@ import (
 
 	"oikade.dev/internal/devicetype"
 	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/ident"
 )
 
 // declaring gives a test the program's declarations to itself, and puts back what was there.
@@ -159,6 +160,8 @@ func TestDevicesAreChecked(t *testing.T) {
 		"a bad room": {func(*Home) { Device[OnOffLight]("relays/a", Room("Le Salon")) }, `"Le Salon" isn't a room name`},
 		"not a struct": {func(*Home) { Device[DeviceType]("relays/a") },
 			"its type, oikade.DeviceType, isn't a device type"},
+		"a plugin named as the simulator": {func(h *Home) { h.Plugin(ident.Simulator, zigbee) },
+			"plugin simulator: simulator is simulated hardware's"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			declaring(t)
@@ -167,6 +170,15 @@ func TestDevicesAreChecked(t *testing.T) {
 				t.Errorf("got %v, want an error with %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// Simulated hardware is no plugin's, so it needs no import.
+func TestSimulatedHardwareNeedsNoPlugin(t *testing.T) {
+	declaring(t)
+	Device[OnOffLight]("simulator/porch-light")
+	if _, _, err := decide(func(*Home) {}).compile(); err != nil {
+		t.Error(err)
 	}
 }
 

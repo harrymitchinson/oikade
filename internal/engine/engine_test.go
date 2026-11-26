@@ -573,7 +573,7 @@ func TestRoomActionPartialFailure(t *testing.T) {
 		t.Fatalf("calls = %v, want %v", got, want)
 	}
 	if !slices.ContainsFunc(logs, func(l string) bool {
-		return strings.Contains(l, `device=lamp-a`) && strings.Contains(l, `room=living-room`)
+		return strings.Contains(l, `device=device/lamp-a`) && strings.Contains(l, `room=living-room`)
 	}) {
 		t.Fatalf("no failure log naming lamp-a in %q", logs)
 	}

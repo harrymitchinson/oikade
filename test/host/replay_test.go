@@ -118,7 +118,8 @@ func TestReplayingAChangedThresholdShowsExactlyTheWritesThatGo(t *testing.T) {
 	if len(report.Added) != 0 {
 		t.Fatalf("Added = %v", report.Added)
 	}
-	if len(report.Removed) != 2 || report.Removed[0].Device != "fan" || report.Removed[1].Device != "fan" {
+	if len(report.Removed) != 2 || report.Removed[0].Device != "simulator/fan" ||
+		report.Removed[1].Device != "simulator/fan" {
 		t.Fatalf("Removed = %v, want the fan's two writes", report.Removed)
 	}
 }

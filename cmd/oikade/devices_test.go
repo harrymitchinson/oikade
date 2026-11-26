@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -47,9 +48,9 @@ func TestUnimportedDevicesSayHowToRemoveThemAndCallOutSafety(t *testing.T) {
 func TestDevicesMarkThoseWhosePluginIsntImported(t *testing.T) {
 	var out bytes.Buffer
 	printDevices(cli.Plain(&out, 0), registry.Snapshot{Devices: []registry.Device{
-		{Name: "boiler", ID: "b", Driver: "plugin/relays", Endpoint: 2},
-		{Name: "lamp", ID: "l", Driver: "plugin/shades", Endpoint: 3},
-	}}, deviceMarks{unimported: map[string]bool{"boiler": true}}, false)
+		{Name: "boiler", AppName: "Boiler", ID: "b", Driver: "plugin/relays", Endpoint: 2},
+		{Name: "lamp", AppName: "Lamp", ID: "l", Driver: "plugin/shades", Endpoint: 3},
+	}}, deviceMarks{unimported: map[string]bool{"relays/b": true}}, false)
 	lines := strings.Split(out.String(), "\n")
 	if !strings.Contains(lines[1], "plugin not imported") || strings.Contains(lines[2], "plugin not imported") {
 		t.Errorf("got\n%s", out.String())
@@ -62,14 +63,13 @@ func TestDevicesMarkThoseHiddenFromMatter(t *testing.T) {
 		{Name: "garage-door", ID: "s2", Driver: "plugin/tahoma", Endpoint: 3},
 		{Name: "attic-shutter", ID: "s3", Driver: "plugin/tahoma", Endpoint: 4},
 	}}
-	marks := deviceMarks{hidden: map[string]bool{"bedroom-shutter": true, "attic-shutter": true}}
+	marks := deviceMarks{hidden: map[string]bool{"tahoma/s1": true, "tahoma/s3": true}}
 
 	var out bytes.Buffer
 	printDevices(cli.Plain(&out, 0), list, marks, false)
 	lines := strings.Split(out.String(), "\n")
-	// Sorted: attic-shutter, bedroom-shutter, garage-door.
 	if !strings.Contains(lines[1], "  hidden from Matter") ||
-		!strings.Contains(lines[2], "  hidden from Matter") || strings.Contains(lines[3], "hidden") {
+		strings.Contains(lines[2], "hidden") || !strings.Contains(lines[3], "  hidden from Matter") {
 		t.Errorf("got\n%s", out.String())
 	}
 
@@ -86,19 +86,19 @@ func TestStatusSaysWhatsWrongWithADevice(t *testing.T) {
 	var out bytes.Buffer
 	st := &api.Status{Devices: []api.Device{
 		{
-			Name: "porch-light", Problem: "no LAN key: oikade setup ewelink-lan",
-			Capabilities: []api.Capability{{Name: "on"}},
+			Hardware: "ewelink-lan/1000ddeeff", Ref: "hardware/ewelink-lan/1000ddeeff",
+			Problem: "no LAN key: oikade setup ewelink-lan", Capabilities: []api.Capability{{Name: "on"}},
 		},
-		{Name: "shed-relay", Problem: "not seen on the LAN"},
+		{Hardware: "ewelink-lan/1000aabbcc", Ref: "hardware/ewelink-lan/1000aabbcc", Problem: "not seen on the LAN"},
 	}}
-	refs, err := statusRefs([]string{"porch-light", "shed-relay"})
+	refs, err := statusRefs([]string{"hardware/ewelink-lan/1000ddeeff", "hardware/ewelink-lan/1000aabbcc"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	printNamed(cli.Plain(&out, 0), cli.Plain(io.Discard, 0), st, refs, noEvents, false, time.Now())
 	for _, want := range []string{
-		"porch-light: no LAN key: oikade setup ewelink-lan\n",
-		"shed-relay: not seen on the LAN\n",
+		"hardware/ewelink-lan/1000ddeeff: no LAN key: oikade setup ewelink-lan\n",
+		"hardware/ewelink-lan/1000aabbcc: not seen on the LAN\n",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("no %q in:\n%s", want, out.String())
@@ -113,14 +113,14 @@ func TestStatusSaysADeviceIsOffline(t *testing.T) {
 		d    api.Device
 		want string
 	}{
-		{api.Device{Name: "pool-pump", Online: &offline}, "offline"},
-		{api.Device{Name: "shed-relay", Online: &offline, Problem: "not seen on the LAN"}, "offline: not seen on the LAN"},
-		{api.Device{Name: "porch-light", Online: &online, Problem: "no key"}, "no key"},
-		{api.Device{Name: "desk-lamp", Online: &online}, ""},
-		{api.Device{Name: "attic-fan", Online: &offline, PluginNotImported: true}, notImported},
+		{api.Device{Hardware: "a/1", Online: &offline}, "offline"},
+		{api.Device{Hardware: "a/2", Online: &offline, Problem: "not seen on the LAN"}, "offline: not seen on the LAN"},
+		{api.Device{Hardware: "a/3", Online: &online, Problem: "no key"}, "no key"},
+		{api.Device{Hardware: "a/4", Online: &online}, ""},
+		{api.Device{Hardware: "a/5", Online: &offline, PluginNotImported: true}, notImported},
 	} {
 		if got := deviceState(tc.d); got != tc.want {
-			t.Errorf("%s: %q, want %q", tc.d.Name, got, tc.want)
+			t.Errorf("%s: %q, want %q", tc.d.Hardware, got, tc.want)
 		}
 	}
 }
@@ -134,8 +134,9 @@ func TestDevicesNotInYourCodeSayHowToDeclareThem(t *testing.T) {
 	var out bytes.Buffer
 	printDevices(cli.Plain(&out, 0), list, deviceMarks{}, false)
 	lines := strings.Split(out.String(), "\n")
-	if !strings.Contains(lines[1], "attic-fan") || !strings.Contains(lines[1], notInYourCode) ||
-		strings.Contains(lines[2], notInYourCode) || strings.Contains(lines[3], notInYourCode) {
+	// By ref: the simulator's kettle, then the attic fan and the porch light.
+	if !strings.Contains(lines[2], "hardware/zigbee/0x1") || !strings.Contains(lines[2], notInYourCode) ||
+		strings.Contains(lines[1], notInYourCode) || strings.Contains(lines[3], notInYourCode) {
 		t.Errorf("got\n%s", out.String())
 	}
 	out.Reset()
@@ -256,13 +257,13 @@ func TestStatusMarksADeviceNotInYourCode(t *testing.T) {
 	var out, stderr bytes.Buffer
 	printStatus(cli.Plain(&out, 0), cli.Plain(&stderr, 0), &api.Status{Devices: []api.Device{
 		{
-			Name: "attic-fan", Declare: `home.Device("attic-fan").Hardware("zigbee", "0x1")`,
+			Hardware: "zigbee/0x1", Ref: "hardware/zigbee/0x1", Declare: `home.Device("attic-fan").Hardware("zigbee", "0x1")`,
 			Capabilities: []api.Capability{{Name: "on", Value: true}, {Name: "power"}},
 		},
-		{Name: "new-plug", Declare: `home.Device("new-plug").Hardware("zigbee", "0x2")`},
+		{Hardware: "zigbee/0x2", Ref: "hardware/zigbee/0x2", Declare: `home.Device("new-plug").Hardware("zigbee", "0x2")`},
 	}}, false, time.Now())
 	if strings.Count(out.String(), notInYourCode) != 2 ||
-		!strings.Contains(out.String(), "attic-fan        on true  "+notInYourCode) {
+		!strings.Contains(out.String(), "hardware/zigbee/0x1        on true  "+notInYourCode) {
 		t.Errorf("want each device marked once:\n%s", out.String())
 	}
 	// How to declare them is oikade list devices' to say.
@@ -282,8 +283,8 @@ func TestDevicesShowTheirHardwareByItsRef(t *testing.T) {
 	var out bytes.Buffer
 	printDevices(cli.Plain(&out, 0), list, deviceMarks{}, false)
 	lines := strings.Split(out.String(), "\n")
-	if !strings.Contains(lines[0], "HARDWARE") || !strings.Contains(lines[2], ref) ||
-		!strings.Contains(lines[1], "simulated/simulator's k") {
+	if !strings.HasPrefix(lines[0], "DEVICE ") || !strings.HasPrefix(lines[1], ref+" ") ||
+		!strings.HasPrefix(lines[2], "hardware/simulator/k ") {
 		t.Errorf("got\n%s", out.String())
 	}
 
@@ -292,22 +293,20 @@ func TestDevicesShowTheirHardwareByItsRef(t *testing.T) {
 		t.Fatal(err)
 	}
 	var listing []struct {
-		Name     string `json:"name"`
+		Ref      string `json:"ref"`
 		Hardware string `json:"hardware"`
 	}
 	if err := json.Unmarshal(raw, &listing); err != nil {
 		t.Fatal(err)
 	}
-	hardware := map[string]string{}
-	for _, d := range listing {
-		hardware[d.Name] = d.Hardware
-	}
-	if hardware["study-blind"] != ref || hardware["kettle"] != "" {
+	want := `[{hardware/overkiz/io:%2F%2F0812-4471-2093%2F5 overkiz/io:%2F%2F0812-4471-2093%2F5} ` +
+		`{hardware/simulator/k simulator/k}]`
+	if fmt.Sprint(listing) != want {
 		t.Errorf("got %s", raw)
 	}
 
 	// Pasted back, it's the plugin and the ID the plugin gave.
-	k, parts, err := ident.ParseRef(hardware["study-blind"])
+	k, parts, err := ident.ParseRef(listing[0].Ref)
 	if err != nil || k != ident.Hardware || !slices.Equal(parts, []string{"overkiz", "io://0812-4471-2093/5"}) {
 		t.Errorf("ParseRef(%s) = %s %q %v", ref, k, parts, err)
 	}

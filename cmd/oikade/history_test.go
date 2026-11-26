@@ -101,18 +101,14 @@ func TestUntilATimeOfDayComesAfterSince(t *testing.T) {
 	}
 }
 
-// history, tail and status take what they're about by its ref, a device by its name alone, and the
+// history, tail and status take what they're about by its ref, a device by its hardware's, and the
 // Matter bridge as matter. What isn't one, or has no events, is a command typed wrong.
-func TestHistoryTakesRefsAndBareDeviceNames(t *testing.T) {
-	got, err := eventRefs("history", []string{
-		"porch-light", "device/porch-light/on", "matter", "device/matter", "room/hall", "room/hall/on",
-		"case/porch-light/on/dusk", "flow/morning", "plugin/overkiz", "command",
-	})
-	// A bare word is a device's name, whatever else it could have meant.
+func TestHistoryTakesRefs(t *testing.T) {
 	want := []string{
-		"device/porch-light", "device/porch-light/on", "matter", "device/matter", "room/hall", "room/hall/on",
-		"case/porch-light/on/dusk", "flow/morning", "plugin/overkiz", "device/command",
+		"hardware/hue/0x2", "hardware/hue/0x2/on", "matter", "device/shed-fan", "room/hall", "room/hall/on",
+		"case/hue/0x2/on/dusk", "flow/morning", "plugin/overkiz",
 	}
+	got, err := eventRefs("history", want)
 	if err != nil || !slices.Equal(refStrings(got), want) {
 		t.Errorf("refs %q, %v, want %q", refStrings(got), err, want)
 	}
@@ -120,8 +116,10 @@ func TestHistoryTakesRefsAndBareDeviceNames(t *testing.T) {
 		"secret/token":      "isn't a ref",
 		"client/laptop":     "client/laptop has no events",
 		"group/lamps":       "group/lamps has no events",
-		"hardware/x/y":      "hardware/x/y has no events",
-		"Porch Light":       "isn't a device's name",
+		"porch-light":       "isn't a ref: a device's is its hardware's, such as hardware/hue/0x2",
+		"command":           "isn't a ref: a device's is its hardware's",
+		"hardware/hue":      "isn't a ref",
+		"Porch Light":       "isn't a ref",
 		"lamp/porch":        "isn't a ref",
 		"flow/morning/late": "isn't a ref",
 	} {
@@ -190,7 +188,7 @@ func aHost(t *testing.T, log api.EventLog, events []api.Event, st api.Status) (d
 // and coming back, and the morning flow.
 func aNight() []api.Event {
 	at := func(day, h, m, s int) time.Time { return time.Date(2026, 11, day, h, m, s, 0, time.Local) }
-	const light, on, brightness = "device/porch-light", "on", "brightness"
+	const light, on, brightness = "hardware/hue/0x2", "on", "brightness"
 	wrote := func(t time.Time, name string, value any, by string) api.Event {
 		return api.Event{Time: t, Type: api.EventWrite, Ref: light + "/" + name, Capability: name, Value: value, By: by}
 	}
@@ -205,7 +203,7 @@ func aNight() []api.Event {
 	return []api.Event{
 		{Time: at(18, 16, 20, 3), Type: api.EventDeploy, Message: "f113018fb81c06e4d5fa3500102bfbc4"},
 		{Time: at(18, 16, 20, 4), Type: api.EventProcess, Message: "connected"},
-		wrote(at(18, 16, 41, 0), on, true, "case/porch-light/on/dusk"),
+		wrote(at(18, 16, 41, 0), on, true, "case/hue/0x2/on/dusk"),
 		changed(at(18, 16, 41, 1), on, true, false),
 		wrote(at(18, 23, 5, 12), on, false, "matter"),
 		changed(at(18, 23, 5, 12), on, false, true),
@@ -221,13 +219,14 @@ func aNight() []api.Event {
 // when it's of some refs, says where the log starts if that's after --since, and, with nothing to
 // show, says so and what would fill it.
 func TestHistoryLooksTheSame(t *testing.T) {
-	porch := []named{{ref: "device/porch-light", kind: "device", parts: []string{"porch-light"}}}
-	typo := []named{{ref: "device/porch-lihgt", kind: "device", parts: []string{"porch-lihgt"}}}
+	porch := []named{{ref: "hardware/hue/0x2", kind: "device", parts: []string{"hue/0x2"}}}
+	typo := []named{{ref: "hardware/hue/0x20", kind: "device", parts: []string{"hue/0x20"}}}
 	flow := []named{{ref: "flow/evening", kind: "flow", parts: []string{"evening"}}}
 	since, longAgo, anHourAgo := thursday.Add(-24*time.Hour), thursday.Add(-264*time.Hour), thursday.Add(-time.Hour)
 	st := api.Status{
-		Devices: []api.Device{{Name: "porch-light", Room: "porch", Capabilities: []api.Capability{{Name: "on"}}}},
-		Rules:   []api.Rule{{Name: "morning", Ref: "flow/morning"}},
+		Devices: []api.Device{{Hardware: "hue/0x2", Ref: "hardware/hue/0x2", Room: "porch",
+			Capabilities: []api.Capability{{Name: "on"}}}},
+		Rules: []api.Rule{{Name: "morning", Ref: "flow/morning"}},
 	}
 	started := api.EventLog{Start: since.Add(-72 * time.Hour)}
 	for _, c := range []struct {
@@ -267,7 +266,7 @@ func TestHistoryLooksTheSame(t *testing.T) {
 // host for what it was asked for.
 func TestHistoryAsJSONIsALineAnEvent(t *testing.T) {
 	dir, asked := aHost(t, api.EventLog{}, aNight(), api.Status{})
-	out, errs, code := runOikade(t, cli.Plain, "history", "porch-light", "flow/morning",
+	out, errs, code := runOikade(t, cli.Plain, "history", "hardware/hue/0x2", "flow/morning",
 		"--since", "2026-11-18 16:00", "--until", "2026-11-19 12:00", "--json", "--data-dir", dir)
 	if code != 0 || errs != "" {
 		t.Fatalf("exit %d: %s", code, errs)
@@ -285,7 +284,7 @@ func TestHistoryAsJSONIsALineAnEvent(t *testing.T) {
 	}
 	from := time.Date(2026, 11, 18, 16, 0, 0, 0, time.Local)
 	want := api.EventFilter{
-		Since: from, Until: from.Add(20 * time.Hour), Refs: []string{"device/porch-light", "flow/morning"},
+		Since: from, Until: from.Add(20 * time.Hour), Refs: []string{"hardware/hue/0x2", "flow/morning"},
 	}.Query().Encode()
 	if got := asked(); len(got) != 1 || got[0] != want {
 		t.Errorf("it asked the host for %q, want %q", got, want)
@@ -298,7 +297,7 @@ func TestHistoryAsJSONIsALineAnEvent(t *testing.T) {
 	}
 	// Only the home's own events came, so there's nothing of the device, and nothing to print.
 	dir, _ = aHost(t, api.EventLog{}, aNight()[:2], api.Status{})
-	out, errs, code = runOikade(t, cli.Plain, "history", "porch-lihgt", "--json", "--data-dir", dir)
+	out, errs, code = runOikade(t, cli.Plain, "history", "hardware/hue/0x20", "--json", "--data-dir", dir)
 	if code != 0 || out != "" || errs != "" {
 		t.Errorf("a history of nothing as JSON: exit %d, stdout %q, stderr %q", code, out, errs)
 	}
@@ -307,17 +306,18 @@ func TestHistoryAsJSONIsALineAnEvent(t *testing.T) {
 // A tail of something the host has no record of says so once it's following, rather than follow in
 // silence for good. One of something it has says nothing more.
 func TestTailSaysARefNamesNothing(t *testing.T) {
-	st := api.Status{Home: api.Home{Process: true}, Devices: []api.Device{{Name: "porch-light", Room: "porch"}}}
+	st := api.Status{Home: api.Home{Process: true}, Devices: []api.Device{{Hardware: "hue/0x2", Ref: "hardware/hue/0x2",
+		Room: "porch"}}}
 	dir, _ := aHost(t, api.EventLog{}, nil, st)
-	_, errs, _ := runOikade(t, cli.Plain, "tail", "porch-lihgt", "room/porch", "flow/morning", "--data-dir", dir)
-	want := "Following device/porch-lihgt, room/porch, flow/morning on this machine's host\n" +
-		"There's no device/porch-lihgt on record: oikade list devices lists them.\n" +
+	_, errs, _ := runOikade(t, cli.Plain, "tail", "hardware/hue/0x20", "room/porch", "flow/morning", "--data-dir", dir)
+	want := "Following hardware/hue/0x20, room/porch, flow/morning on this machine's host\n" +
+		"There's no hardware/hue/0x20 on record: oikade list devices lists them.\n" +
 		"There's no flow/morning in the running version: oikade status lists its rules.\n"
 	if !strings.HasPrefix(errs, want) {
 		t.Errorf("stderr:\n%s\nwant it to start:\n%s", errs, want)
 	}
-	_, errs, _ = runOikade(t, cli.Plain, "tail", "porch-light", "--data-dir", dir)
-	if !strings.HasPrefix(errs, "Following device/porch-light on this machine's host\nError: ") {
+	_, errs, _ = runOikade(t, cli.Plain, "tail", "hardware/hue/0x2", "--data-dir", dir)
+	if !strings.HasPrefix(errs, "Following hardware/hue/0x2 on this machine's host\nError: ") {
 		t.Errorf("stderr of a tail of a device on record:\n%s", errs)
 	}
 }

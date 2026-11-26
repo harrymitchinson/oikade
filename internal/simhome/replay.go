@@ -12,6 +12,7 @@ import (
 
 	"oikade.dev/internal/control"
 	"oikade.dev/internal/host/api"
+	"oikade.dev/internal/ident"
 )
 
 const (
@@ -455,7 +456,7 @@ func notes(events []api.Event, from, to time.Time, zone *time.Location) []string
 		case e.Type == api.EventDeploy:
 			out = append(out, fmt.Sprintf("Version %s took over at %s, so writes before that were an older version's", e.Message, at))
 		case e.Type == api.EventPause:
-			out = append(out, fmt.Sprintf("Rule %s was %s at %s. A replay doesn't pause it", e.Rule, e.Message, at))
+			out = append(out, fmt.Sprintf("%s was %s at %s. A replay doesn't pause it", control.RuleRef(e.Rule), e.Message, at))
 		}
 	}
 	if !down.IsZero() && to.Sub(down) >= downFor {
@@ -470,5 +471,5 @@ func stamp(t time.Time, zone *time.Location) string {
 
 // String is a write as oikade replay shows it.
 func (w Write) String() string {
-	return fmt.Sprintf("%s %s = %v", w.Device, w.Capability, w.Value)
+	return fmt.Sprintf("%s = %v", ident.CapabilityRef(w.Device, w.Capability), w.Value)
 }

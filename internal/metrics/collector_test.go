@@ -45,11 +45,14 @@ oikade_plugin_rejected_messages_total{plugin="sonoff",reason="unknown_capability
 	}
 }
 
-func TestDeviceMetricsAreSortedAndEscaped(t *testing.T) {
+// A device's series are labelled with its hardware's ref, as every command names it.
+func TestDeviceMetricsAreLabelledByHardwareSortedAndEscaped(t *testing.T) {
 	store := hub.NewStore(logging.Discard())
-	inst := driver.InstanceKey{Driver: "test"}
-	fan, lamp := ident.ID{Name: "fan"}, ident.ID{Name: "lamp"}
-	store.SetDevices(inst, map[ident.ID]hub.Meta{fan: {Instance: inst, Room: `Kid's "den"`}, lamp: {Instance: inst}})
+	inst := driver.InstanceKey{Driver: "plugin", Name: "zigbee2mqtt"}
+	fan, lamp := ident.ID{Name: "zigbee2mqtt/0x00158d0001a2b3c4"}, ident.ID{Name: "zigbee2mqtt/0x00158d0001a2b3c5"}
+	store.SetDevices(inst, map[ident.ID]hub.Meta{
+		fan: {DisplayName: "fan", Instance: inst, Room: `Kid's "den"`}, lamp: {DisplayName: "lamp", Instance: inst},
+	})
 	for _, u := range []driver.Update{
 		{Device: lamp, Capability: "on", Value: true},
 		{Device: fan, Capability: "speed", Value: 2.5},
@@ -58,9 +61,9 @@ func TestDeviceMetricsAreSortedAndEscaped(t *testing.T) {
 		store.Changed(u)
 	}
 
-	want := `oikade_capability_value{capability="on",device="fan",room="Kid's \"den\""} 0
-oikade_capability_value{capability="on",device="lamp",room=""} 1
-oikade_capability_value{capability="speed",device="fan",room="Kid's \"den\""} 2.5
+	want := `oikade_capability_value{capability="on",device="hardware/zigbee2mqtt/0x00158d0001a2b3c4",room="Kid's \"den\""} 0
+oikade_capability_value{capability="on",device="hardware/zigbee2mqtt/0x00158d0001a2b3c5",room=""} 1
+oikade_capability_value{capability="speed",device="hardware/zigbee2mqtt/0x00158d0001a2b3c4",room="Kid's \"den\""} 2.5
 `
 	if got := written(Collector{Store: store}, "oikade_capability_value"); got != want {
 		t.Errorf("wrote\n%s\nwant\n%s", got, want)

@@ -119,7 +119,7 @@ func runAutomations(ctx context.Context, h *Home, rules []*engine.Compiled, flow
 		// A budget has no Rule to show this on, so the log is where you find it.
 		OnBudget: func(key ident.ID, r engine.BudgetReport) {
 			if r.Unplanned {
-				log.Info("Could not plan budget", "rule", mirror.Names().RuleRef(key.Name), "reason", r.Reason,
+				log.Info("Could not plan budget", "rule", control.RuleRef(key.Name), "reason", r.Reason,
 					"message", r.Message)
 			}
 		},
@@ -184,7 +184,7 @@ func runAutomations(ctx context.Context, h *Home, rules []*engine.Compiled, flow
 			return fmt.Errorf("saving a timer: %w", err)
 		}
 	}
-	go saveFires(logging.NewContext(ctx, log), client, fires, mirror.Names())
+	go saveFires(logging.NewContext(ctx, log), client, fires)
 	flowCtx := logging.NewContext(ctx, log.With("logger", "flows"))
 	// The host drops a paused flow's runs. This is for a pause that landed since.
 	bodies := flow.Recover(flowCtx, paused.without(flows), savedRuns(welcome.Unfinished), client, eng)
@@ -326,7 +326,7 @@ type timerFire struct {
 }
 
 // saveFires tells the host about fires, apart from the engine, which can't wait for a socket.
-func saveFires(ctx context.Context, client *wire.Client, fires <-chan timerFire, names control.Names) {
+func saveFires(ctx context.Context, client *wire.Client, fires <-chan timerFire) {
 	log := logging.FromContext(ctx)
 	for {
 		select {
@@ -336,7 +336,7 @@ func saveFires(ctx context.Context, client *wire.Client, fires <-chan timerFire,
 			return
 		case f := <-fires:
 			if err := client.SaveFire(ctx, f.rule, f.at); err != nil {
-				log.Error("Failed to save timer fire", "err", err, "rule", names.RuleRef(f.rule))
+				log.Error("Failed to save timer fire", "err", err, "rule", control.RuleRef(f.rule))
 			}
 		}
 	}

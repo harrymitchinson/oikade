@@ -1,22 +1,22 @@
 --- forget: one device, held and on the bridge, of a plugin your home imports
-Forgot device/porch-light: ended its claims by case/porch-light/on/dusk and flow/away, and took it off the Matter bridge
+Forgot hardware/ewelink-lan/1000a1b2c3: ended its claims by case/ewelink-lan/1000a1b2c3/on/dusk and flow/away, and took it off the Matter bridge
 It stays forgotten while ewelink-lan lists it, and comes back if it leaves the list and returns, as a device re-paired in its app does
 --- forget: a device with neither, of a driver that isn't a plugin
-Forgot device/shed-lamp
+Forgot hardware/simulator/shed-lamp
 It comes back when its driver next reports it
 --- forget: a plugin's devices, which your home doesn't import
-Forgot device/awning: took it off the Matter bridge
-Forgot device/boiler: ended its claims by flow/frost
+Forgot hardware/relays/a: took it off the Matter bridge
+Forgot hardware/relays/b: ended its claims by flow/frost
 Your home doesn't import relays, so they stay gone
 --- forget: a plugin's devices, which your home imports
-Forgot device/awning
-Forgot device/boiler
+Forgot hardware/relays/a
+Forgot hardware/relays/b
 They stay forgotten while relays lists them, and each comes back if it leaves the list and returns, as a device re-paired in its app does
 --- forget: devices of two plugins
-Forgot device/porch-light: ended its claims by case/porch-light/on/dusk and flow/away, and took it off the Matter bridge
-Forgot device/boiler
-device/porch-light stays forgotten while ewelink-lan lists it, and comes back if it leaves the list and returns, as a device re-paired in its app does
-Your home doesn't import relays, so device/boiler stays gone
+Forgot hardware/ewelink-lan/1000a1b2c3: ended its claims by case/ewelink-lan/1000a1b2c3/on/dusk and flow/away, and took it off the Matter bridge
+Forgot hardware/relays/b
+hardware/ewelink-lan/1000a1b2c3 stays forgotten while ewelink-lan lists it, and comes back if it leaves the list and returns, as a device re-paired in its app does
+Your home doesn't import relays, so hardware/relays/b stays gone
 --- remove client/old-laptop
 Removed client/old-laptop: its token stopped working, and its streams ended. The context on its machine stays, and fails until it logs in again
 --- remove client/phone

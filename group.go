@@ -326,24 +326,24 @@ func (h handle) ref() string {
 }
 
 // said is how a why-not names it: its ref, unescaped, so an average reads
-// device/pool-water/temperature over 24h, not temperature%20over%2024h.
+// hardware/hue/0x9/temperature over 24h, not temperature%20over%2024h.
 func (h handle) said() string {
 	switch {
 	case h.g == nil:
-		return string(ident.Device) + "/" + h.device + "/" + h.capability
+		return ident.DeviceRef(h.device).String() + "/" + h.capability
 	case h.g.room != "":
 		return string(ident.Room) + "/" + h.g.room + "/" + h.capability
 	}
 	return string(ident.Group) + "/" + h.g.name + "/" + h.capability
 }
 
-// named is how a mistake or oikade status names a capability: "study-radiator setpoint", or
+// named is how a mistake or oikade status names a capability: hardware/hue/0x2/setpoint, or
 // "group radiators setpoint".
 func (h handle) named() string {
 	if h.g != nil {
 		return h.g.what() + " " + h.capability
 	}
-	return h.device + " " + h.capability
+	return ident.CapabilityRef(h.device, h.capability).String()
 }
 
 // checkGroups refuses two groups of one name, and a group named as a device a decision or another

@@ -1,10 +1,10 @@
-[1mNAME[0m         [1mROOM[0m   [1mSTATE[0m                     [1mCAPABILITIES[0m           [1mPLUGIN[0m
-hall-lamp    hall   paired                    on                     ewelink-lan
-office-ac           paired, not in your code  mode, on, setpoint…    toshiba
-porch-light         plugin not imported       on                     ewelink-lan
-study-blind  study  hidden from Matter        position, target-pos…  overkiz
+[1mDEVICE[0m                             [1mAPP NAME[0m      [1mROOM[0m   [1mSTATE[0m
+hardware/ewelink-lan/1000aabbcc    Hall lamp     hall   paired
+hardware/ewelink-lan/1000ddeeff    Porch                paired
+hardware/overkiz/io:%2F%2F0812-4…  Volet bureau  study  hidden from Matter
+hardware/toshiba/5f1c0c2e-77b3-4…  Bureau               paired, not in your code
 --- stderr
-[2mHint: --wide shows HARDWARE, ENDPOINT and DEVICE TYPES[0m
+[2mHint: --wide shows ENDPOINT, DEVICE TYPES and CAPABILITIES[0m
 To name, place or type a device that's not in your code, declare it in your home:
   home.Device("office-ac").Hardware("toshiba", "5f1c0c2e-77b3-4f8e-9d4a-1b2c3d4e5f60")
 [2mHint: oikade status shows what each is doing now, and what's wrong with it[0m

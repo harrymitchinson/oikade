@@ -388,13 +388,9 @@ func (p *plugins) unimported(imported []string) []api.Unimported {
 	return api.UnimportedOf(p.known.registry.List(), imported, p.host.Outside, p.held)
 }
 
-// held says a Safety claim holds the device of that name.
+// held says a Safety claim holds the device whose key that is.
 func (p *plugins) held(device string) bool {
-	dev, ok := keyOfName(p.known.registry, device)
-	if !ok {
-		return false
-	}
-	_, safety := p.known.claimed(dev)
+	_, safety := p.known.claimed(ident.ID{Name: device})
 	return safety
 }
 

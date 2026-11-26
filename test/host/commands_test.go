@@ -82,7 +82,7 @@ func (r *rig) stdout(env []string, args ...string) []byte {
 func onOf(t *testing.T, st api.Status, device string) api.Capability {
 	t.Helper()
 	for _, d := range st.Devices {
-		if d.Name != device {
+		if d.Hardware != device {
 			continue
 		}
 		for _, c := range d.Capabilities {
@@ -113,41 +113,42 @@ func TestStatusSaysWhyAndSetGoesThroughArbitration(t *testing.T) {
 	if !st.Home.Process {
 		t.Errorf("status says no process: %+v", st)
 	}
-	if c := onOf(t, st, "fan"); c.Value != false || c.Level != "Default" {
+	if c := onOf(t, st, "simulator/fan"); c.Value != false || c.Level != "Default" {
 		t.Errorf("fan: %+v", c)
 	}
 
-	r.stdout(nil, "set", "device/claimed/on", "off", "--json")
+	r.stdout(nil, "set", "hardware/simulator/claimed/on", "off", "--json")
 	r.wrote("claimed", false)
-	c := onOf(t, r.status(), "claimed")
+	c := onOf(t, r.status(), "simulator/claimed")
 	if c.Value != false || c.Level != "Override" || winner(c) != "command" {
 		t.Errorf("after set: %+v", c)
 	}
 
 	r.change("leak-sensor", "open", true)
-	r.waitFor(func(l line) bool { return l.is(wrote, "device", "valve", "value", false) })
+	r.waitFor(func(l line) bool { return l.is(wrote, "device", "hardware/simulator/valve", "value", false) })
 	r.sync()
-	c = onOf(t, r.status(), "valve")
-	if c.Level != "Safety" || winner(c) != "case/valve/on/leak-shutoff" {
+	c = onOf(t, r.status(), "simulator/valve")
+	if c.Level != "Safety" || winner(c) != "case/simulator/valve/on/leak-shutoff" {
 		t.Errorf("a Safety hold: %+v", c)
 	}
-	stderr, err := r.oikade(nil, "set", "device/valve/on", "on")
-	if err == nil || !strings.Contains(stderr, "device/valve/on: case/valve/on/leak-shutoff holds it, a safety line") {
+	stderr, err := r.oikade(nil, "set", "hardware/simulator/valve/on", "on")
+	if err == nil || !strings.Contains(stderr,
+		"hardware/simulator/valve/on: case/simulator/valve/on/leak-shutoff holds it, a safety line") {
 		t.Errorf("set against Safety: %v: %s", err, stderr)
 	}
-	if v := onOf(t, r.status(), "valve").Value; v != false {
+	if v := onOf(t, r.status(), "simulator/valve").Value; v != false {
 		t.Errorf("the valve moved: %v", v)
 	}
-	if _, err := r.oikade(nil, "set", "device/nothing/on", "on"); err == nil {
+	if _, err := r.oikade(nil, "set", "hardware/simulator/nothing/on", "on"); err == nil {
 		t.Error("set an unknown device")
 	}
-	if _, err := r.oikade(nil, "set", "device/fan/on", "12"); err == nil {
+	if _, err := r.oikade(nil, "set", "hardware/simulator/fan/on", "12"); err == nil {
 		t.Error("set a bad value")
 	}
-	if _, err := r.oikade(nil, "set", "device/leak-sensor/open", "true"); err == nil {
+	if _, err := r.oikade(nil, "set", "hardware/simulator/leak-sensor/open", "true"); err == nil {
 		t.Error("set a read-only capability")
 	}
-	if _, err := r.oikade(nil, "set", "device/fan/brightness", "12"); err == nil {
+	if _, err := r.oikade(nil, "set", "hardware/simulator/fan/brightness", "12"); err == nil {
 		t.Error("set a capability the device doesn't have")
 	}
 }
@@ -165,7 +166,7 @@ func TestSetReportsWhatTheDeviceWasLeftAt(t *testing.T) {
 			OK      bool           `json:"ok"`
 			Outcome api.Capability `json:"outcome"`
 		}
-		cmd := exec.Command(ctlBin, "set", "--data-dir", r.dir, "device/"+device+"/on", value, "--json")
+		cmd := exec.Command(ctlBin, "set", "--data-dir", r.dir, simRef(device)+"/on", value, "--json")
 		out, _ := cmd.Output()
 		if err := json.Unmarshal(out, &resp); err != nil {
 			t.Fatalf("%v: %s", err, out)
@@ -193,7 +194,7 @@ func TestSetFailsWhenACaseHoldsItElsewhere(t *testing.T) {
 	r.change("garage-sensor", "temperature", 20)
 	r.sync()
 
-	cmd := exec.Command(ctlBin, "set", "--data-dir", r.dir, "device/garage-heater/on", "true")
+	cmd := exec.Command(ctlBin, "set", "--data-dir", r.dir, "hardware/simulator/garage-heater/on", "true")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
@@ -201,12 +202,12 @@ func TestSetFailsWhenACaseHoldsItElsewhere(t *testing.T) {
 	if !errors.As(err, &exit) || exit.ExitCode() != 1 {
 		t.Fatalf("set exits %v:\n%s%s", err, stdout.String(), stderr.String())
 	}
-	held := "device/garage-heater/on: case/garage-heater/on/overheat holds it, a safety line"
-	hint := "as a pause keeps it: oikade status case/garage-heater/on/overheat says what it's waiting for"
+	held := "hardware/simulator/garage-heater/on: case/simulator/garage-heater/on/overheat holds it, a safety line"
+	hint := "as a pause keeps it: oikade status case/simulator/garage-heater/on/overheat says what it's waiting for"
 	if !strings.Contains(stderr.String(), "Error: "+held) || !strings.Contains(stderr.String(), hint) {
 		t.Errorf("set said:\n%s%s", stdout.String(), stderr.String())
 	}
-	if c := onOf(t, r.status("garage-heater"), "garage-heater"); c.Value != false {
+	if c := onOf(t, r.status("hardware/simulator/garage-heater"), "simulator/garage-heater"); c.Value != false {
 		t.Errorf("the heater stayed on: %+v", c)
 	}
 }
@@ -214,13 +215,13 @@ func TestSetFailsWhenACaseHoldsItElsewhere(t *testing.T) {
 func TestStatusNamesOneDevice(t *testing.T) {
 	t.Parallel()
 	r := start(t)
-	if st := r.status("fan"); len(st.Devices) != 1 || st.Devices[0].Name != "fan" {
+	if st := r.status("hardware/simulator/fan"); len(st.Devices) != 1 || st.Devices[0].Hardware != "simulator/fan" {
 		t.Errorf("got %+v", st.Devices)
 	}
-	if !strings.Contains(string(r.stdout(nil, "status", "valve")), "valve") {
+	if !strings.Contains(string(r.stdout(nil, "status", "hardware/simulator/valve")), "valve") {
 		t.Error("the table left out the valve")
 	}
-	if _, err := r.oikade(nil, "status", "nothing"); err == nil {
+	if _, err := r.oikade(nil, "status", "hardware/simulator/nothing"); err == nil {
 		t.Error("a device that doesn't exist was fine")
 	}
 }
@@ -252,22 +253,22 @@ func TestPauseLastsAcrossADeployAndARestartUntilResumed(t *testing.T) {
 	t.Parallel()
 	r := start(t, settle)
 	r.sync()
-	r.stdout(nil, "pause", "case/fan/on/fan")
-	r.waitFor(func(l line) bool { return l.is(pauseChanged, "rule", "case/fan/on/fan") })
+	r.stdout(nil, "pause", "case/simulator/fan/on/fan")
+	r.waitFor(func(l line) bool { return l.is(pauseChanged, "rule", "case/simulator/fan/on/fan") })
 	r.sync()
 
 	r.change("bathroom-sensor", "humidity", 80)
 	r.sync()
-	if n := r.count(wrote, "device", "fan"); n != 0 {
+	if n := r.count(wrote, "device", "hardware/simulator/fan"); n != 0 {
 		t.Fatalf("a paused hold wrote %d times", n)
 	}
 
 	r.mustDeploy("second")
 	r.sync()
-	if n := r.count(wrote, "device", "fan"); n != 0 {
+	if n := r.count(wrote, "device", "hardware/simulator/fan"); n != 0 {
 		t.Fatalf("a paused hold wrote after a deploy")
 	}
-	if !paused(t, r.status(), "fan on fan") {
+	if !paused(t, r.status(), "simulator/fan on fan") {
 		t.Error("a deploy ended the pause")
 	}
 
@@ -275,21 +276,21 @@ func TestPauseLastsAcrossADeployAndARestartUntilResumed(t *testing.T) {
 	r.launch(settle)
 	r.waitFor(func(l line) bool { return l.is(attached) })
 	r.sync()
-	if !paused(t, r.status(), "fan on fan") {
+	if !paused(t, r.status(), "simulator/fan on fan") {
 		t.Error("a restart ended the pause")
 	}
 	r.change("bathroom-sensor", "humidity", 90)
 	r.sync()
-	if n := r.count(wrote, "device", "fan"); n != 0 {
+	if n := r.count(wrote, "device", "hardware/simulator/fan"); n != 0 {
 		t.Fatalf("a paused hold wrote after a restart")
 	}
 
-	r.stdout(nil, "resume", "case/fan/on/fan")
+	r.stdout(nil, "resume", "case/simulator/fan/on/fan")
 	r.wrote("fan", true)
-	if paused(t, r.status(), "fan on fan") {
+	if paused(t, r.status(), "simulator/fan on fan") {
 		t.Error("still paused")
 	}
-	if _, err := r.oikade(nil, "resume", "case/fan/on/fan"); err == nil {
+	if _, err := r.oikade(nil, "resume", "case/simulator/fan/on/fan"); err == nil {
 		t.Error("resumed a rule that isn't paused")
 	}
 }
@@ -301,21 +302,22 @@ func TestPausingAMomentStopsItAndEndsItsClaims(t *testing.T) {
 	r.change("claim-go", "open", true)
 	r.wrote("claimed", false)
 	r.sync()
-	if c := onOf(t, r.status(), "claimed"); winner(c) != "flow/claim-moment" {
+	if c := onOf(t, r.status(), "simulator/claimed"); winner(c) != "flow/claim-moment" {
 		t.Fatalf("no claim to end: %+v", c)
 	}
 	// The claim's source is the ref a pause takes, so it pastes from oikade status --json.
-	source := winner(onOf(t, r.status(), "claimed"))
-	if out := string(r.stdout(nil, "pause", source)); !strings.Contains(out, "ended its claims on device/claimed/on") {
+	source := winner(onOf(t, r.status(), "simulator/claimed"))
+	if out := string(r.stdout(nil, "pause", source)); !strings.Contains(out,
+		"ended its claims on hardware/simulator/claimed/on") {
 		t.Errorf("pause said %q", out)
 	}
 	r.wrote("claimed", true)
 	r.sync()
-	writes := r.count(wrote, "device", "claimed")
+	writes := r.count(wrote, "device", "hardware/simulator/claimed")
 	r.change("claim-go", "open", false)
 	r.change("claim-go", "open", true)
 	r.sync()
-	if n := r.count(wrote, "device", "claimed"); n != writes {
+	if n := r.count(wrote, "device", "hardware/simulator/claimed"); n != writes {
 		t.Fatal("a paused moment ran")
 	}
 	r.stdout(nil, "resume", "flow/claim-moment")
@@ -334,7 +336,7 @@ func TestStatusNamesTheCaseAndWhyOneDoesntApply(t *testing.T) {
 	rule := func() api.Rule {
 		t.Helper()
 		for _, rule := range r.status().Rules {
-			if rule.Name == "valve on leak-shutoff" {
+			if rule.Name == "simulator/valve on leak-shutoff" {
 				return rule
 			}
 		}
@@ -343,12 +345,13 @@ func TestStatusNamesTheCaseAndWhyOneDoesntApply(t *testing.T) {
 	}
 	// Your process sends why a case doesn't apply in its own time, which sync doesn't wait for.
 	r.until("a why-not", func() bool { return rule().WhyNot != "" })
-	if got := rule(); got.Kind != "case" || got.Ref != "case/valve/on/leak-shutoff" || got.Device != "valve" ||
+	if got := rule(); got.Kind != "case" || got.Ref != "case/simulator/valve/on/leak-shutoff" ||
+		got.Device != "simulator/valve" ||
 		got.Case != "leak-shutoff" ||
-		!got.Safety || !strings.Contains(got.WhyNot, "device/leak-sensor/open") {
+		!got.Safety || !strings.Contains(got.WhyNot, "hardware/simulator/leak-sensor/open") {
 		t.Errorf("inactive: %+v", got)
 	}
-	if out := string(r.stdout(nil, "status")); !strings.Contains(out, "case/valve/on/leak-shutoff  case") {
+	if out := string(r.stdout(nil, "status")); !strings.Contains(out, "case/simulator/valve/on/leak-shutoff  case") {
 		t.Errorf("status didn't name the case:\n%s", out)
 	}
 
@@ -356,7 +359,7 @@ func TestStatusNamesTheCaseAndWhyOneDoesntApply(t *testing.T) {
 	r.wrote("valve", false)
 	r.kill()
 	r.sync()
-	if c := onOf(t, r.status(), "valve"); c.Case != "leak-shutoff" || c.Level != "Safety" {
+	if c := onOf(t, r.status(), "simulator/valve"); c.Case != "leak-shutoff" || c.Level != "Safety" {
 		t.Errorf("after a kill: %+v", c)
 	}
 	if got := rule(); got.WhyNot != "" || got.Active == nil || !*got.Active {
@@ -373,20 +376,21 @@ func TestPausingASafetyRuleNeedsAskingAndKeepsItsClaim(t *testing.T) {
 	r.sync()
 
 	// The case as three words is refused, with its ref.
-	stderr, err := r.oikade(nil, "pause", "valve", "on", "leak-shutoff")
-	if err == nil || !strings.Contains(stderr, "oikade pause case/valve/on/leak-shutoff") {
+	stderr, err := r.oikade(nil, "pause", "hardware/simulator/valve", "on", "leak-shutoff")
+	if err == nil || !strings.Contains(stderr, "oikade pause case/simulator/valve/on/leak-shutoff") {
 		t.Errorf("paused by three words: %v: %s", err, stderr)
 	}
-	stderr, err = r.oikade(nil, "pause", "case/valve/on/leak-shutoff")
+	stderr, err = r.oikade(nil, "pause", "case/simulator/valve/on/leak-shutoff")
 	if err == nil || !strings.Contains(stderr, "--allow-safety") {
 		t.Errorf("paused a Safety rule without asking: %v: %s", err, stderr)
 	}
-	out := string(r.stdout(nil, "pause", "case/valve/on/leak-shutoff", "--allow-safety"))
-	if !strings.Contains(out, "It keeps its Safety claims on device/valve/on") {
+	out := string(r.stdout(nil, "pause", "case/simulator/valve/on/leak-shutoff", "--allow-safety"))
+	if !strings.Contains(out, "It keeps its Safety claims on hardware/simulator/valve/on") {
 		t.Errorf("pause said %q", out)
 	}
 	r.sync()
-	if c := onOf(t, r.status(), "valve"); winner(c) != "case/valve/on/leak-shutoff" || c.Value != false {
+	if c := onOf(t, r.status(), "simulator/valve"); winner(c) != "case/simulator/valve/on/leak-shutoff" ||
+		c.Value != false {
 		t.Errorf("the pause ended a Safety claim: %+v", c)
 	}
 	if _, err := r.oikade(nil, "pause", "flow/no-such-rule"); err == nil {
@@ -408,7 +412,8 @@ func TestPausingAFlowHoldingASafetyClaimNeedsAsking(t *testing.T) {
 	}
 	// A word that's no rule's name says what a rule's ref is, and not every kind of ref there is.
 	stderr, err = r.oikade(nil, "pause", "frost")
-	if err == nil || !strings.Contains(stderr, "frost isn't a rule's ref: give a case's, case/DEVICE/CAPABILITY/CASE") ||
+	if err == nil || !strings.Contains(stderr,
+		"frost isn't a rule's ref: give a case's, case/PLUGIN/ID/CAPABILITY/CASE") ||
 		strings.Contains(stderr, "hardware") {
 		t.Errorf("paused a word: %v: %s", err, stderr)
 	}
@@ -527,7 +532,7 @@ func TestTailStreamsChangesAndRunsAcrossAProcessRestart(t *testing.T) {
 
 	r.change("leak-sensor", "open", true)
 	awaitEvent(t, events, func(e api.Event) bool {
-		return e.Type == api.EventChange && e.Device == "leak-sensor" && e.Value == true
+		return e.Type == api.EventChange && e.Device == "simulator/leak-sensor" && e.Value == true
 	})
 }
 
@@ -555,17 +560,17 @@ func TestATailSaysWhoseEachWriteIs(t *testing.T) {
 
 	// The fan isn't arbitrated, so your process writes it for the case.
 	r.change("bathroom-sensor", humidityCap, 80)
-	wroteBy("fan", "on", true, "case/fan/on/fan")
+	wroteBy("simulator/fan", "on", true, "case/simulator/fan/on/fan")
 	// The valve is, so the host writes it for the claim that won.
 	r.change("leak-sensor", "open", true)
-	wroteBy("valve", "on", false, "case/valve/on/leak-shutoff")
+	wroteBy("simulator/valve", "on", false, "case/simulator/valve/on/leak-shutoff")
 	r.contact("study-go", true)
-	wroteBy("study-heater", "setpoint", 18.0, "flow/study-setback")
+	wroteBy("simulator/study-heater", "setpoint", 18.0, "flow/study-setback")
 
 	c.command(c.endpoint("claimed"), turnOff)
-	wroteBy("claimed", "on", false, "matter")
-	r.stdout(nil, "set", "device/lamp-0/on", "true")
-	wroteBy("lamp-0", "on", true, "command")
+	wroteBy("simulator/claimed", "on", false, "matter")
+	r.stdout(nil, "set", "hardware/simulator/lamp-0/on", "true")
+	wroteBy("simulator/lamp-0", "on", true, "command")
 }
 
 func TestMetricsAndHealthAreServedOverHTTP(t *testing.T) {
@@ -641,7 +646,7 @@ func TestStatusHasWhatsLeftToSetUp(t *testing.T) {
 
 	p := startPlugins(t, matterFlag(freeUDP(t)))
 	p.until("the device's problem", func() bool {
-		locked := func(d api.Device) bool { return d.Name == "locked" && d.Problem != "" }
+		locked := func(d api.Device) bool { return d.Hardware == "quiet/locked.needs-key" && d.Problem != "" }
 		return slices.ContainsFunc(p.status().Devices, locked)
 	})
 	if st := p.status(); st.Home.Version == "" && !st.Home.Process {
@@ -660,7 +665,7 @@ func TestAHomeFullySetUpHasNothingLeftToSetUp(t *testing.T) {
 	}
 	for _, d := range st.Devices {
 		if d.Problem != "" || d.PluginNotImported {
-			t.Errorf("device %s: %+v", d.Name, d)
+			t.Errorf("device %s: %+v", d.Ref, d)
 		}
 	}
 	if m := c.r.matter(); !m.Serving || len(m.Fabrics) == 0 {

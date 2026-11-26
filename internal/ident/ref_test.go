@@ -67,3 +67,29 @@ func TestADotIDKeepsItsSegment(t *testing.T) {
 		}
 	}
 }
+
+func TestADeviceIsItsHardwaresRef(t *testing.T) {
+	key := HardwareKey("overkiz", "io://1234/5")
+	for ref, want := range map[Ref]string{
+		DeviceRef(key):                    "hardware/overkiz/io:%2F%2F1234%2F5",
+		CapabilityRef(key, "position"):    "hardware/overkiz/io:%2F%2F1234%2F5/position",
+		CaseRef(key, "position", "dusk"):  "case/overkiz/io:%2F%2F1234%2F5/position/dusk",
+		DeviceRef("porch-light"):          "device/porch-light",
+		CaseRef("porch-light", "on", "a"): "case/porch-light/on/a",
+	} {
+		if ref.String() != want {
+			t.Errorf("got %s, want %s", ref, want)
+		}
+		kind, parts, err := ParseRef(ref.String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, rest, ok := DeviceOf(kind, parts)
+		if wantKey := strings.Contains(want, "overkiz"); !ok || (wantKey && got != key) || (!wantKey && got != "porch-light") {
+			t.Errorf("DeviceOf(%s) = %q, %q, %v", ref, got, rest, ok)
+		}
+	}
+	if _, _, ok := DeviceOf(Flow, []string{"morning"}); ok {
+		t.Error("a flow names a device")
+	}
+}

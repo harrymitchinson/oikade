@@ -83,8 +83,8 @@ func TestARenameMovesNoClaims(t *testing.T) {
 	if !ok || len(got[capability.On].Claims) != 2 || got[capability.On].Claims[0].Source != "Rule/x/l1 on night" {
 		t.Errorf("the lamp's claims are %+v, %v, want them as they were", got, ok)
 	}
-	if holders, safety := known.claimed(key("x/l1")); !slices.Equal(holders, []string{"case/reading-lamp/on/night", "flow/evening"}) || !safety {
-		t.Errorf("claimed says %v, %v, by the lamp's new name", holders, safety)
+	if holders, safety := known.claimed(key("x/l1")); !slices.Equal(holders, []string{"case/x/l1/on/night", "flow/evening"}) || !safety {
+		t.Errorf("claimed says %v, %v, by the lamp's hardware", holders, safety)
 	}
 }
 
@@ -108,7 +108,7 @@ func TestAClaimedReservationStaysDeclaredAndADeclaredDeviceIsntRemoved(t *testin
 	if err := known.takeDeclared(wired); err == nil || !strings.Contains(err.Error(), "flow/frost holds shed-fan, which is reserved") {
 		t.Errorf("gave a claimed reservation hardware: %v", err)
 	}
-	if resp, _ := known.forget(t.Context(), []string{"lamp"}, true, nil); !strings.Contains(resp.Error, "declared in your home's code: delete its declaration and deploy, then forget it") {
+	if resp, _ := known.forget(t.Context(), []string{"x/l1"}, true, nil); !strings.Contains(resp.Error, "declared in your home's code: delete its declaration and deploy, then forget it") {
 		t.Errorf("removed a declared device: %+v", resp)
 	}
 }
@@ -123,13 +123,13 @@ func pairedHome(t *testing.T, reads map[string][]engine.RoomRead, devices ...dri
 			t.Fatal(err)
 		}
 	}
-	srv := &server{session: &session{reads: reads}, declaring: known.declaring, names: registryNames(known.registry)}
+	srv := &server{session: &session{reads: reads}, declaring: known.declaring}
 	return &deployer{srv: srv, log: logging.Discard()}
 }
 
 // A deploy warns of a room its declarations leave with none of the devices a hold reads there, by
-// the name the next version gives its device, and not of one another device still covers, one that
-// was empty already, or a hold the next version drops.
+// the hold's ref, and not of one another device still covers, one that was empty already, or a hold
+// the next version drops.
 func TestADeployWarnsOfARoomItsDeclarationsEmpty(t *testing.T) {
 	plugs := []devicetype.Type{devicetype.OnOffPlugInUnit}
 	d := pairedHome(t, map[string][]engine.RoomRead{
@@ -152,7 +152,7 @@ func TestADeployWarnsOfARoomItsDeclarationsEmpty(t *testing.T) {
 		Rules: []wire.RuleInfo{{Name: "x/h on hall-plugs"}, {Name: "x/d on occupied"}, {Name: "attic-fan"}},
 	}
 	got := d.declaredWarning(next, wire.Manifest{})
-	want := "hall has no devices now that case/radiator/on/hall-plugs read, so they keep their state until one is back in hall"
+	want := "hall has no devices now that case/x/h/on/hall-plugs read, so they keep their state until one is back in hall"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
@@ -180,7 +180,7 @@ func TestADeployWarnsOfADeviceThatKeepsItsOwnDecisionInItsNewRoom(t *testing.T) 
 		return wire.Manifest{Inventory: []wire.DeviceDeclaration{{Name: "pendant", Plugin: "x", ID: "p", Room: &room}}, Control: settings}
 	}
 	own := decides("Rule/x/p on dinner")
-	want := "device/pendant/on keeps its own decision rather than kitchen's, unless the home hands it over with Then"
+	want := "hardware/x/p/on keeps its own decision rather than kitchen's, unless the home hands it over with Then"
 	if got := d.declaredWarning(into("kitchen", own), wire.Manifest{}); got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}

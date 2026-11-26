@@ -144,7 +144,7 @@ func (i *inventory) leavingSafety(decls []wire.DeviceDeclaration, old, next []wi
 			was := slices.IndexFunc(old, func(o wire.RuleInfo) bool { return o.Name == r.Name && o.Safety })
 			if r.Safety && was >= 0 && writes(old[was].Rooms, b) && !writes(r.Rooms, a) {
 				out = append(out, fmt.Sprintf("%s would leave the devices %s writes at Safety, by its declared room or "+
-					"type, so it would stop protecting it", a.Name, r.Name))
+					"type, so it would stop protecting it", ident.DeviceRef(a.Key()), control.RuleRef(r.Name)))
 			}
 		}
 	}
@@ -180,7 +180,7 @@ func (i *inventory) declaring(decls []wire.DeviceDeclaration, old, next []wire.D
 		if len(caps) > 0 {
 			refs := make([]string, len(caps))
 			for k, c := range caps {
-				refs[k] = ident.CapabilityRef(a.Name, c).String()
+				refs[k] = ident.CapabilityRef(a.Key(), c).String()
 			}
 			kept = append(kept, fmt.Sprintf("%s keeps its own decision rather than %s's, "+
 				"unless the home hands it over with Then", strings.Join(refs, " and "), a.Room))

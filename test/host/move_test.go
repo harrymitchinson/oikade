@@ -15,13 +15,13 @@ const quickly = 20 * time.Second
 func TestRulesThatNameADeviceHearItAfterItMoves(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)
-	r.untilValue("quiet", false)
+	r.untilValue("quiet/quiet.needs-setup", false)
 	r.mustDeploy("plugins-landing")
 	if d := deviceOf(t, r.devices(), "quiet"); d.Room != "landing" {
 		t.Fatalf("quiet is in %q", d.Room)
 	}
 	heard, held := r.writes("quiet-heard", true), r.writes("quiet-held", true)
-	r.setting("quiet", "true")
+	r.setting("quiet/quiet.needs-setup", "true")
 	heard()
 	held()
 }
@@ -29,11 +29,11 @@ func TestRulesThatNameADeviceHearItAfterItMoves(t *testing.T) {
 // writes counts the writes of a value so far, and returns a wait for one more, quickly.
 func (r *rig) writes(device string, value any) (another func()) {
 	r.t.Helper()
-	before := r.count(wrote, "device", device, "value", value)
+	before := r.count(wrote, "device", simRef(device), "value", value)
 	return func() {
 		r.t.Helper()
 		r.untilWithin(quickly, fmt.Sprintf("a write of %s = %v", device, value), func() bool {
-			return r.count(wrote, "device", device, "value", value) > before
+			return r.count(wrote, "device", simRef(device), "value", value) > before
 		})
 	}
 }

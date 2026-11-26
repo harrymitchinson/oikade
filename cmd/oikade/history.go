@@ -217,7 +217,7 @@ func unrecorded(ctx context.Context, t api.Transport, refs []named) []string {
 	}
 	st := resp.Status
 	device := func(name string) (api.Device, bool) {
-		i := slices.IndexFunc(st.Devices, func(d api.Device) bool { return d.Name == name })
+		i := slices.IndexFunc(st.Devices, func(d api.Device) bool { return d.Hardware == name })
 		if i < 0 {
 			return api.Device{}, false
 		}
@@ -239,7 +239,7 @@ func unrecorded(ctx context.Context, t api.Transport, refs []named) []string {
 					ident.DeviceRef(n.parts[0])))
 			case len(n.parts) > 1 && !has(d, n.parts[1]):
 				out = append(out, fmt.Sprintf("%s has no %s: oikade status %s lists what it has.",
-					ident.DeviceRef(n.parts[0]), n.parts[1], n.parts[0]))
+					ident.DeviceRef(n.parts[0]), n.parts[1], ident.DeviceRef(n.parts[0])))
 			}
 		case ident.Room:
 			room := ident.NewRef(ident.Room, n.parts[0])

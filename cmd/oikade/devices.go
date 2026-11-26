@@ -75,8 +75,8 @@ func printUndeclared(out io.Writer, lines []string) {
 	}
 }
 
-// deviceMarks are what the host says of devices beyond the registry, by name: those whose plugin the
-// running version doesn't import, and those your home keeps off Matter.
+// deviceMarks are what the host says of devices beyond the registry, by their hardware: those whose
+// plugin the running version doesn't import, and those your home keeps off Matter.
 type deviceMarks struct{ unimported, hidden map[string]bool }
 
 // noDevices says what would put devices on record, and that --all shows any forgotten ones.
@@ -104,17 +104,18 @@ const (
 func printDevices(out *cli.Printer, list registry.Snapshot, marks deviceMarks, wide bool,
 ) (undeclared, dropped []string) {
 	list.Devices = slices.Clone(list.Devices)
-	slices.SortFunc(list.Devices, func(a, b registry.Device) int { return strings.Compare(a.Name, b.Name) })
+	slices.SortFunc(list.Devices, func(a, b registry.Device) int {
+		return strings.Compare(ident.DeviceRef(a.Key()).String(), ident.DeviceRef(b.Key()).String())
+	})
 	table := cli.Table{
 		Columns: []cli.Column{
-			{Header: nameHeader},
+			{Header: "DEVICE", Shrink: true, ShrinkLast: true},
+			{Header: "APP NAME", Shrink: true},
 			{Header: "ROOM"},
 			{Header: stateHeader},
-			{Header: "DEVICE TYPES", Drop: 3, Shrink: true},
-			{Header: "CAPABILITIES", Shrink: true},
-			{Header: "PLUGIN"},
-			{Header: "HARDWARE", Drop: 1, Dim: true},
-			{Header: "ENDPOINT", Drop: 2},
+			{Header: "DEVICE TYPES", Drop: 2, Shrink: true},
+			{Header: "CAPABILITIES", Drop: 3, Shrink: true},
+			{Header: "ENDPOINT", Drop: 1},
 		},
 		Wide: wide,
 	}
@@ -125,10 +126,10 @@ func printDevices(out *cli.Printer, list registry.Snapshot, marks deviceMarks, w
 			state = "forgotten"
 		case d.Reserved():
 			state = "reserved"
-		case marks.unimported[d.Name]:
+		case marks.unimported[d.Key()]:
 			state = notImported
 		}
-		if !d.Removed && marks.hidden[d.Name] {
+		if !d.Removed && marks.hidden[d.Key()] {
 			if state == "paired" {
 				state = hiddenFromMatter
 			} else {
@@ -143,29 +144,19 @@ func printDevices(out *cli.Printer, list registry.Snapshot, marks deviceMarks, w
 		if d.Endpoint != 0 {
 			endpoint = strconv.Itoa(int(d.Endpoint))
 		}
-		plugin, _ := api.PluginOf(d)
-		table.Rows = append(table.Rows, []string{d.Name, d.Room, state, devicetype.Join(d.DeviceTypes()),
-			strings.Join(d.Capabilities, ", "), plugin, or(registry.HardwareRef(d).String(), hardwareOf(d)), endpoint})
+		table.Rows = append(table.Rows, []string{ident.DeviceRef(d.Key()).String(), d.AppName, d.Room, state,
+			devicetype.Join(d.DeviceTypes()), strings.Join(d.Capabilities, ", "), endpoint})
 	}
 	return undeclared, out.Table(table)
-}
-
-// hardwareOf names hardware that isn't a plugin's, such as a simulated device's, by its driver and
-// ID, or nothing for a reserved name.
-func hardwareOf(d registry.Device) string {
-	if d.Driver == "" {
-		return ""
-	}
-	return registry.DescribeHardware(d.Driver, d.ID)
 }
 
 // listedDevice is a device as oikade list devices --json prints it: as on record, with what it is.
 type listedDevice struct {
 	registry.Device
-	// Ref is its ref, such as device/desk-plug.
-	Ref string `json:"ref"`
-	// Hardware is its hardware's ref, such as hardware/zigbee2mqtt/0x00158d0001a2b3c4, for a device a
-	// plugin reports.
+	// Ref is its ref, its hardware's, such as hardware/zigbee2mqtt/0x00158d0001a2b3c4, and Hardware what
+	// its line in your code says it is, as zigbee2mqtt/0x00158d0001a2b3c4. A reserved device has no
+	// hardware, and its ref is device/NAME.
+	Ref         string            `json:"ref"`
 	Hardware    string            `json:"hardware,omitempty"`
 	DeviceTypes []devicetype.Type `json:"deviceTypes"`
 	// PluginNotImported is a device whose plugin the running version doesn't import.
@@ -180,11 +171,14 @@ func listed(list registry.Snapshot, marks deviceMarks) []listedDevice {
 	devices := make([]listedDevice, 0, len(list.Devices))
 	for _, d := range list.Devices {
 		l := listedDevice{
-			Device: d, Ref: ident.DeviceRef(d.Name).String(), Hardware: registry.HardwareRef(d).String(),
+			Device: d, Ref: ident.DeviceRef(d.Key()).String(),
 			DeviceTypes:       append([]devicetype.Type{}, d.DeviceTypes()...),
-			PluginNotImported: !d.Removed && marks.unimported[d.Name],
+			PluginNotImported: !d.Removed && marks.unimported[d.Key()],
 		}
-		if !d.Removed && marks.hidden[d.Name] {
+		if d.ID != "" {
+			l.Hardware = d.Key()
+		}
+		if !d.Removed && marks.hidden[d.Key()] {
 			l.Matter = new(bool)
 		}
 		devices = append(devices, l)

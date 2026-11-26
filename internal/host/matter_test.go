@@ -255,7 +255,7 @@ func TestOnlyHardwareThatMapsIsOnTheBridge(t *testing.T) {
 	if _, err := reg.Declare([]registry.Declaration{{Name: "future"}}); err != nil {
 		t.Fatal(err)
 	}
-	devices.Discovered(key("lamp"), driver.Info{Found: true})
+	devices.Discovered(key("simulator/lamp"), driver.Info{Found: true})
 
 	m := &matterBridge{log: logging.Discard(), devices: devices, known: known, id: identity{UniqueID: "BRIDGE"}}
 	want := m.want()
@@ -264,10 +264,10 @@ func TestOnlyHardwareThatMapsIsOnTheBridge(t *testing.T) {
 	}
 	lamp, _ := reg.Get("lamp")
 	away, _ := reg.Get("away")
-	if d := want[lamp.Endpoint]; d.Key != key("lamp") || d.Absent || d.Unique == "" {
+	if d := want[lamp.Endpoint]; d.Key != key("simulator/lamp") || d.Absent || d.Unique == "" {
 		t.Errorf("lamp: %+v", d)
 	}
-	if d := want[away.Endpoint]; d.Key != key("away") || !d.Absent {
+	if d := want[away.Endpoint]; d.Key != key("plugin/away") || !d.Absent {
 		t.Errorf("away: %+v", d)
 	}
 	if want[lamp.Endpoint].Unique == want[away.Endpoint].Unique {
@@ -278,7 +278,7 @@ func TestOnlyHardwareThatMapsIsOnTheBridge(t *testing.T) {
 		t.Errorf("lamp's unique ID = %q, want %q", got, wantID)
 	}
 	// Matter shows the label your code gives it, in place of its name.
-	if _, err := reg.Declare([]registry.Declaration{{Name: "future"}, {Hardware: key("lamp").Name, Label: "Reading lamp"}}); err != nil {
+	if _, err := reg.Declare([]registry.Declaration{{Name: "future"}, {Hardware: key("simulator/lamp").Name, Label: "Reading lamp"}}); err != nil {
 		t.Fatal(err)
 	}
 	if d := m.want()[lamp.Endpoint]; d.Label != "Reading lamp" || d.Name != lamp.Name {

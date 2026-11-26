@@ -1,21 +1,21 @@
 $ oikade devices
 Error: oikade has no devices command
-Hint: oikade list devices lists them, and oikade forget DEVICE forgets one
+Hint: oikade list devices lists them, and oikade forget hardware/PLUGIN/ID forgets one
 exit 2
 
 $ oikade devices --json
 Error: oikade has no devices command
-Hint: oikade list devices lists them, and oikade forget DEVICE forgets one
+Hint: oikade list devices lists them, and oikade forget hardware/PLUGIN/ID forgets one
 exit 2
 
 $ oikade devices --wide
 Error: oikade has no devices command
-Hint: oikade list devices lists them, and oikade forget DEVICE forgets one
+Hint: oikade list devices lists them, and oikade forget hardware/PLUGIN/ID forgets one
 exit 2
 
 $ oikade devices --all
 Error: oikade has no devices command
-Hint: oikade list devices lists them, and oikade forget DEVICE forgets one
+Hint: oikade list devices lists them, and oikade forget hardware/PLUGIN/ID forgets one
 exit 2
 
 $ oikade secret list

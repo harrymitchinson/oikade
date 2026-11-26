@@ -1,21 +1,21 @@
 $ oikade set secret/api-key
 Error: oikade set takes a capability's ref and its value, and a secret is one of your values now
 Usage:
-  oikade set device/DEVICE/CAPABILITY VALUE [--json]
+  oikade set hardware/PLUGIN/ID/CAPABILITY VALUE [--json]
 Hint: your values, passwords included, go in .env beside go.mod: your code reads each with oikade.Var, and oikade deploy sends them
 exit 2
 
 $ oikade set desk-plug on true
 Error: oikade set takes a capability's ref and its value
 Usage:
-  oikade set device/DEVICE/CAPABILITY VALUE [--json]
-Hint: oikade set device/desk-plug/on true
+  oikade set hardware/PLUGIN/ID/CAPABILITY VALUE [--json]
+Hint: oikade set --help says more
 exit 2
 
-$ oikade set device/desk-plug/on
+$ oikade set hardware/hue/0x7/on
 Error: oikade set takes a capability's ref and its value
 Usage:
-  oikade set device/DEVICE/CAPABILITY VALUE [--json]
+  oikade set hardware/PLUGIN/ID/CAPABILITY VALUE [--json]
 Hint: oikade set --help says more
 exit 2
 
@@ -26,8 +26,8 @@ Usage:
 Hint: oikade pair --help says more
 exit 2
 
-$ oikade pair device/desk-plug
-Error: oikade pair takes matter, not device/desk-plug
+$ oikade pair hardware/hue/0x7
+Error: oikade pair takes matter, not hardware/hue/0x7
 Usage:
   oikade pair matter [--for DURATION] [--json]
 Hint: a controller pairs with the Matter bridge, which brings your devices: oikade pair matter

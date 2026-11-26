@@ -43,7 +43,7 @@ func ReadSimulated(path string) ([]SimulatedDevice, error) {
 
 // simInstance is the driver instance simulated devices belong to. A simulated device's name in the
 // file is its ID, and its name in its app.
-var simInstance = driver.InstanceKey{Driver: "simulated", Name: "simulator"}
+var simInstance = driver.InstanceKey{Driver: "simulated", Name: ident.Simulator}
 
 // simulator is a driver with no hardware: writes take effect at once, and lines of JSON on its
 // input change a device as if from outside.
@@ -129,7 +129,7 @@ func (s *simulator) report(dev ident.ID, name string, value any) error {
 	defer s.mu.Unlock()
 	snap, ok := s.store.Get(dev)
 	if !ok {
-		return fmt.Errorf("unknown device %s", dev.Name)
+		return fmt.Errorf("unknown device %s", ident.DeviceRef(dev.Name))
 	}
 	now := time.Now()
 	s.store.Seen(dev, now)
@@ -145,6 +145,6 @@ func (s *simulator) Set(_ context.Context, dev ident.ID, name string, value any)
 	if err := s.report(dev, name, value); err != nil {
 		return err
 	}
-	s.log.Info("Wrote simulated device", "device", dev.Name, "capability", name, "value", value)
+	s.log.Info("Wrote simulated device", "device", ident.DeviceRef(dev.Name), "capability", name, "value", value)
 	return nil
 }

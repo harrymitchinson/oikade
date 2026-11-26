@@ -22,28 +22,36 @@ import (
 
 // The tests bring their own devices, so this home has no devices.go: these are its handles.
 func on(device string) oikade.Bool {
-	return oikade.Bool{Device: device, Capability: oikade.On}
+	return oikade.Bool{Device: sim(device), Capability: oikade.On}
 }
 
 func open(device string) oikade.Bool {
-	return oikade.Bool{Device: device, Capability: oikade.Open}
+	return oikade.Bool{Device: sim(device), Capability: oikade.Open}
+}
+
+// sim is a device's hardware, which for a simulated one, as the tests name it, is the simulator's.
+func sim(device string) string {
+	if strings.Contains(device, "/") {
+		return device
+	}
+	return hardware("simulator", device)
 }
 
 // humidity is the bathroom's, which the fan follows.
-var humidity = oikade.Number{Device: "bathroom-sensor", Capability: oikade.Humidity}
+var humidity = oikade.Number{Device: sim("bathroom-sensor"), Capability: oikade.Humidity}
 
 // The design's examples in OIK-298, with the parts of them that run on the real clock left out.
 var (
-	poolWater  = oikade.Number{Device: "pool-water", Capability: oikade.Temperature}
-	garageTemp = oikade.Number{Device: "garage-sensor", Capability: oikade.Temperature}
+	poolWater  = oikade.Number{Device: sim("pool-water"), Capability: oikade.Temperature}
+	garageTemp = oikade.Number{Device: sim("garage-sensor"), Capability: oikade.Temperature}
 )
 
 // studyHeater is a simulated heater: a Thermostat on the Matter bridge.
-var studyHeater = oikade.Number{Device: "study-heater", Capability: oikade.Setpoint}
+var studyHeater = oikade.Number{Device: sim("study-heater"), Capability: oikade.Setpoint}
 
 // bedroomAC is a simulated air conditioner's mode, which the host keeps as a number and a home
 // writes as a name.
-var bedroomAC = oikade.Choice{Device: "bedroom-ac", Capability: oikade.Mode}
+var bedroomAC = oikade.Choice{Device: sim("bedroom-ac"), Capability: oikade.Mode}
 
 // The devices a test has plugins do something with.
 const (
@@ -312,8 +320,8 @@ func declareByHardware(h *oikade.Home) {
 		}](hardware("relays", valve))
 	case "cuisine":
 		cuisine := oikade.Room("cuisine")
-		oikade.Device[oikade.OccupancySensor]("cuisine-motion", cuisine)
-		light := oikade.Device[oikade.OnOffLight]("cuisine-light", cuisine, oikade.Label("Plafond"))
+		oikade.Device[oikade.OccupancySensor](sim("cuisine-motion"), cuisine)
+		light := oikade.Device[oikade.OnOffLight](sim("cuisine-light"), cuisine, oikade.Label("Plafond"))
 		h.Decide(light.On).Case("someone-in", true, cuisine.Occupied.Any()).Default(false)
 	}
 }
@@ -374,8 +382,8 @@ func home() *oikade.Home {
 		h.Flow("timed", setting(on("timed-out").To(true))).At(oikade.Clock(at))
 	}
 	if variant == "badcheck" {
-		// A flow named as a case is.
-		h.Flow(valve+" on "+leakShutoff, setting()).When(open("reset"))
+		h.Flow("twice", setting()).When(open("reset"))
+		h.Flow("twice", setting()).When(open("reset"))
 	}
 	if plugins {
 		h.Flow("quiet-heard", setting(on("quiet-heard").To(true))).When(on(quiet))
@@ -422,7 +430,7 @@ func home() *oikade.Home {
 		})).
 		Default(false)
 	h.Decide(on("entry-light")).
-		Case("motion", true, oikade.Bool{Device: "entry-sensor", Capability: oikade.Occupied}).Linger(5 * time.Minute).
+		Case("motion", true, oikade.Bool{Device: sim("entry-sensor"), Capability: oikade.Occupied}).Linger(5 * time.Minute).
 		Default(false)
 	// Whether anyone's home, which a variant renames.
 	signalName := "anyone-home"
@@ -430,7 +438,7 @@ func home() *oikade.Home {
 		signalName = "someone-home"
 	}
 	if variant != "nosignals" {
-		presence := oikade.Bool{Device: "presence-sensor", Capability: oikade.Occupied}
+		presence := oikade.Bool{Device: sim("presence-sensor"), Capability: oikade.Occupied}
 		anyoneHome := h.Signal(signalName, presence).Linger(time.Hour)
 		h.Decide(on("away-mode")).Case("away", true, oikade.Not(anyoneHome)).Default(false)
 		// One that changes as the sensor does, for its history.

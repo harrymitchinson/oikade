@@ -66,6 +66,23 @@ func TestWideKeepsEveryColumn(t *testing.T) {
 	}
 }
 
+// A ref shortens last: the other columns that can give do first, as far as they go.
+func TestARefShrinksLast(t *testing.T) {
+	for width, want := range map[int]string{
+		50: "DEVICE                           CAPABILITIES\nhardware/ewelink-lan/1000aabbcc  on, brightness…\n",
+		30: "DEVICE            CAPABILITIES\nhardware/ewelin…  on, brightn…\n",
+	} {
+		var b bytes.Buffer
+		Plain(&b, width).Table(Table{
+			Columns: []Column{{Header: "DEVICE", Shrink: true, ShrinkLast: true}, {Header: "CAPABILITIES", Shrink: true}},
+			Rows:    [][]string{{"hardware/ewelink-lan/1000aabbcc", "on, brightness, colour-temperature"}},
+		})
+		if b.String() != want {
+			t.Errorf("at %d, got\n%s\nwant\n%s", width, b.String(), want)
+		}
+	}
+}
+
 func TestATableLeavesNoTrailingSpaceOrDash(t *testing.T) {
 	var b bytes.Buffer
 	Plain(&b, 80).Table(Table{

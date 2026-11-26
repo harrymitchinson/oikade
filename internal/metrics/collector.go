@@ -58,11 +58,7 @@ func (c Collector) Write(w io.Writer) {
 	up := series.Family{Name: pluginUpFamily, Type: series.TypeGauge}
 	rejected := series.Family{Name: pluginRejectedFamily, Type: series.TypeCounter}
 	for key, s := range c.Store.List() {
-		name := key.Name
-		if s.DisplayName != "" {
-			name = s.DisplayName
-		}
-		device := []string{"device", name, "room", s.Room}
+		device := []string{"device", ident.DeviceRef(key.Name).String(), "room", s.Room}
 		for name, v := range s.Values {
 			values.Add(capability.Float(v), append(device, "capability", name)...)
 		}

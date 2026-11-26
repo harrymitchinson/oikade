@@ -21,13 +21,13 @@ import (
 func TestTheHostExportsTheExistingMetricNames(t *testing.T) {
 	exported := metrics.NewSet()
 	store := hub.NewStore(logging.Discard())
-	dev := ident.ID{Name: "fan"}
+	dev := ident.ID{Name: "test/fan"}
 	inst := driver.InstanceKey{Driver: "test"}
 	store.SetDevices(inst, map[ident.ID]hub.Meta{dev: {Instance: inst}})
 	store.Changed(driver.Update{Device: dev, Capability: "on", Value: true, Time: time.Now()})
 	store.Availability(dev, true)
 	store.Seen(dev, time.Now())
-	exported.GetOrCreateGauge(`oikade_device_control_level{capability="on",device="fan"}`, nil).Set(1)
+	exported.GetOrCreateGauge(`oikade_device_control_level{capability="on",device="hardware/test/fan"}`, nil).Set(1)
 
 	// Your process's own metrics, as they reach the host.
 	process := metrics.NewSet()
@@ -56,9 +56,10 @@ func TestTheHostExportsTheExistingMetricNames(t *testing.T) {
 	exported.WritePrometheus(&out)
 	page := out.String()
 	for _, want := range []string{
-		`oikade_capability_value{capability="on",device="fan",room=""} 1`,
+		`oikade_capability_value{capability="on",device="hardware/test/fan",room=""} 1`,
 		"oikade_capability_changes_total{", "oikade_device_available{",
-		"oikade_device_last_seen_timestamp_seconds{", `oikade_device_control_level{capability="on",device="fan"} 1`,
+		"oikade_device_last_seen_timestamp_seconds{",
+		`oikade_device_control_level{capability="on",device="hardware/test/fan"} 1`,
 		"oikade_rule_runs_total{", "oikade_rule_next_change_timestamp_seconds{", "oikade_rule_active{",
 		"oikade_rule_events_dropped_total 1", "oikade_rule_budget_target_minutes{",
 		"oikade_rule_budget_scheduled_minutes{", "oikade_rule_budget_run_minutes_total{",

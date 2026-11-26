@@ -54,14 +54,14 @@ Or take `oikade` from a [release](https://github.com/harrymitchinson/oikade/rele
 ```text
 $ oikade dev
 Simulating 2 devices from Sat 11:00. Type help for the commands.
-Sat 11:00 Wrote porch-light on = false
-set porch-sensor occupied true
-Sat 11:00 case/porch-light/on/motion applies
-Sat 11:00 Wrote porch-light on = true
-set porch-sensor occupied false
+Sat 11:00 Wrote hardware/simulator/porch-light/on = false
+set hardware/simulator/porch-sensor/occupied true
+Sat 11:00 case/simulator/porch-light/on/motion applies
+Sat 11:00 Wrote hardware/simulator/porch-light/on = true
+set hardware/simulator/porch-sensor/occupied false
 advance 6m
-Sat 11:05 case/porch-light/on/motion no longer applies
-Sat 11:05 Wrote porch-light on = false
+Sat 11:05 case/simulator/porch-light/on/motion no longer applies
+Sat 11:05 Wrote hardware/simulator/porch-light/on = false
 ```
 
 ## A decision and its test

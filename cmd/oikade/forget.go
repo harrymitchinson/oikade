@@ -25,7 +25,7 @@ func runForget(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if *plugin, err = nameOf(ident.Plugin, *plugin); err != nil {
+	if *plugin, err = pluginName(*plugin); err != nil {
 		return err
 	}
 	switch {
@@ -90,10 +90,10 @@ func forgettable(args []string) ([]string, error) {
 				WithHint("oikade forget --plugin %s forgets every device of it", n.parts[0])
 		case n.kind == ident.Matter:
 			return nil, cli.UsageErrorf("oikade forget takes devices, and matter is the Matter bridge").
-				WithHint("a device called matter is device/matter")
+				WithHint("give each device by its hardware's ref, as oikade list devices shows it")
 		default:
 			return nil, cli.UsageErrorf("oikade forget takes devices, not %s", n.ref).
-				WithHint("give each as device/NAME, or its name alone")
+				WithHint("give each by its hardware's ref, such as hardware/hue/0x2, as oikade list devices shows it")
 		}
 	}
 	return names, nil
@@ -270,7 +270,7 @@ func removable(args []string) ([]named, error) {
 	for _, arg := range args {
 		if !strings.Contains(arg, "/") {
 			return nil, cli.UsageErrorf("oikade remove takes client/NAME, not %s", arg).
-				WithHint("oikade remove client/%s removes a client, and oikade forget %s forgets a device", arg, arg)
+				WithHint("oikade remove client/%s removes a client", arg)
 		}
 		if strings.HasPrefix(arg, "secret/") {
 			return nil, cli.UsageErrorf("oikade remove takes client/NAME, and a secret is one of your values now").
@@ -280,7 +280,7 @@ func removable(args []string) ([]named, error) {
 		switch {
 		case err != nil && strings.HasPrefix(arg, string(ident.Client)+"/"): // What's wrong is its name.
 			return nil, cli.UsageErrorf("%s", err)
-		case err == nil && kind == ident.Device && len(parts) == 1:
+		case err == nil && (kind == ident.Hardware && len(parts) == 2 || kind == ident.Device && len(parts) == 1):
 			return nil, cli.UsageErrorf("oikade remove doesn't take devices: a device is forgotten, as its plugin may "+
 				"report it again").WithHint("oikade forget %s forgets it", arg)
 		case err != nil || kind != ident.Client || len(parts) != 1:

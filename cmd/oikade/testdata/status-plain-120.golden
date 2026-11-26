@@ -1,18 +1,19 @@
 Home f113018 · automations connected 8 min ago
 
-NAME         ROOM   VALUES                                                    STATE
-hall-lamp    hall   on false
-office-ac           mode cool, on true, setpoint 21.5°C, temperature 24.25°C  not in your code
-porch-light                                                                   no LAN key: oikade setup ewelink-lan
-study-blind  study  position 40%, target-position 40, moving false            went offline today 12:25
+DEVICE                                        VALUES                                STATE
+hardware/ewelink-lan/1000aabbcc               on false
+hardware/toshiba/5f1c0c2e                     mode cool, on true, setpoint 21.5°C…  not in your code
+hardware/ewelink-lan/1000ddeeff                                                     no LAN key: oikade setup ewelink-lan
+hardware/overkiz/io:%2F%2F0812-4471-2093%2F5  position 40%, target-position 40, m…  went offline today 12:25
 
-case/office-ac/on/too-warm  case  active since 13:52
+case/toshiba/5f1c0c2e/on/too-warm  case  active since 13:52
 flow/morning  flow
 
 signal/anyone-home  true since 12:25, false at 2026-11-19 20:00:00
 signal/upstairs  false since 13:52
 --- stderr
 Plugin overkiz: login refused: check overkiz.Local's Token
-Devices with a problem: porch-light. Their STATE says what's wrong.
-office-ac isn't in your code: oikade list devices shows how to declare it
-Hint: oikade status office-ac says why each of its values is what it is
+Devices with a problem: hardware/ewelink-lan/1000ddeeff. Their STATE says what's wrong.
+Hint: --wide shows ROOM
+hardware/toshiba/5f1c0c2e isn't in your code: oikade list devices shows how to declare it
+Hint: oikade status hardware/toshiba/5f1c0c2e says why each of its values is what it is

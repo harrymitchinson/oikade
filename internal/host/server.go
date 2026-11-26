@@ -74,8 +74,6 @@ type server struct {
 	// connected, if set, hears of each session. It must not block.
 	connected func()
 	plugins   *plugins
-	// names say what the devices whose keys the host keeps are called, for what a person reads.
-	names control.Names
 	// settings, if set, takes up what a connecting process declares, and confirmedSettings replaces
 	// them with what a version that has settled declares.
 	settings, confirmedSettings func([]wire.DeviceControl) error
@@ -474,14 +472,6 @@ func (s *server) confirmSettings(settings []wire.DeviceControl) error {
 	return s.confirmedSettings(settings)
 }
 
-// registry is the host's record of devices, or nil without one.
-func (s *server) registry() *registry.Registry {
-	if s == nil || s.plugins == nil || s.plugins.known == nil {
-		return nil
-	}
-	return s.plugins.known.registry
-}
-
 // safetyHeld says a Safety claim holds a device's capability, by the device's key.
 func (s *server) safetyHeld(device, name string) bool {
 	return slices.ContainsFunc(s.engine.ControlOf(key(device)), func(c control.Status) bool {
@@ -574,10 +564,10 @@ func (s *server) reconcile(rules, flows []string) error {
 			err = errors.New("dropped by a fault point")
 		}
 		if err != nil {
-			errs = append(errs, fmt.Errorf("ending the claims of %s: %w", s.names.RuleRef(rule), err))
+			errs = append(errs, fmt.Errorf("ending the claims of %s: %w", control.RuleRef(rule), err))
 			continue
 		}
-		s.log.Info("Ended the claims of a removed rule", "rule", s.names.RuleRef(rule), "highest", level.String())
+		s.log.Info("Ended the claims of a removed rule", "rule", control.RuleRef(rule), "highest", level.String())
 	}
 	for _, saved := range []interface {
 		Names() ([]string, error)
@@ -593,10 +583,10 @@ func (s *server) reconcile(rules, flows []string) error {
 				continue
 			}
 			if err := saved.Delete(s.ctx, key(name)); err != nil {
-				errs = append(errs, fmt.Errorf("forgetting the state of %s: %w", s.names.RuleRef(name), err))
+				errs = append(errs, fmt.Errorf("forgetting the state of %s: %w", control.RuleRef(name), err))
 				continue
 			}
-			s.log.Info("Forgot the saved state of a removed rule", "rule", s.names.RuleRef(name))
+			s.log.Info("Forgot the saved state of a removed rule", "rule", control.RuleRef(name))
 		}
 	}
 	if len(errs) > 0 {
@@ -709,9 +699,9 @@ func (s *server) endReleased() error {
 		}
 		delete(s.held, r)
 		if ended {
-			s.log.Info("Ended the claim of a flow run", "source", s.names.SourceRef(r.Source), "device", s.names.Device(r.Device), "capability", r.Capability)
+			s.log.Info("Ended the claim of a flow run", "source", control.SourceRef(r.Source), "device", ident.DeviceRef(r.Device), "capability", r.Capability)
 		} else {
-			s.log.Info("Found no claim of a flow run to end", "source", s.names.SourceRef(r.Source), "device", s.names.Device(r.Device), "capability", r.Capability)
+			s.log.Info("Found no claim of a flow run to end", "source", control.SourceRef(r.Source), "device", ident.DeviceRef(r.Device), "capability", r.Capability)
 		}
 	}
 	return errors.Join(errs...)

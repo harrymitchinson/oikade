@@ -23,13 +23,13 @@ A `GET` takes no body. A `POST` takes a JSON object, and every field is optional
 | `GET /v1/devices` | | `registry`; `unimported`, the devices of plugins the running version doesn't import; `outsidePlugins`; `safetyHeld`, the plugins' devices a Safety claim holds; `hiddenFromMatter`, the devices your home keeps off Matter |
 | `POST /v1/deploy` | Your values and the binary, as `multipart/form-data` ([Deploys](#deploys)), and `?allowSafety=true` in the query | See [what a deploy answers](#what-a-deploy-answers) |
 | `POST /v1/rollback` | `allowSafety`; `vars`, values that replace the host's | The same as a deploy, but `unchanged` |
-| `POST /v1/set` | `device`, `capability`, `value` | `outcome`: the capability with its claims, once the device answered and nothing wrote it back, after up to 3 seconds; none if the device hadn't answered. A set a Safety claim refuses has `outcome` as the capability is, beside `error` |
-| `POST /v1/pause`, `POST /v1/resume` | `rule`, the case's or flow's [ref](devices.md#refs), such as `case/fan/on/humid`; `allowSafety` | `needsAllowSafety`. A pause has `ended`, the claims it ended, and `kept`, its Safety claims, each as the capability's ref, such as `device/fan/on` |
+| `POST /v1/set` | `device`, its hardware as your code names it, such as `hue/0x2`; `capability`; `value` | `outcome`: the capability with its claims, once the device answered and nothing wrote it back, after up to 3 seconds; none if the device hadn't answered. A set a Safety claim refuses has `outcome` as the capability is, beside `error` |
+| `POST /v1/pause`, `POST /v1/resume` | `rule`, the case's or flow's [ref](devices.md#refs), such as `case/hue/0x2/on/humid`; `allowSafety` | `needsAllowSafety`. A pause has `ended`, the claims it ended, and `kept`, its Safety claims, each as the capability's ref, such as `hardware/hue/0x2/on` |
 | `POST /v1/matter/open` | `windowSeconds`, 180 to 900, and 900 if it's left out | `matterWindow`: `manualCode`, `qrCode`, `passcode`, `fresh` and `expires`, once the window is advertised |
 | `POST /v1/backup` | | `backup`, the file it wrote on the host |
 | `POST /v1/setup` | `plugin` | A stream of the plugin's setup steps: see [Setup](#setup) |
 | `POST /v1/setup/reply` | `plugin`, `session`, `seq`, `answer` | |
-| `POST /v1/devices/forget` | `devices`, by name, or `plugin`, for every device of that plugin; `allowSafety` | `forgotten`; `needsAllowSafety`; `warning`, such as a room a hold reads that's left empty |
+| `POST /v1/devices/forget` | `devices`, by their hardware, such as `hue/0x2`, or `plugin`, for every device of that plugin; `allowSafety` | `forgotten`; `needsAllowSafety`; `warning`, such as a room a hold reads that's left empty |
 | `GET /v1/clients` | | `clients`, never their tokens, with those waiting for their login, each with `expires`, when its code runs out |
 | `POST /v1/clients/add` | `client` | `code`, `expires`, `pin` and `address`. Only on the socket |
 | `POST /v1/clients/add` | `client`, `token: true` | `token`, shown only once, and `pin`. Only on the socket |
@@ -90,7 +90,7 @@ Only the closing boundary says it's all there. The host keeps the upload in `upl
 | Field | Means |
 |---|---|
 | `home` | Your home: `version`, `deploying`, `process`, and `since`, when your automations last connected or went down, or the host started |
-| `devices` | Each device, with its `room`, `online`, its `capabilities`, its `deviceTypes`, its `plugin` if a plugin reports it, its `problem` if its driver says one, `offlineSince` while it's offline (when the host first heard it was), `pluginNotImported`, and `declare`, the line that would declare it, if your code doesn't |
+| `devices` | Each device, by its `hardware`, as your code names it, such as `hue/0x2`, and its `ref`, with its `room`, `online`, its `capabilities`, its `deviceTypes`, its `plugin` if a plugin reports it, its `problem` if its driver says one, `offlineSince` while it's offline (when the host first heard it was), `pluginNotImported`, and `declare`, the line that would declare it, if your code doesn't |
 | `rules` | Each rule: see below |
 | `signals` | Each [signal](automations.md#signals), in the order your home made them: see below |
 | `plugins` | Each plugin the running binary imports or that reports a device on record: its `name`, its `ref` (`plugin/NAME`), its `problem` if it says something's wrong with it as a whole (OIK-17), `needsSetup` if it says its [setup](#setup) needs running, and the `devices` it reports |
@@ -98,9 +98,9 @@ Only the closing boundary says it's all there. The host keeps the upload in `upl
 
 `oikade status REF --json` narrows it, and keeps its shape: `home` is always there, a kind no ref names is an empty array, and `matter` is `null` unless it's named.
 
-A capability has its `name`, its `ref`, such as `device/desk-plug/on`, and its `value`, and, if it's arbitrated, its winning `level` and the value it `wanted`, the `case` that wins, a `limit` holding the winner back until `limitUntil`, and its `claims`, highest first. Each claim has a `source`, the [ref](devices.md#refs) of who made it, such as `case/fan/on/humid` or `matter`, the `case` that made it if one did, its `level` and `value`, and `winner`, `latched` and `expires` where they apply.
+A capability has its `name`, its `ref`, such as `hardware/hue/0x2/on`, and its `value`, and, if it's arbitrated, its winning `level` and the value it `wanted`, the `case` that wins, a `limit` holding the winner back until `limitUntil`, and its `claims`, highest first. Each claim has a `source`, the [ref](devices.md#refs) of who made it, such as `case/hue/0x2/on/humid` or `matter`, the `case` that made it if one did, its `level` and `value`, and `winner`, `latched` and `expires` where they apply.
 
-Each rule has its `name`, its `ref`, which `pause` and `resume` take, its `kind` (`case` or `flow`, or none for a paused rule no running code names), `safety` and `paused`, and a case's `device`, `capability` and `case`. A case that isn't paused also has its state, from what it last saved (OIK-215):
+Each rule has its `name`, its `ref`, which `pause` and `resume` take, its `kind` (`case` or `flow`, or none for a paused rule no running code names), `safety` and `paused`, and a case's `device`, its hardware, `capability` and `case`. A case that isn't paused also has its state, from what it last saved (OIK-215):
 
 | Field | Means |
 |---|---|
@@ -109,7 +109,7 @@ Each rule has its `name`, its `ref`, which `pause` and `resume` take, its `kind`
 | `onAt`, `offAt` | When its on-delay or off-delay ends. Missing when none is running. One in the past ran out while it was stopped |
 | `latched` | A latched hold, from its start until a release |
 | `stopped` | Why its `When` can't be read, so it keeps its state, such as `no device in room hall has reported occupancy`, or why its budget couldn't be planned, which keeps its device off. Only a connected process says |
-| `whyNot` | Why an inactive case's conditions are false, such as `device/greenhouse/temperature is 5, not below 3`. Only a connected process says |
+| `whyNot` | Why an inactive case's conditions are false, such as `hardware/hue/0x9/temperature is 5, not below 3`. Only a connected process says |
 | `budget` | A budget hold's day: `date`, `targetMinutes`, `plannedMinutes`, how much of the target the plan places, leaving out the minutes it missed, `runMinutes`, `missedMinutes`, the planned minutes that went by with the device off while the budget's conditions were true, and `replannedAt`, when the rest of the day was last planned again to make them up, missing if it hasn't been. `runMinutes` and `missedMinutes` are saved at most every 5 minutes. `date` may be a day that's over, if it hasn't planned since |
 
 Each signal has its `name`, its `ref` (`signal/NAME`), and its state, from what your process last saved. The host knows them from your process's `hello`, or with none connected, from the running version. A signal with no saved state yet, as just after a deploy adds one, has only its name and ref:
@@ -176,10 +176,10 @@ Both take a filter in the query, and the host does the filtering, so a caller do
 
 | A `ref` | Its events |
 |---|---|
-| `device/porch-light` | Everything about the device and its capabilities, under each name it had, as the log keeps a device by its hardware, and under the name it has now for events from before it did. A tail carries on with a device that's renamed as it follows. A name nothing has now is the device that last had it |
-| `device/porch-light/on` | The capability's, and what happened to the device as a whole: it went offline, or was forgotten or renamed |
+| `hardware/hue/0x2` | Everything about the device and its capabilities, as the log keeps a device by its hardware |
+| `hardware/hue/0x2/on` | The capability's, and what happened to the device as a whole: it went offline, or was forgotten or renamed |
 | `room/hall`, `room/hall/on` | The same, for each device in the room now, not those that were in it then |
-| `case/porch-light/on/dusk`, `flow/morning` | The rule's runs, pauses and outside calls, and the writes it made (`by`). A case's are its device's, under each name it had |
+| `case/hue/0x2/on/dusk`, `flow/morning` | The rule's runs, pauses and outside calls, and the writes it made (`by`) |
 | `signal/anyone-home` | The signal's changes |
 | `plugin/overkiz` | The plugin's own problems |
 | `matter` | The bridge's events, and each controller's writes, refused or not |
@@ -188,12 +188,12 @@ The home's own events, `process` and `deploy`, pass whatever the refs, because t
 
 ### Events
 
-An `Event` has its `time` and `type`. Every event but `process`, `deploy` and `end` has a `ref`, the ref of what it's about: a capability's, a device's, a rule's, a signal's or a plugin's, or `matter` for the bridge.
+An `Event` has its `time` and `type`. Every event but `process`, `deploy` and `end` has a `ref`, the ref of what it's about: a capability's, a device's, a rule's, a signal's or a plugin's, or `matter` for the bridge. Its `device` is a device's hardware, as your code names it, such as `hue/0x2`, and its `rule` a rule's key, as `hue/0x2 on dusk`.
 
 | `type` | What happened | Fields |
 |---|---|---|
 | `change` | A device reported a new value | `device`, `capability`, `value`, and `previous`, the value before, if it had one |
-| `write` | The host wrote to a device, whether or not the device took it. `by` is the ref of whose write it is: the rule whose claim won or whose step set it (`case/porch-light/on/dusk`, `flow/morning`), `matter` for a Matter controller's, such as a Home app tap, or `command` for `oikade set`'s. It has no `by` when no rule's claim decided it, as when arbitration puts a capability back to its default. A `change` with no write before it was made at the device, by its switch or its maker's app | `device`, `capability`, `value`, `by` |
+| `write` | The host wrote to a device, whether or not the device took it. `by` is the ref of whose write it is: the rule whose claim won or whose step set it (`case/hue/0x2/on/dusk`, `flow/morning`), `matter` for a Matter controller's, such as a Home app tap, or `command` for `oikade set`'s. It has no `by` when no rule's claim decided it, as when arbitration puts a capability back to its default. A `change` with no write before it was made at the device, by its switch or its maker's app | `device`, `capability`, `value`, `by` |
 | `refused` | A controller's write, such as a Home app tap, that a claim turned away. The device wasn't written | `device`, `capability`, `value`, and `message`: which claim holds it, and at what level |
 | `rule` | A rule's run ended | `rule`, `result` |
 | `pause` | A rule was paused or resumed | `rule`, `message` |
@@ -203,7 +203,7 @@ An `Event` has its `time` and `type`. Every event but `process`, `deploy` and `e
 | `matter` | The Matter bridge's commissioning window opened or closed, or a controller paired or left. A window has opened once it's advertised, and one still open when the host stops closes then. The bridge says each once it has advertised the change, which can be a second or two after | `message`: `window opened`, `window closed`, `controller paired` or `controller left`; `value`, the controller's fabric |
 | `signal` | A [signal](automations.md#signals) changed, as the host saved it. A new or renamed signal's first value isn't a change. Your process saves the latest state only, so a change and its undoing before the first reaches the host can be neither | `ref`, the signal's; `value`, what it is now; `previous`, what it was |
 | `forget` | A device was forgotten, so its history stops here | `device` |
-| `rename` | A deploy renamed a device, or gave its hardware the name your home declares | `device`, its name from then on; `previous`, its name before |
+| `rename` | A deploy renamed a device, or gave its hardware the name your home declares | `device`; `previous`, its name before; `message`, its name from then on |
 | `process` | Your process connected or disconnected | `message` |
 | `deploy` | A new version took over | `message`, the version |
 | `end` | The stream ended: the event log's last line, or the host ending a tail | `message`: why, if it stopped short |

@@ -68,8 +68,6 @@ type Coalescer struct {
 	Setter driver.Setter
 	// Current returns a capability's current value on the device, if known.
 	Current func(dev ident.ID, name string) (any, bool)
-	// Name, if set, is what a device is called, for the log, which otherwise has its key.
-	Name func(dev ident.ID) string
 	// Window is how long writes gather; 0 means 50 ms.
 	Window time.Duration
 	// TravelWindow is how long writes to a capability that travels gather after the last; 0
@@ -279,10 +277,7 @@ func (c *Coalescer) flush(dev ident.ID) {
 		return strings.Compare(a.name, b.name)
 	})
 	log := logging.FromContext(c.ctx)
-	name := dev.Name
-	if c.Name != nil {
-		name = c.Name(dev)
-	}
+	name := ident.DeviceRef(dev.Name).String()
 	for _, w := range writes {
 		k := writeKey{dev, w.name}
 		// A device on its way, as a blind travels, isn't at what it reports, so writing that stops

@@ -6,10 +6,10 @@ What the host serves for Prometheus, and what it logs. For what your home did an
 
 The host serves metrics on `:8080/metrics`, and health on `:8080/healthz`, over HTTP.
 
-- **The listener is read-only,** and apart from the API. It's open to whoever can reach the port, and it shows device names and values.
+- **The listener is read-only,** and apart from the API. It's open to whoever can reach the port, and it shows devices' hardware and values.
 - **`--metrics-addr`** moves it, such as to `127.0.0.1:8080`, and an empty value turns it off. If the port is taken, the host logs that and carries on without it.
 - **Your process's rule metrics** reach the host every 5 seconds, so a scrape can be that far behind, and they go when the process does. The host serves them only if they're all `oikade_rule_*` and well formed, and logs `Refused rule metrics from your process` when they aren't.
-- **Labels:** a rule metric's `rule` label is the case's or the flow's [ref](devices.md#refs), such as `rule="case/towel-rail/on/evening"` or `rule="flow/morning"`, so it pastes into `oikade pause`. `device`, `room` and `capability` labels are bare names, for PromQL.
+- **Labels:** a `device` label is the device's [ref](devices.md#refs), its hardware's, such as `device="hardware/hue/0x2"`, and a rule metric's `rule` label the case's or the flow's, such as `rule="case/hue/0x2/on/evening"` or `rule="flow/morning"`, so each pastes into `oikade status` or `oikade pause`. `room` and `capability` labels are bare names, for PromQL.
 - **Each family** has its `# TYPE`, and an empty `# HELP`: the table below says what each one is.
 
 ### Prometheus and Grafana

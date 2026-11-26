@@ -11,7 +11,7 @@ import (
 )
 
 // A store kept by devices' names starts again what it kept under the name of a device now known by
-// its hardware, once, and keeps the rest: a simulated device's, whose key is its name, and a flow's
+// its hardware, once, and keeps the rest: a reserved device's, whose key is its name, and a flow's
 // that names no such device.
 func TestAStoreKeptByNameStartsAgainWhatsUnderAHardwaresName(t *testing.T) {
 	data, err := store.Open(t.TempDir())
@@ -21,7 +21,7 @@ func TestAStoreKeptByNameStartsAgainWhatsUnderAHardwaresName(t *testing.T) {
 	t.Cleanup(func() { _ = data.Close() })
 	devices := registry.Snapshot{Devices: []registry.Device{
 		{Name: "valve", Driver: "plugin/relays", ID: "v1"},
-		{Name: "fan", Driver: "simulated/simulator", ID: "fan"},
+		{Name: "fan"},
 	}}
 	put := func(namespace, key, value string) {
 		t.Helper()

@@ -5,29 +5,29 @@ Paired controllers
   fabric 1: Home, vendor 0x1349
   fabric 2: vendor 0x1384
 ---
-14:02:07  device/desk-plug/on  true  was false
-14:02:07  device/office-ac/setpoint  21.5°C
-14:02:07  device/desk-plug/on  wrote false
-14:02:07  device/desk-plug/on  wrote true  by case/desk-plug/on/occupied
-14:02:07  device/office-ac/setpoint  wrote 20°C  by matter
-14:02:07  device/hall-blind/position  wrote 40%  by command
-14:02:07  device/desk-plug/on  refused a Matter write of true  case/desk-plug/on/hall-too-humid holds it at Safety
+14:02:07  hardware/kasa/desk1/on  true  was false
+14:02:07  hardware/toshiba/5f1c0c2e/setpoint  21.5°C
+14:02:07  hardware/kasa/desk1/on  wrote false
+14:02:07  hardware/kasa/desk1/on  wrote true  by case/kasa/desk1/on/occupied
+14:02:07  hardware/toshiba/5f1c0c2e/setpoint  wrote 20°C  by matter
+14:02:07  hardware/overkiz/io:%2F%2F0812-4471-2093%2F7/position  wrote 40%  by command
+14:02:07  hardware/kasa/desk1/on  refused a Matter write of true  case/kasa/desk1/on/hall-too-humid holds it at Safety
 14:02:07  flow/morning  ran
-14:02:07  case/towel-rail/on/after-shower  didn't run: its condition couldn't be read
+14:02:07  case/ewelink-lan/1000a1b2c3/on/after-shower  didn't run: its condition couldn't be read
 14:02:07  flow/morning  paused
 14:02:07  deployed version f113018
 14:02:07  automations connected
-14:02:07  device/porch-light  went offline
-14:02:07  device/garage-relay  went offline  no LAN key
-14:02:07  device/porch-light  came back online
+14:02:07  hardware/ewelink-lan/1000ddeeff  went offline
+14:02:07  hardware/ewelink-lan/1000c0ffee  went offline  no LAN key
+14:02:07  hardware/ewelink-lan/1000ddeeff  came back online
 14:02:07  plugin/overkiz  has a problem: the TaHoma box refused the login
 14:02:07  plugin/overkiz  no longer has a problem
 14:02:07  matter  window opened
 14:02:07  matter  controller paired  fabric 2
 14:02:07  matter  window closed
 14:02:07  matter  controller left  fabric 1
-14:02:07  device/shed-lamp  forgotten
-14:02:07  device/mains-valve  renamed  was device/valve
+14:02:07  hardware/zigbee2mqtt/0x00158d0001a2b3c4  forgotten
+14:02:07  hardware/relays/valve  renamed  was device/valve
 14:02:07  flow/morning  called forecast  got true
 14:02:07  flow/morning  called tariff  got {"cheap":true,"until":"07:00"}
 14:02:07  flow/morning  called notify and it failed  the push service timed out

@@ -30,7 +30,7 @@ home.Decide(BathroomFan.On).
 
 `home.Decide` takes a capability, a device's or a [group's](#groups-and-rooms), and each line after it says when it applies and what it wants. The first line that applies wins, and `Default`, the last line, is what's left when none does. Here the fan runs while the bathroom is humid and for 10 minutes after, even at night.
 
-A case takes a name, its value and its [conditions](#conditions), all of which must be true. Its name is scoped to its capability, so two devices can each have a `night`, and Oikade names it by its [ref](devices.md#refs): `case/bathroom-fan/on/night`.
+A case takes a name, its value and its [conditions](#conditions), all of which must be true. Its name is scoped to its capability, so two devices can each have a `night`, and Oikade names it by its [ref](devices.md#refs), from its device's hardware: `case/ewelink-lan/1000a1b2c3/on/night`, for a `BathroomFan` whose hardware is `ewelink-lan/1000a1b2c3`.
 
 What follows a case changes it:
 
@@ -235,7 +235,7 @@ With no override line, nothing is a safety line, and `oikade check` warns about 
 | `MaximumOn` | Stops a longer run, then rests for `MinimumOff`, or until nothing wants it on |
 | `MaximumStartsPerDay` | Caps the starts in a day. Zero means no limit |
 
-An outside change is accepted and counted, but not fought. `oikade status` says when a limit holds a line back, such as `case/loft-fan/on/airing wants true, resting until 03:20`.
+An outside change is accepted and counted, but not fought. `oikade status` says when a limit holds a line back, such as `case/ewelink-lan/1000f00d12/on/airing wants true, resting until 03:20`.
 
 ### Reports after a write
 
@@ -328,7 +328,7 @@ home.Decide(StudyRadiator.Setpoint).
 - **It's rounded** to the capability's step, 0.5 for a setpoint and 1 for brightness and position, or to `.Step(n)`'s, and kept within the capability's bounds.
 - **It's written only on a real change:** when the value is three quarters of a step from the last one written, so a reading that wobbles across a rounding edge isn't a write each time. The host keeps the last one written, so a restart doesn't write it again.
 - **Until the reading is reported,** the lines below apply, and `oikade status` says why. A function that gives NaN or an infinity counts as an unreported reading. The reading can be an [average](#averages).
-- **It's a line like a case,** named `case/study-radiator/setpoint/weather`, which `oikade pause` takes.
+- **It's a line like a case,** named for its device's hardware, such as `case/zigbee2mqtt/0x00158d0004c3b2a1/setpoint/weather`, which `oikade pause` takes.
 
 ## Budgets
 

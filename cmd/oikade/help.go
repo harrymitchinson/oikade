@@ -130,26 +130,29 @@ var groups = []group{
 			Summary: "What's your home doing now, and what's wrong?",
 			Usage:   []string{"oikade status [REF...] [--check] [--wide] [--json]"},
 			About: "With no REF, it shows your home's version, what's left to set up, each device's values and the " +
-				"rules. REF shows one thing in full: a device (device/office-ac, or its name alone), with why each value " +
-				"is what it is and its last 10 events, a capability (device/office-ac/on), a room's devices (room/hall), " +
+				"rules. REF shows one thing in full: a device, by its hardware (hardware/toshibaac/5f1c0c2e), with why " +
+				"each value is what it is and its last 10 events, a capability (hardware/toshibaac/5f1c0c2e/on), a room's " +
+				"devices (room/hall), " +
 				"a case or a flow (flow/morning), a signal's value, why, and when its Delay or Linger ends " +
 				"(signal/anyone-home), a plugin and its devices (plugin/overkiz), or matter, the Matter bridge. " +
 				"--check exits 1 if something a command fixes is wrong: no home deployed, the Matter bridge down, a plugin " +
 				"with a problem or that needs setup, a device with a problem or whose plugin isn't " +
 				"imported, or automations down. A device that's only offline counts if you name it or its room.",
-			Example: []string{"oikade status office-ac", "oikade status --check room/hall"},
+			Example: []string{"oikade status hardware/toshibaac/5f1c0c2e", "oikade status --check room/hall"},
 		},
 		{
 			Name:    "oikade history",
 			Summary: "What did your home do, and why?",
 			Usage:   []string{"oikade history [REF...] [--since WHEN] [--until WHEN] [--json]"},
-			About: "REF narrows it to a device (device/porch-light, or its name alone), a capability " +
-				"(device/porch-light/on), a room (room/hall), a case or a flow (flow/morning), a signal's changes " +
+			About: "REF narrows it to a device, by its hardware (hardware/hue/0x2), a capability " +
+				"(hardware/hue/0x2/on), a room (room/hall), a case or a flow (flow/morning), a signal's changes " +
 				"(signal/anyone-home), a plugin (plugin/overkiz) or " +
 				"matter, the Matter bridge. A write says who made it: a rule, matter for a controller, or command for " +
 				"oikade set. WHEN is how long ago (24h, 90m, 3d), a time of day (03:00, the last one), or a date and time " +
 				"(\"2026-11-18 03:00\"). The host keeps 14 days, unless its --event-log-age says otherwise.",
-			Example: []string{"oikade history porch-light --since 03:00", "oikade history flow/morning room/hall --since 3d"},
+			Example: []string{
+				"oikade history hardware/hue/0x2 --since 03:00", "oikade history flow/morning room/hall --since 3d",
+			},
 		},
 		{
 			Name:    "oikade tail",
@@ -157,32 +160,34 @@ var groups = []group{
 			Usage:   []string{"oikade tail [REF...] [--since WHEN] [--json]"},
 			About: "REF narrows it, as oikade history's does. With --since it prints the history from then first: how " +
 				"long ago (10m), a time of day (03:00) or a date and time.",
-			Example: []string{"oikade tail porch-light --since 10m"},
+			Example: []string{"oikade tail hardware/hue/0x2 --since 10m"},
 		},
 	}},
 	{"Drive it", []cli.Command{
 		{
 			Name:    "oikade set",
 			Summary: "Set a capability as a person would.",
-			Usage:   []string{"oikade set device/DEVICE/CAPABILITY VALUE [--json]"},
+			Usage:   []string{"oikade set hardware/PLUGIN/ID/CAPABILITY VALUE [--json]"},
 			About: "A capability's set says what it is afterwards, and fails, naming the rule or limit that holds " +
 				"it, if that isn't VALUE. One whose device hasn't answered yet isn't a failure: the write was sent. " +
 				"Your values, such as a plugin's password, are in .env, which oikade deploy sends.",
-			Example: []string{"oikade set device/hall-heater/setpoint 19.5", "oikade set device/porch-light/on true"},
+			Example: []string{
+				"oikade set hardware/toshibaac/5f1c0c2e/setpoint 19.5", "oikade set hardware/hue/0x2/on true",
+			},
 		},
 		{
 			Name:    "oikade pause",
 			Summary: "Pause a rule, so it lets go of what it holds until you resume it.",
 			Usage:   []string{"oikade pause REF [--allow-safety] [--json]"},
-			About: "REF is a case's, case/DEVICE/CAPABILITY/CASE, or a flow's, flow/FLOW, as oikade status " +
+			About: "REF is a case's, case/PLUGIN/ID/CAPABILITY/CASE, or a flow's, flow/FLOW, as oikade status " +
 				"names them. A Safety rule needs --allow-safety.",
-			Example: []string{"oikade pause case/hall-heater/on/occupied"},
+			Example: []string{"oikade pause case/ewelink/1000a1b2c3/on/occupied"},
 		},
 		{
 			Name:    "oikade resume",
 			Summary: "Resume a rule you paused.",
 			Usage:   []string{"oikade resume REF [--json]"},
-			About:   "REF is a case's, case/DEVICE/CAPABILITY/CASE, or a flow's, flow/FLOW.",
+			About:   "REF is a case's, case/PLUGIN/ID/CAPABILITY/CASE, or a flow's, flow/FLOW.",
 			Example: []string{"oikade resume flow/morning"},
 			// pause's alone, which shares resume's flag set.
 			Hide: []string{"allow-safety"},
@@ -207,7 +212,7 @@ var groups = []group{
 			Name:    "oikade forget",
 			Summary: "Forget devices a plugin reports, or every device of a plugin.",
 			Usage: []string{
-				"oikade forget DEVICE... [--allow-safety] [--json]",
+				"oikade forget hardware/PLUGIN/ID... [--allow-safety] [--json]",
 				"oikade forget --plugin NAME [--allow-safety] [--json]",
 			},
 			About: "It ends their claims and takes them off the Matter bridge, and says what becomes of them: a " +
@@ -215,7 +220,7 @@ var groups = []group{
 				"returns, as a device re-paired in its app does. A forgotten device keeps its Matter endpoint, so " +
 				"hardware that comes back is the same device. A device your home's code declares is refused: delete " +
 				"its declaration and deploy first. Clients are removed, with oikade remove.",
-			Example: []string{"oikade forget porch-light", "oikade forget --plugin zigbee2mqtt"},
+			Example: []string{"oikade forget hardware/hue/0x7", "oikade forget --plugin zigbee2mqtt"},
 		},
 		{
 			Name:    "oikade remove",
@@ -369,11 +374,11 @@ func newFlags(word string) *flag.FlagSet {
 // instead names the command to use for a word from another tool, or from before, that oikade has
 // no command for, or none that does that any more.
 var instead = map[string]string{
-	"devices": "oikade list devices lists them, and oikade forget DEVICE forgets one",
+	"devices": "oikade list devices lists them, and oikade forget hardware/PLUGIN/ID forgets one",
 	"client":  "oikade list clients lists them, and oikade remove client/NAME removes one",
 	"revoke":  "oikade remove client/NAME removes a client, and its token stops working",
-	"rm":      "oikade remove client/NAME removes a client, and oikade forget DEVICE forgets a device",
-	"delete":  "oikade remove client/NAME removes a client, and oikade forget DEVICE forgets a device",
+	"rm":      "oikade remove client/NAME removes a client, and oikade forget hardware/PLUGIN/ID forgets a device",
+	"delete":  "oikade remove client/NAME removes a client, and oikade forget hardware/PLUGIN/ID forgets a device",
 	"add":     "oikade-host add client/NAME, on the host's machine, adds a client",
 	"secret":  valuesHint,
 	"secrets": valuesHint,

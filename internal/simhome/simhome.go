@@ -297,7 +297,7 @@ func (s *Sim) set(_ context.Context, dev ident.ID, name string, value any) error
 	}
 	s.mu.Lock()
 	s.writes = append(s.writes, Write{Time: s.clock.Now(), Device: dev.Name, Capability: name, Value: v})
-	s.note("Wrote "+dev.Name+" "+name, fmt.Sprintf(" = %v", v))
+	s.note("Wrote "+ident.CapabilityRef(dev.Name, name).String(), fmt.Sprintf(" = %v", v))
 	s.mu.Unlock()
 	return s.report(dev, name, v)
 }

@@ -20,40 +20,41 @@ import (
 func TestErrorsReadAsSentences(t *testing.T) {
 	noHost := t.TempDir() // A data directory with no host in it.
 	empty := t.TempDir()  // A directory with no home in it.
+	const ac = "hardware/toshibaac/5f1c0c2e"
 	for _, tc := range []struct {
 		args []string
 		want string
 		code int
 	}{
 		// set checks its value before it says it's setting it.
-		{[]string{"set", "device/salon/on", "maybe"}, "Error: device/salon/on takes true or false, not maybe\n", 1},
+		{[]string{"set", ac + "/on", "maybe"}, "Error: " + ac + "/on takes true or false, not maybe\n", 1},
 		{
-			[]string{"set", "device/salon/setpoint", "warm"},
-			"Error: device/salon/setpoint takes a number, such as 25, not warm\n",
+			[]string{"set", ac + "/setpoint", "warm"},
+			"Error: " + ac + "/setpoint takes a number, such as 25, not warm\n",
 			1,
 		},
-		{[]string{"set", "device/salon/setpoint", "90"}, "Error: device/salon/setpoint takes 0°C to 50°C, not 90\n", 1},
+		{[]string{"set", ac + "/setpoint", "90"}, "Error: " + ac + "/setpoint takes 0°C to 50°C, not 90\n", 1},
 		{
-			[]string{"set", "device/salon/mode", "off"},
-			"Error: device/salon/mode takes auto, heat, cool, dry or fan, not off\n",
+			[]string{"set", ac + "/mode", "off"},
+			"Error: " + ac + "/mode takes auto, heat, cool, dry or fan, not off\n",
 			1,
 		},
 		{
-			[]string{"set", "device/salon/temperature", "3"},
-			"Error: device/salon/temperature is read-only: salon reports it, and nothing sets it\n",
+			[]string{"set", ac + "/temperature", "3"},
+			"Error: " + ac + "/temperature is read-only: " + ac + " reports it, and nothing sets it\n",
 			1,
 		},
 		// A ref says what it got, and the forms the command takes.
 		{
-			[]string{"pause", "device/salon/on"},
-			"Error: device/salon/on isn't a rule's ref: oikade pause takes a case's, case/DEVICE/CAPABILITY/CASE, " +
+			[]string{"pause", ac + "/on"},
+			"Error: " + ac + "/on isn't a rule's ref: oikade pause takes a case's, case/PLUGIN/ID/CAPABILITY/CASE, " +
 				"or a flow's, flow/FLOW\n",
 			2,
 		},
-		{[]string{"resume", "device/salon/on"}, "Error: device/salon/on isn't a rule's ref: oikade resume takes", 2},
+		{[]string{"resume", ac + "/on"}, "Error: " + ac + "/on isn't a rule's ref: oikade resume takes", 2},
 		{
-			[]string{"pause", "case/Salon/on/night"},
-			`Error: "case/Salon/on/night" isn't a ref: "Salon" isn't a device name`,
+			[]string{"pause", "case/Toshibaac/5f1c0c2e/on/night"},
+			`Error: "case/Toshibaac/5f1c0c2e/on/night" isn't a ref: "Toshibaac" isn't a plugin name`,
 			2,
 		},
 		{
@@ -63,7 +64,7 @@ func TestErrorsReadAsSentences(t *testing.T) {
 		},
 		{
 			[]string{"set", "dev/salon/on", "true"},
-			"Error: dev/salon/on isn't a capability's ref: give one as device/DEVICE/CAPABILITY",
+			"Error: dev/salon/on isn't a capability's ref: give one as hardware/PLUGIN/ID/CAPABILITY",
 			2,
 		},
 		// No host, and no home.

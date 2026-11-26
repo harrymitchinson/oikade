@@ -205,7 +205,7 @@ func TestDeclaringARemovedDeviceSaysItsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := declareOK(t, r, Declaration{Name: "lamp", Driver: "sim", ID: "0x1"})
-	if !slices.Equal(got.Changes, []string{"Brought back lamp, which was removed"}) || !slices.Contains(got.Touched, "0x1") {
+	if !slices.Equal(got.Changes, []string{"Brought back lamp, which was removed"}) || !slices.Contains(got.Touched, "sim/0x1") {
 		t.Errorf("got %+v", got)
 	}
 }
@@ -216,7 +216,7 @@ func TestWhatADeclarationTouchesIsSaid(t *testing.T) {
 	report(t, r, "0x3", "Other")
 	declareOK(t, r, Declaration{Name: "hall-sensor", Driver: "sim", ID: "0x1"}, Declaration{Name: "shed-fan"})
 	got := declareOK(t, r, Declaration{Name: "hall-sensor", Driver: "sim", ID: "0x9"})
-	if !slices.Equal(got.Removed, []string{"shed-fan"}) || !slices.Equal(got.Touched, []string{"0x9"}) {
+	if !slices.Equal(got.Removed, []string{"shed-fan"}) || !slices.Equal(got.Touched, []string{"sim/0x9"}) {
 		t.Errorf("got %+v, want hall-sensor touched by its new hardware's key, shed-fan removed, other untouched", got)
 	}
 }
@@ -349,7 +349,21 @@ func TestHardwareDeclaredByItselfIsChecked(t *testing.T) {
 	if d := get(t, r, "kitchen-ceiling"); d.Key() != "hue/0x9" || !d.Declared {
 		t.Errorf("paired, it's %+v", r.List())
 	}
-	if _, err := r.Plan([]Declaration{{Hardware: "sim-1", Capabilities: []string{"on"}}}); err != nil {
+	if _, err := r.Plan([]Declaration{{Hardware: "sim/sim-1", Capabilities: []string{"on"}}}); err != nil {
 		t.Errorf("hardware of no plugin, on record, is refused: %v", err)
+	}
+}
+
+// A line can only guess the driver of hardware no driver has reported yet, so the report that comes
+// has it, whatever its driver.
+func TestHardwareDeclaredBeforeItsDriverReportsIsItsDrivers(t *testing.T) {
+	r, _ := open(t)
+	declareOK(t, r, Declaration{Hardware: "simulator/porch-light", Driver: "plugin/simulator", ID: "porch-light"})
+	d, _, err := r.Report(Report{ID: "porch-light", Driver: "simulated/simulator", Name: "porch-light", Capabilities: []string{"on"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Driver != "simulated/simulator" || d.Key() != "simulator/porch-light" || !d.Declared || len(r.List().Devices) != 1 {
+		t.Errorf("got %+v", r.List())
 	}
 }

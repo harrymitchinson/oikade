@@ -12,6 +12,7 @@ import (
 
 	"oikade.dev/internal/devicetype"
 	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/ident"
 )
 
 // Declared are the devices inventory declares with oikade.Device, as their lines give them, by
@@ -49,8 +50,9 @@ func Declared(inventory []wire.DeviceDeclaration) ([]Device, error) {
 
 const devHelp = `Commands:
   advance <duration>             Move the clock on, as in advance 90m
-  set <device> <capability> <value>
-                                 Change a device from outside, as a sensor or an app would
+  set <capability's ref> <value>
+                                 Change a device from outside, as a sensor or an app would,
+                                 as in set hardware/simulator/porch-sensor/occupied true
   status                         Show every device, and what holds it
   restart                        Crash your automations, and start them again
   help                           Show this
@@ -121,8 +123,16 @@ func (s *Sim) command(words []string, out io.Writer) (bool, error) {
 			return false, fmt.Errorf("the clock only goes forward, not %s", d)
 		}
 		return false, s.Advance(d)
-	case words[0] == "set" && len(args) == 3:
-		return false, s.Set(args[0], args[1], parseValue(args[2]))
+	case words[0] == "set" && len(args) == 2:
+		kind, parts, err := ident.ParseRef(args[0])
+		if err != nil {
+			return false, err
+		}
+		device, rest, ok := ident.DeviceOf(kind, parts)
+		if !ok || kind == ident.Case || len(rest) != 1 {
+			return false, fmt.Errorf("%s isn't a capability's ref, such as hardware/simulator/porch-sensor/occupied", args[0])
+		}
+		return false, s.Set(device, rest[0], parseValue(args[1]))
 	case words[0] == "restart" && len(args) == 0:
 		return false, s.Restart()
 	case words[0] == "status" && len(args) == 0:
@@ -152,10 +162,10 @@ func (s *Sim) status(out io.Writer) {
 		for _, name := range d.Capabilities {
 			v, ok := s.Value(d.Name, name)
 			if !ok {
-				_, _ = fmt.Fprintf(out, "  %s %s: not reported\n", d.Name, name)
+				_, _ = fmt.Fprintf(out, "  %s: not reported\n", ident.CapabilityRef(d.Name, name))
 				continue
 			}
-			line := fmt.Sprintf("  %s %s: %v", d.Name, name, v)
+			line := fmt.Sprintf("  %s: %v", ident.CapabilityRef(d.Name, name), v)
 			i := slices.IndexFunc(s.Claims(d.Name, name), func(c Claim) bool { return c.Winner })
 			if i >= 0 {
 				line += ", held by " + s.Claims(d.Name, name)[i].Source

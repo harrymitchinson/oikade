@@ -181,7 +181,7 @@ func (h *Host) Run(ctx context.Context) error {
 		return fmt.Errorf("reading the home's device settings: %w", err)
 	}
 	srv.settings, srv.confirmedSettings = known.takeHome, known.setHome
-	srv.declare, srv.planDeclared, srv.names = known.takeDeclared, known.planDeclared, registryNames(devicesOnRecord)
+	srv.declare, srv.planDeclared = known.takeDeclared, known.planDeclared
 	srv.leavingSafety, srv.declaring = known.leavingSafety, known.declaring
 	sim := &simulator{store: devices, known: known, log: h.Log.With("logger", "simulator")}
 	socket := filepath.Join(h.DataDir, SocketName)

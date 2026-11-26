@@ -21,6 +21,7 @@ import (
 	"oikade.dev/internal/devicetype"
 	"oikade.dev/internal/host/api"
 	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/ident"
 	"oikade.dev/internal/registry"
 )
 
@@ -264,9 +265,9 @@ func isPlugins(d registry.Device, plugin string) bool {
 // printHiding says which devices a deploy of the home would take off Matter, before it does.
 func printHiding(out io.Writer, list registry.Snapshot, hidden []wire.HiddenPlugin, hiddenNow []string) {
 	var hiding []string
-	for _, name := range api.HiddenDevices(list, hidden) {
-		if !slices.Contains(hiddenNow, name) {
-			hiding = append(hiding, name)
+	for _, key := range api.HiddenDevices(list, hidden) {
+		if !slices.Contains(hiddenNow, key) {
+			hiding = append(hiding, ident.DeviceRef(key).String())
 		}
 	}
 	if len(hiding) > 0 {
@@ -476,8 +477,8 @@ func moduleFromSource(dir, name, source string) error {
 // homeFiles are a new home's files, by path.
 func homeFiles() (map[string][]byte, error) {
 	devices, _, err := addDevices(nil, "main", nil, []newDevice{
-		{name: "porch-light", key: "porch-light", room: "porch", typ: devicetype.OnOffLight},
-		{name: "porch-sensor", key: "porch-sensor", room: "porch", typ: devicetype.OccupancySensor},
+		{name: "porch-light", key: "simulator/porch-light", room: "porch", typ: devicetype.OnOffLight},
+		{name: "porch-sensor", key: "simulator/porch-sensor", room: "porch", typ: devicetype.OccupancySensor},
 	})
 	if err != nil {
 		return nil, errors.New("writing the example devices: " + err.Error())

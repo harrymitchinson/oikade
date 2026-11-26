@@ -21,13 +21,12 @@ func TestEveryVerbExitsAsTheGrammarSays(t *testing.T) {
 	dir := aHostWithNothing(t)
 	stdinOf(t, "a-value\n")
 	refs := map[string]string{
-		"device": "device/nothing", "capability": "device/nothing/on", "room": "room/nothing",
-		"case": "case/nothing/on/never", "flow": "flow/nothing", "plugin": "plugin/nothing",
+		"device": "hardware/nothing/0x0", "capability": "hardware/nothing/0x0/on", "room": "room/nothing",
+		"case": "case/nothing/0x0/on/never", "flow": "flow/nothing", "plugin": "plugin/nothing",
 		"client": "client/nothing", "matter": "matter",
 	}
-	// A bare word is a verb's main kind: a device for status, history, tail and forget, and a plugin
-	// for setup. Every other verb needs a ref.
-	bare := map[string]bool{"status": true, "history": true, "tail": true, "forget": true, "setup": true}
+	// A bare word is a plugin for setup, which takes a plugin first. Every other verb needs a ref.
+	bare := map[string]bool{"setup": true}
 	// The verbs that take one ref. A second is a command typed wrong.
 	one := map[string]bool{"set": true, "pause": true, "resume": true, "pair": true, "setup": true}
 	run := func(args ...string) int {

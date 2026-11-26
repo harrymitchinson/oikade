@@ -217,7 +217,8 @@ func TestWaitingFlowAcrossADeploy(t *testing.T) {
 				return
 			}
 			r.sync()
-			if r.count(wrote, "device", "park-out") != 0 || r.count(wrote, "device", "park-tail") != 0 {
+			if r.count(wrote, "device", "hardware/simulator/park-out") != 0 || r.count(wrote, "device",
+				"hardware/simulator/park-tail") != 0 {
 				t.Fatalf("a dropped run carried on. The log:\n%s", r.dump())
 			}
 		})
@@ -235,7 +236,7 @@ func TestRollbackRestoresThePreviousVersionAndReplaysFlows(t *testing.T) {
 	r.sync()
 	r.contact("park-end", true)
 	r.wrote("park-out", true) // The tail variant would write park-tail.
-	if got := r.count(wrote, "device", "park-tail"); got != 0 {
+	if got := r.count(wrote, "device", "hardware/simulator/park-tail"); got != 0 {
 		t.Fatalf("the rolled-back code still ran. The log:\n%s", r.dump())
 	}
 }
@@ -361,14 +362,15 @@ func TestRenamedSafetyHoldIsRefusedUntilAllowed(t *testing.T) {
 	if err == nil {
 		t.Fatalf("the deploy went ahead. The log:\n%s", r.dump())
 	}
-	if !strings.Contains(stderr, `"valve on leak-shutoff"`) || !strings.Contains(stderr, "--allow-safety") {
+	if !strings.Contains(stderr, "Safety case case/simulator/valve/on/leak-shutoff is gone") ||
+		!strings.Contains(stderr, "--allow-safety") {
 		t.Fatalf("got %q", stderr)
 	}
 	if r.pid() != pid || r.count(stopping) != 0 {
 		t.Fatalf("the process changed. The log:\n%s", r.dump())
 	}
 	r.mustDeploy("renamed", "--allow-safety")
-	if r.count(ended, "rule", "case/valve/on/leak-shutoff", "highest", "Safety") != 1 {
+	if r.count(ended, "rule", "case/simulator/valve/on/leak-shutoff", "highest", "Safety") != 1 {
 		t.Fatalf("the claim stayed. The log:\n%s", r.dump())
 	}
 	r.stop()
@@ -378,7 +380,8 @@ func TestRenamedSafetyHoldIsRefusedUntilAllowed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(names, "siren on leak-alarm") || slices.Contains(names, "valve on leak-shutoff") {
+	if !slices.Contains(names, "simulator/siren on leak-alarm") || slices.Contains(names,
+		"simulator/valve on leak-shutoff") {
 		t.Fatalf("saved holds: %v", names)
 	}
 }
@@ -395,7 +398,7 @@ func TestRemovedRulesLeaveNothingBehind(t *testing.T) {
 		t.Fatalf("the claim stayed. The log:\n%s", r.dump())
 	}
 	r.stop()
-	if got := r.ruleClaims("claimed"); len(got) != 0 {
+	if got := r.ruleClaims("simulator/claimed"); len(got) != 0 {
 		t.Fatalf("the claim outlived its rule: %+v", got)
 	}
 }
@@ -415,7 +418,7 @@ func TestAFailedVersionDoesNotEndTheClaimsOfRulesItDropped(t *testing.T) {
 	r.waitFor(func(l line) bool { return l.is(restored) })
 	r.sync()
 	r.stop()
-	if got := r.ruleClaims("claimed"); len(got) != 1 {
+	if got := r.ruleClaims("simulator/claimed"); len(got) != 1 {
 		t.Fatalf("got %+v. The log:\n%s", got, r.dump())
 	}
 }
@@ -443,7 +446,7 @@ func TestAFailedVersionLeavesNoClaimsOfItsOwn(t *testing.T) {
 	}
 	r.waitFor(func(l line) bool { return l.is(ended, "rule", "flow/claim-moment-2") })
 	r.stop()
-	if got := r.ruleClaims("claimed"); len(got) != 0 {
+	if got := r.ruleClaims("simulator/claimed"); len(got) != 0 {
 		t.Fatalf("got %+v", got)
 	}
 }
@@ -513,7 +516,7 @@ func TestAFailedVersionGivesBackARunItDropped(t *testing.T) {
 	r.launch(longSettle)
 	r.awaitLoaded()
 	r.claimWaiting()
-	writes := r.count(wrote, "device", "claimed-flow")
+	writes := r.count(wrote, "device", "hardware/simulator/claimed-flow")
 	r.crashAfterLoading("crash-editclaim", droppedEdited)
 	if r.count(droppedEdited) != 1 {
 		t.Fatalf("the new version didn't drop the run. The log:\n%s", r.dump())
@@ -523,7 +526,7 @@ func TestAFailedVersionGivesBackARunItDropped(t *testing.T) {
 	}
 	r.waitFor(func(l line) bool { return l.is(restored) })
 	r.sync()
-	if got := r.count(wrote, "device", "claimed-flow"); got != writes {
+	if got := r.count(wrote, "device", "hardware/simulator/claimed-flow"); got != writes {
 		t.Fatalf("the claim moved the device, %d writes from %d. The log:\n%s", got, writes, r.dump())
 	}
 	r.contact("claim-end", true)
@@ -555,7 +558,7 @@ func TestAFailedVersionsOwnRunLeavesNoClaimBehind(t *testing.T) {
 	r.waitFor(func(l line) bool { return l.is(restored) })
 	r.sync()
 	r.stop()
-	if got := r.ruleClaims("claimed-flow"); holdsClaim(got, "Rule/claiming", -1) {
+	if got := r.ruleClaims("simulator/claimed-flow"); holdsClaim(got, "Rule/claiming", -1) {
 		t.Fatalf("the claim was left behind: %+v. The log:\n%s", got, r.dump())
 	}
 }
@@ -580,7 +583,7 @@ func TestAHostThatDiesBeforeConfirmingGivesBackTheRun(t *testing.T) {
 		t.Fatalf("resumed %d runs. The log:\n%s", got, r.dump())
 	}
 	r.stop()
-	if got := r.ruleClaims("claimed-flow"); !holdsClaim(got, "Rule/claiming", -1) {
+	if got := r.ruleClaims("simulator/claimed-flow"); !holdsClaim(got, "Rule/claiming", -1) {
 		t.Fatalf("the run came back without its claim: %+v. The log:\n%s", got, r.dump())
 	}
 }
@@ -594,7 +597,7 @@ func TestAConfirmedVersionEndsTheClaimOfARunItDropped(t *testing.T) {
 	r.mustDeploy("editclaim")
 	r.wrote("claimed-flow", true)
 	r.stop()
-	if got := r.ruleClaims("claimed-flow"); holdsClaim(got, "Rule/claiming", -1) {
+	if got := r.ruleClaims("simulator/claimed-flow"); holdsClaim(got, "Rule/claiming", -1) {
 		t.Fatalf("got %+v", got)
 	}
 }
@@ -614,10 +617,10 @@ func TestAClaimReleasedUnderAConfirmedVersionEndsAfterACrash(t *testing.T) {
 		t.Fatalf("the claim ended before the crash. The log:\n%s", r.dump())
 	}
 	r.launch(settle)
-	r.waitFor(func(l line) bool { return l.is(endedReleased, "device", "claimed-flow") })
+	r.waitFor(func(l line) bool { return l.is(endedReleased, "device", simRef("claimed-flow")) })
 	r.awaitLoaded()
 	r.stop()
-	if got := r.ruleClaims("claimed-flow"); holdsClaim(got, "Rule/claiming", -1) {
+	if got := r.ruleClaims("simulator/claimed-flow"); holdsClaim(got, "Rule/claiming", -1) {
 		t.Fatalf("got %+v", got)
 	}
 }
@@ -648,7 +651,7 @@ func TestAClaimMadeAgainWhileSettlingOutlivesTheDeploy(t *testing.T) {
 		t.Fatalf("%v. The log:\n%s", err, r.dump())
 	}
 	r.stop()
-	if got := r.ruleClaims("claimed-flow"); !holdsClaim(got, "Rule/claiming", -1) {
+	if got := r.ruleClaims("simulator/claimed-flow"); !holdsClaim(got, "Rule/claiming", -1) {
 		t.Fatalf("the new run lost its claim: %+v. The log:\n%s", got, r.dump())
 	}
 }
@@ -668,7 +671,7 @@ func TestABinaryChangedWithoutADeployLeavesAFlowAlone(t *testing.T) {
 	r.awaitLoaded()
 	r.sync()
 	r.stop()
-	if got := r.ruleClaims("claimed-flow"); !holdsClaim(got, "Rule/claiming", -1) {
+	if got := r.ruleClaims("simulator/claimed-flow"); !holdsClaim(got, "Rule/claiming", -1) {
 		t.Fatalf("got %+v. The log:\n%s", got, r.dump())
 	}
 	r.launch(settle)
@@ -691,7 +694,7 @@ func TestADeployedVersionEndsAFlowItDropped(t *testing.T) {
 		t.Fatalf("the claim stayed. The log:\n%s", r.dump())
 	}
 	r.stop()
-	if got := r.ruleClaims("claimed-flow"); len(got) != 0 {
+	if got := r.ruleClaims("simulator/claimed-flow"); len(got) != 0 {
 		t.Fatalf("got %+v", got)
 	}
 	s := r.openStore()
@@ -718,13 +721,13 @@ func (r *rig) orphanedSafety() {
 
 func (r *rig) expectSafetyKept() {
 	r.t.Helper()
-	got := r.ruleClaims("valve")
-	if !holdsClaim(got, "Rule/valve on leak-shutoff", control.Safety) {
+	got := r.ruleClaims("simulator/valve")
+	if !holdsClaim(got, "Rule/simulator/valve on leak-shutoff", control.Safety) {
 		r.t.Fatalf("got %+v. The log:\n%s", got, r.dump())
 	}
 	s := r.openStore()
 	defer func() { _ = s.Close() }()
-	if _, ok, err := s.Namespace(engine.HoldStatesNamespace).Get("valve on leak-shutoff"); err != nil || !ok {
+	if _, ok, err := s.Namespace(engine.HoldStatesNamespace).Get("simulator/valve on leak-shutoff"); err != nil || !ok {
 		r.t.Fatalf("the hold's state went: %v, %v", ok, err)
 	}
 }
@@ -774,7 +777,7 @@ func TestAHostStoppingConfirmsNoDeployWaitingOnIt(t *testing.T) {
 	if r.count(deployed) != 0 || r.count(ended) != 0 {
 		t.Fatalf("a version that never settled counted. The log:\n%s", r.dump())
 	}
-	if got := r.ruleClaims("claimed"); !holdsClaim(got, "Rule/claim-moment", -1) {
+	if got := r.ruleClaims("simulator/claimed"); !holdsClaim(got, "Rule/claim-moment", -1) {
 		t.Fatalf("got %+v", got)
 	}
 }
@@ -822,7 +825,7 @@ func TestAFailedVersionSparesAClaimOfARuleTheLastOneLacks(t *testing.T) {
 	}
 	r.waitFor(func(l line) bool { return l.is(restored) })
 	r.stop()
-	got := r.ruleClaims("claimed")
+	got := r.ruleClaims("simulator/claimed")
 	if !slices.ContainsFunc(got, func(c control.Claim) bool { return c.Source == "Rule/claim-moment" }) {
 		t.Fatalf("got %+v. The log:\n%s", got, r.dump())
 	}
@@ -846,7 +849,7 @@ func TestAFailedVersionSparesTheStateOfARuleTheLastOneLacks(t *testing.T) {
 	r.stop()
 	s := r.openStore()
 	defer func() { _ = s.Close() }()
-	if _, ok, err := s.Namespace(engine.HoldStatesNamespace).Get("fan on fan"); err != nil || !ok {
+	if _, ok, err := s.Namespace(engine.HoldStatesNamespace).Get("simulator/fan on fan"); err != nil || !ok {
 		t.Fatalf("the hold's state went: %v, %v. The log:\n%s", ok, err, r.dump())
 	}
 }
@@ -930,8 +933,9 @@ func TestABinaryChangedWithoutADeployEndsNothing(t *testing.T) {
 		t.Fatalf("a claim ended with no deploy. The log:\n%s", r.dump())
 	}
 	r.stop()
-	got := r.ruleClaims("valve")
-	if !slices.ContainsFunc(got, func(c control.Claim) bool { return c.Source == "Rule/valve on leak-shutoff" }) {
+	got := r.ruleClaims("simulator/valve")
+	if !slices.ContainsFunc(got,
+		func(c control.Claim) bool { return c.Source == "Rule/simulator/valve on leak-shutoff" }) {
 		t.Fatalf("got %+v", got)
 	}
 }
@@ -958,7 +962,7 @@ func TestRemovalsFinishAfterACrash(t *testing.T) {
 	// The simulator starts claimed at its file's on, which isn't the rule's off the host saved. That
 	// first report is the device's value, not an Override, whether it comes before the removal or
 	// after (OIK-318), so nothing holds the device.
-	if got := r.ruleClaims("claimed"); len(got) != 0 {
+	if got := r.ruleClaims("simulator/claimed"); len(got) != 0 {
 		t.Fatalf("got %+v. The log:\n%s", got, r.dump())
 	}
 }

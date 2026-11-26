@@ -176,11 +176,8 @@ func TestARenameKeepsLiveStateAndLogsTheNewName(t *testing.T) {
 		t.Errorf("after the rename: %+v, %v", snap, ok)
 	}
 	s.Changed(driver.Update{Device: lamp, Capability: "on", Value: false})
-	if !log.Has(`msg="Changed capability"`, "device=reading-lamp") {
-		t.Errorf("no line naming the lamp:\n%s", strings.Join(log.Lines(), "\n"))
-	}
-	if name, ok := s.Names()(lamp.Name); !ok || name != "reading-lamp" {
-		t.Errorf("Names = %q, %v", name, ok)
+	if !log.Has(`msg="Changed capability"`, "device=hardware/hue/0x00178801091863f2") {
+		t.Errorf("no line naming the lamp by its ref:\n%s", strings.Join(log.Lines(), "\n"))
 	}
 }
 
@@ -192,7 +189,7 @@ func TestStoreLogsADeviceGoingOffline(t *testing.T) {
 	var went []string
 	s.Went = func(dev ident.ID, online bool) { went = append(went, fmt.Sprint(dev.Name, " ", online)) }
 	key := driver.InstanceKey{Driver: driver.Plugin, Name: "ewelink"}
-	heater := ident.ID{Name: "study-heater"}
+	heater := ident.ID{Name: "ewelink/1000a1b2c3"}
 	s.SetDevices(key, map[ident.ID]Meta{heater: {Instance: key}})
 	s.Availability(heater, true)
 	s.Availability(heater, false)
@@ -205,19 +202,19 @@ func TestStoreLogsADeviceGoingOffline(t *testing.T) {
 			got = append(got, line)
 		}
 	}
-	if len(got) != 2 || !strings.Contains(got[0], `msg="Device went offline" device=study-heater`) ||
-		!strings.Contains(got[1], `msg="Device came back online" device=study-heater`) {
+	if len(got) != 2 || !strings.Contains(got[0], `msg="Device went offline" device=hardware/ewelink/1000a1b2c3`) ||
+		!strings.Contains(got[1], `msg="Device came back online" device=hardware/ewelink/1000a1b2c3`) {
 		t.Errorf("logged %q", got)
 	}
 
 	// One that's offline from its first report says so.
-	lamp := ident.ID{Name: "porch-lamp"}
+	lamp := ident.ID{Name: "ewelink/1000d4e5f6"}
 	s.SetDevices(key, map[ident.ID]Meta{heater: {Instance: key}, lamp: {Instance: key}})
 	s.Availability(lamp, false)
-	if !log.Has(`msg="Device went offline"`, "device=porch-lamp") {
+	if !log.Has(`msg="Device went offline"`, "device=hardware/ewelink/1000d4e5f6") {
 		t.Errorf("no line for the lamp:\n%s", strings.Join(log.Lines(), "\n"))
 	}
-	if want := []string{"study-heater false", "study-heater true", "porch-lamp false"}; !slices.Equal(went, want) {
+	if want := []string{"ewelink/1000a1b2c3 false", "ewelink/1000a1b2c3 true", "ewelink/1000d4e5f6 false"}; !slices.Equal(went, want) {
 		t.Errorf("Went heard %q, want %q", went, want)
 	}
 }

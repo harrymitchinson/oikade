@@ -330,10 +330,13 @@ type decidedCase struct {
 
 // name is how the decision's mistakes start.
 func (d compiledDecision) name() string {
-	if d.device == "" {
+	switch {
+	case d.device == "":
 		return "a decision"
+	case d.g != nil:
+		return fmt.Sprintf("decision %s %s", d.device, d.capability)
 	}
-	return fmt.Sprintf("decision %s %s", d.device, d.capability)
+	return "decision " + ident.CapabilityRef(d.device, d.capability).String()
 }
 
 // override finds the override line, at -1 for none, and sets what an outside change does. A decision

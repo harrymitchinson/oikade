@@ -23,33 +23,38 @@ const happening = "What it does, as it happens."
 
 // kinds are what oikade help KIND knows, in the order a home has them.
 var kinds = []kind{
-	{"device", "A device is device/NAME, or its name alone for status, history, tail and forget, " +
-		"which take a device first.", []cli.Command{
+	{"device", "A device is its hardware's ref, hardware/PLUGIN/ID, such as hardware/hue/0x2, as oikade list " +
+		"devices shows it. Its line in your code names the same hardware, as hue/0x2.", []cli.Command{
 		{Name: "oikade list devices", Summary: "What's on record, and how each is set up."},
-		{Name: "oikade status device/NAME", Summary: "What it's doing now, why, and its last 10 events."},
-		{Name: "oikade history device/NAME", Summary: "What it did, and who wrote to it."},
-		{Name: "oikade tail device/NAME", Summary: happening},
-		{Name: "oikade forget device/NAME", Summary: "Drop it from the host's record, and end its claims."},
+		{Name: "oikade status hardware/PLUGIN/ID", Summary: "What it's doing now, why, and its last 10 events."},
+		{Name: "oikade history hardware/PLUGIN/ID", Summary: "What it did, and who wrote to it."},
+		{Name: "oikade tail hardware/PLUGIN/ID", Summary: happening},
+		{Name: "oikade forget hardware/PLUGIN/ID", Summary: "Drop it from the host's record, and end its claims."},
 	}},
-	{"capability", "A capability is device/DEVICE/CAPABILITY, such as device/porch-light/on.", []cli.Command{
-		{Name: "oikade status device/DEVICE/CAPABILITY", Summary: "Its value, and why it's that."},
-		{Name: "oikade history device/DEVICE/CAPABILITY", Summary: "What it did, and who wrote to it."},
-		{Name: "oikade tail device/DEVICE/CAPABILITY", Summary: happening},
-		{Name: "oikade set device/DEVICE/CAPABILITY VALUE", Summary: "Set it as a person would, through arbitration."},
+	{"capability", "A capability is hardware/PLUGIN/ID/CAPABILITY, such as hardware/hue/0x2/on.", []cli.Command{
+		{Name: "oikade status hardware/PLUGIN/ID/CAPABILITY", Summary: "Its value, and why it's that."},
+		{Name: "oikade history hardware/PLUGIN/ID/CAPABILITY", Summary: "What it did, and who wrote to it."},
+		{Name: "oikade tail hardware/PLUGIN/ID/CAPABILITY", Summary: happening},
+		{
+			Name:    "oikade set hardware/PLUGIN/ID/CAPABILITY VALUE",
+			Summary: "Set it as a person would, through arbitration.",
+		},
 	}},
-	{"room", "A room is room/NAME, and stands for the devices in it now.", []cli.Command{
-		{Name: "oikade status room/NAME", Summary: "What its devices are doing now."},
-		{Name: "oikade history room/NAME", Summary: "What its devices did."},
-		{Name: "oikade tail room/NAME", Summary: "What its devices do, as it happens."},
-	}},
-	{"case", "A case is case/DEVICE/CAPABILITY/CASE, a line of a decision, as oikade status names it.", []cli.Command{
-		{Name: "oikade list rules", Summary: "Every rule, and whether it's paused."},
-		{Name: "oikade status case/DEVICE/CAPABILITY/CASE", Summary: "Whether it applies, and why not."},
-		{Name: "oikade history case/DEVICE/CAPABILITY/CASE", Summary: "What it wrote, and its pauses."},
-		{Name: "oikade tail case/DEVICE/CAPABILITY/CASE", Summary: happening},
-		{Name: "oikade pause case/DEVICE/CAPABILITY/CASE", Summary: "Stop it, so it lets go of what it holds."},
-		{Name: "oikade resume case/DEVICE/CAPABILITY/CASE", Summary: "Start it again."},
-	}},
+	{"room", "A room is room/NAME, by the name its oikade.Room gives it, and stands for the devices in it now.",
+		[]cli.Command{
+			{Name: "oikade status room/NAME", Summary: "What its devices are doing now."},
+			{Name: "oikade history room/NAME", Summary: "What its devices did."},
+			{Name: "oikade tail room/NAME", Summary: "What its devices do, as it happens."},
+		}},
+	{"case", "A case is case/PLUGIN/ID/CAPABILITY/CASE, a line of a decision, as oikade status names it.",
+		[]cli.Command{
+			{Name: "oikade list rules", Summary: "Every rule, and whether it's paused."},
+			{Name: "oikade status case/PLUGIN/ID/CAPABILITY/CASE", Summary: "Whether it applies, and why not."},
+			{Name: "oikade history case/PLUGIN/ID/CAPABILITY/CASE", Summary: "What it wrote, and its pauses."},
+			{Name: "oikade tail case/PLUGIN/ID/CAPABILITY/CASE", Summary: happening},
+			{Name: "oikade pause case/PLUGIN/ID/CAPABILITY/CASE", Summary: "Stop it, so it lets go of what it holds."},
+			{Name: "oikade resume case/PLUGIN/ID/CAPABILITY/CASE", Summary: "Start it again."},
+		}},
 	{"flow", "A flow is flow/NAME.", []cli.Command{
 		{Name: "oikade list rules", Summary: "Every rule, and whether it's paused."},
 		{Name: "oikade status flow/NAME", Summary: "Whether it's running, and what it holds."},
@@ -86,7 +91,7 @@ var kinds = []kind{
 		{Name: "oikade list contexts", Summary: "Each, with the current one marked."},
 		{Name: "oikade login", Summary: "Trust a host's network API, and save it as a context."},
 	}},
-	{string(ident.Matter), "matter is the Matter bridge, so a device called matter is device/matter.", []cli.Command{
+	{string(ident.Matter), "matter is the Matter bridge.", []cli.Command{
 		{Name: "oikade status matter", Summary: "What the bridge is doing, and who's paired."},
 		{Name: "oikade history matter", Summary: "Its window, pairings, and what controllers wrote."},
 		{Name: "oikade tail matter", Summary: "The same, as it happens."},

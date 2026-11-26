@@ -24,14 +24,14 @@ func manifest(rules ...wire.RuleInfo) wire.Manifest {
 func TestRenamedLatchedSafetyHoldIsFlagged(t *testing.T) {
 	old := manifest(wire.RuleInfo{Name: "leak", Kind: "hold", Safety: true, Latch: true}, wire.RuleInfo{Name: "fan", Kind: "hold"})
 	next := manifest(wire.RuleInfo{Name: "water-leak", Kind: "hold", Safety: true, Latch: true}, wire.RuleInfo{Name: "fan", Kind: "hold"})
-	findings := safetyFindings(old, next, nil, noneHeld, nil)
-	if len(findings) != 1 || !strings.Contains(findings[0], `"leak"`) || !strings.Contains(findings[0], "latch") {
+	findings := safetyFindings(old, next, nil, noneHeld)
+	if len(findings) != 1 || !strings.Contains(findings[0], "flow/leak") || !strings.Contains(findings[0], "latch") {
 		t.Fatalf("got %q", findings)
 	}
 }
 
 // A case is keyed by its device's hardware, so renaming the device leaves its Safety cases as they
-// were, and what goes is named as the next version calls its device.
+// were, and what goes is named by its hardware's ref.
 func TestADeviceRenamedInTheSameDeployKeepsItsSafetyCases(t *testing.T) {
 	valve := func(name string) wire.Manifest {
 		m := manifest(wire.RuleInfo{Name: "x/v on leak", Kind: wire.KindCase, Safety: true, Device: "x/v"})
@@ -42,13 +42,15 @@ func TestADeviceRenamedInTheSameDeployKeepsItsSafetyCases(t *testing.T) {
 	old, next := valve("water-valve"), valve("mains-valve")
 	held := map[string]control.Level{"x/v on leak": control.Safety}
 	safetyHeld := func(device, _ string) bool { return device == "x/v" }
-	names := declaredNames(next.Inventory, nil)
-	if got := safetyFindings(old, next, held, safetyHeld, names); len(got) != 0 {
+	if got := safetyFindings(old, next, held, safetyHeld); len(got) != 0 {
 		t.Errorf("a rename was taken for Safety going: %q", got)
 	}
 	next.Rules, next.Control = nil, nil
-	want := []string{`Safety case "mains-valve on leak" is gone`, "on on mains-valve has no Control any more, which would end a Safety claim on it"}
-	if got := safetyFindings(old, next, held, safetyHeld, names); !slices.Equal(got, want) {
+	want := []string{
+		"Safety case case/x/v/on/leak is gone",
+		"hardware/x/v/on has no Control any more, which would end a Safety claim on it",
+	}
+	if got := safetyFindings(old, next, held, safetyHeld); !slices.Equal(got, want) {
 		t.Errorf("without the case, got %q, want %q", got, want)
 	}
 }
@@ -68,7 +70,7 @@ func TestOnlySafetyRulesAreFlagged(t *testing.T) {
 		"the rule and its claim":    {manifest(), map[string]control.Level{"leak": control.Safety}, 1},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if got := safetyFindings(old, tc.next, tc.held, noneHeld, nil); len(got) != tc.want {
+			if got := safetyFindings(old, tc.next, tc.held, noneHeld); len(got) != tc.want {
 				t.Fatalf("got %q, want %d findings", got, tc.want)
 			}
 		})
@@ -77,8 +79,8 @@ func TestOnlySafetyRulesAreFlagged(t *testing.T) {
 
 // A deploy that would end Safety is refused with a finding that names the rule and why.
 func TestSafetyFindingsNameWhatGoes(t *testing.T) {
-	leak := wire.RuleInfo{Name: "valve on leak-shutoff", Kind: wire.KindCase, Safety: true, Device: "valve"}
-	renamed := wire.RuleInfo{Name: "valve on water-shutoff", Kind: wire.KindCase, Safety: true, Device: "valve"}
+	leak := wire.RuleInfo{Name: "ewelink/v1 on leak-shutoff", Kind: wire.KindCase, Safety: true, Device: "ewelink/v1"}
+	renamed := wire.RuleInfo{Name: "ewelink/v1 on water-shutoff", Kind: wire.KindCase, Safety: true, Device: "ewelink/v1"}
 	failing := wire.RuleInfo{Name: "failing", Kind: wire.KindFlow, Safety: true}
 	for name, tc := range map[string]struct {
 		old, next wire.Manifest
@@ -86,21 +88,23 @@ func TestSafetyFindingsNameWhatGoes(t *testing.T) {
 		want      []string
 	}{
 		// A case renamed on a device that keeps its name is one gone and another new.
-		"a renamed Safety case": {manifest(leak), manifest(renamed), nil, []string{`Safety case "valve on leak-shutoff" is gone`}},
+		"a renamed Safety case": {
+			manifest(leak), manifest(renamed), nil, []string{"Safety case case/ewelink/v1/on/leak-shutoff is gone"},
+		},
 		// A flow its decision ranks above the override line is Safety by that, before it claims.
-		"a Safety flow that goes": {manifest(failing), manifest(), nil, []string{`Safety flow "failing" is gone`}},
+		"a Safety flow that goes": {manifest(failing), manifest(), nil, []string{"Safety flow flow/failing is gone"}},
 		// Its Safety claim is the same finding, not another.
 		"a gone Safety flow's claim": {
 			manifest(failing), manifest(), map[string]control.Level{"failing": control.Safety},
-			[]string{`Safety flow "failing" is gone`},
+			[]string{"Safety flow flow/failing is gone"},
 		},
 		"a gone rule's Safety claim": {
 			manifest(wire.RuleInfo{Name: "drain", Kind: wire.KindFlow}), manifest(), map[string]control.Level{"drain": control.Safety},
-			[]string{`rule "drain" is gone and holds a Safety claim, which would end`},
+			[]string{"flow/drain is gone and holds a Safety claim, which would end"},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if got := safetyFindings(tc.old, tc.next, tc.held, noneHeld, nil); !slices.Equal(got, tc.want) {
+			if got := safetyFindings(tc.old, tc.next, tc.held, noneHeld); !slices.Equal(got, tc.want) {
 				t.Errorf("got %q, want %q", got, tc.want)
 			}
 		})
@@ -669,13 +673,13 @@ func TestDroppingAControlThatHoldsASafetyClaimIsAFinding(t *testing.T) {
 	old := wire.Manifest{Control: []wire.DeviceControl{entry("on"), entry("brightness")}}
 	next := wire.Manifest{Control: []wire.DeviceControl{entry("on")}}
 	held := func(device, name string) bool { return device == "valve" && name == "brightness" }
-	if got := safetyFindings(old, next, nil, held, nil); len(got) != 1 {
+	if got := safetyFindings(old, next, nil, held); len(got) != 1 {
 		t.Fatalf("findings %v, want one", got)
 	}
-	if got := safetyFindings(old, next, nil, noneHeld, nil); len(got) != 0 {
+	if got := safetyFindings(old, next, nil, noneHeld); len(got) != 0 {
 		t.Fatalf("findings %v with nothing held", got)
 	}
-	if got := safetyFindings(old, old, nil, held, nil); len(got) != 0 {
+	if got := safetyFindings(old, old, nil, held); len(got) != 0 {
 		t.Fatalf("findings %v with nothing dropped", got)
 	}
 }

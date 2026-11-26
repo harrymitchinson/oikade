@@ -45,7 +45,7 @@ func runSetup(ctx context.Context, args []string) error {
 		stdout: os.Stdout, stderr: os.Stderr, in: bufio.NewReader(os.Stdin), terminal: os.Stdin,
 		browse: browse, catch: catchRedirect,
 	}
-	plugin, err := nameOf(ident.Plugin, words[0])
+	plugin, err := pluginName(words[0])
 	if err != nil {
 		return err
 	}

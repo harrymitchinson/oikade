@@ -122,7 +122,7 @@ func namesNothing(st *api.Status, refs []named) error {
 // can't say what its rules are.
 func missingFrom(st *api.Status, n named) (what, hint string) {
 	device := func(name string) (api.Device, bool) {
-		i := slices.IndexFunc(st.Devices, func(d api.Device) bool { return d.Name == name })
+		i := slices.IndexFunc(st.Devices, func(d api.Device) bool { return d.Hardware == name })
 		if i < 0 {
 			return api.Device{}, false
 		}
@@ -139,7 +139,7 @@ func missingFrom(st *api.Status, n named) (what, hint string) {
 			return fmt.Sprintf("There's no %s on record", ident.DeviceRef(n.parts[0])), "oikade list devices lists them"
 		case len(n.parts) > 1 && !has(d, n.parts[1]):
 			return fmt.Sprintf("%s has no %s", ident.DeviceRef(n.parts[0]), n.parts[1]),
-				"oikade status " + n.parts[0] + " lists what it has"
+				"oikade status " + ident.DeviceRef(n.parts[0]).String() + " lists what it has"
 		}
 	case ident.Room:
 		room := ident.NewRef(ident.Room, n.parts[0])
@@ -226,9 +226,9 @@ func narrowed(st *api.Status, refs []named) *api.Status {
 		case ident.Room:
 			for _, d := range inRoom(st, n.parts) {
 				if len(n.parts) == 1 {
-					whole[d.Name] = true
+					whole[d.Hardware] = true
 				} else {
-					only[d.Name] = append(only[d.Name], n.parts[1])
+					only[d.Hardware] = append(only[d.Hardware], n.parts[1])
 				}
 			}
 		case ident.Case, ident.Flow:
@@ -251,11 +251,11 @@ func narrowed(st *api.Status, refs []named) *api.Status {
 	}
 	for _, d := range st.Devices {
 		switch {
-		case whole[d.Name]:
+		case whole[d.Hardware]:
 			out.Devices = append(out.Devices, d)
-		case only[d.Name] != nil:
+		case only[d.Hardware] != nil:
 			d.Capabilities = slices.DeleteFunc(slices.Clone(d.Capabilities), func(c api.Capability) bool {
-				return !slices.Contains(only[d.Name], c.Name)
+				return !slices.Contains(only[d.Hardware], c.Name)
 			})
 			out.Devices = append(out.Devices, d)
 		}
@@ -326,7 +326,7 @@ func trouble(st *api.Status, refs []named) []string {
 			named[n.parts[0]] = true
 		case ident.Room:
 			for _, d := range inRoom(st, n.parts) {
-				named[d.Name] = true
+				named[d.Hardware] = true
 			}
 		case ident.Case, ident.Flow, ident.Signal:
 			if down {
@@ -342,7 +342,7 @@ func trouble(st *api.Status, refs []named) []string {
 		plugin(p)
 	}
 	for _, d := range shown.Devices {
-		devices(d, named[d.Name])
+		devices(d, named[d.Hardware])
 	}
 	return out
 }
@@ -423,7 +423,7 @@ func printNamed(out, stderr *cli.Printer, st *api.Status, refs []named, events f
 ) {
 	shown := narrowed(st, refs)
 	device := func(name string) api.Device {
-		return st.Devices[slices.IndexFunc(st.Devices, func(d api.Device) bool { return d.Name == name })]
+		return st.Devices[slices.IndexFunc(st.Devices, func(d api.Device) bool { return d.Hardware == name })]
 	}
 	var dropped []string
 	for i, n := range refs {
@@ -501,8 +501,8 @@ func printRule(out *cli.Printer, st *api.Status, ref string, now time.Time) {
 	}
 	for _, d := range st.Devices {
 		for _, c := range d.Capabilities {
-			if d.Name == r.Device && c.Name == r.Capability {
-				line := fmt.Sprintf("%s is %s", ident.CapabilityRef(d.Name, c.Name), or(valueText(c.Name, c.Value), "unknown"))
+			if d.Hardware == r.Device && c.Name == r.Capability {
+				line := fmt.Sprintf("%s is %s", ident.CapabilityRef(d.Hardware, c.Name), or(valueText(c.Name, c.Value), "unknown"))
 				if w := why(c); w != "" {
 					line += ": " + w
 				}
@@ -588,7 +588,7 @@ func printPlugin(out *cli.Printer, st *api.Status, name string, wide bool, now t
 	out.Println(head)
 	var devices []api.Device
 	for _, d := range st.Devices {
-		if slices.Contains(p.Devices, d.Name) {
+		if slices.Contains(p.Devices, d.Hardware) {
 			devices = append(devices, d)
 		}
 	}
@@ -623,7 +623,7 @@ func undeclaredOf(devices []api.Device) []string {
 	var out []string
 	for _, d := range devices {
 		if d.Declare != "" {
-			out = append(out, d.Name)
+			out = append(out, d.Ref)
 		}
 	}
 	return out
@@ -683,7 +683,7 @@ func printDeviceLines(out *cli.Printer, devices []api.Device, wide bool, now tim
 ) {
 	table := cli.Table{
 		Columns: []cli.Column{
-			{Header: nameHeader},
+			{Header: "DEVICE", Shrink: true, ShrinkLast: true},
 			{Header: "ROOM", Drop: 1},
 			{Header: "VALUES", Shrink: true},
 			// A problem names its fix, so it never shortens.
@@ -698,10 +698,10 @@ func printDeviceLines(out *cli.Printer, devices []api.Device, wide bool, now tim
 				values = append(values, c.Name+" "+valueText(c.Name, c.Value))
 			}
 			if c.Level != "" && decided == "" {
-				decided = d.Name
+				decided = d.Ref
 			}
 		}
-		table.Rows = append(table.Rows, []string{d.Name, d.Room, strings.Join(values, ", "), stateOf(d, offline(d, now))})
+		table.Rows = append(table.Rows, []string{d.Ref, d.Room, strings.Join(values, ", "), stateOf(d, offline(d, now))})
 	}
 	return out.Table(table), decided
 }
@@ -709,7 +709,7 @@ func printDeviceLines(out *cli.Printer, devices []api.Device, wide bool, now tim
 // printDevice prints one device in full: its name, room and state, with when it went offline if it
 // has, then a capability a line, with its value and why it has it.
 func printDevice(out *cli.Printer, d api.Device, now time.Time) {
-	head := out.Bold(d.Name)
+	head := out.Bold(d.Ref)
 	if d.Room != "" {
 		head += " in " + d.Room
 	}
@@ -816,9 +816,9 @@ func setupGaps(st *api.Status) []string {
 	for _, d := range st.Devices {
 		switch {
 		case d.PluginNotImported:
-			unimported = append(unimported, d.Name)
+			unimported = append(unimported, d.Ref)
 		case d.Problem != "":
-			problems = append(problems, d.Name)
+			problems = append(problems, d.Ref)
 		}
 	}
 	if len(problems) > 0 {

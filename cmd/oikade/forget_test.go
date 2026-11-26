@@ -15,8 +15,8 @@ import (
 // What forget and remove say they did, plain and styled.
 func TestForgetAndRemoveSayWhatTheyDid(t *testing.T) {
 	porch := api.Forgotten{
-		Device: "porch-light", Ref: "device/porch-light", Plugin: "ewelink-lan",
-		Ended: []string{"case/porch-light/on/dusk", "flow/away"}, OffMatter: true,
+		Device: "ewelink-lan/1000a1b2c3", Ref: "hardware/ewelink-lan/1000a1b2c3", Plugin: "ewelink-lan",
+		Ended: []string{"case/ewelink-lan/1000a1b2c3/on/dusk", "flow/away"}, OffMatter: true,
 	}
 	forgets := []struct {
 		name      string
@@ -25,19 +25,19 @@ func TestForgetAndRemoveSayWhatTheyDid(t *testing.T) {
 	}{
 		{"one device, held and on the bridge, of a plugin your home imports", []api.Forgotten{porch}, ""},
 		{"a device with neither, of a driver that isn't a plugin", []api.Forgotten{
-			{Device: "shed-lamp", Ref: "device/shed-lamp", ComesBack: true},
+			{Device: "simulator/shed-lamp", Ref: "hardware/simulator/shed-lamp", ComesBack: true},
 		}, ""},
 		{"a plugin's devices, which your home doesn't import", []api.Forgotten{
-			{Device: "awning", Ref: "device/awning", Plugin: "relays", OffMatter: true, Unimported: true},
-			{Device: "boiler", Ref: "device/boiler", Plugin: "relays", Ended: []string{"flow/frost"}, Unimported: true},
+			{Device: "relays/a", Ref: "hardware/relays/a", Plugin: "relays", OffMatter: true, Unimported: true},
+			{Device: "relays/b", Ref: "hardware/relays/b", Plugin: "relays", Ended: []string{"flow/frost"}, Unimported: true},
 		}, "relays"},
 		{"a plugin's devices, which your home imports", []api.Forgotten{
-			{Device: "awning", Ref: "device/awning", Plugin: "relays"},
-			{Device: "boiler", Ref: "device/boiler", Plugin: "relays"},
+			{Device: "relays/a", Ref: "hardware/relays/a", Plugin: "relays"},
+			{Device: "relays/b", Ref: "hardware/relays/b", Plugin: "relays"},
 		}, "relays"},
 		{"devices of two plugins", []api.Forgotten{
 			porch,
-			{Device: "boiler", Ref: "device/boiler", Plugin: "relays", Unimported: true},
+			{Device: "relays/b", Ref: "hardware/relays/b", Plugin: "relays", Unimported: true},
 		}, ""},
 	}
 	removes := []struct {
@@ -69,8 +69,8 @@ func TestForgetAndRemoveNameEachOther(t *testing.T) {
 	var b bytes.Buffer
 	for _, args := range []string{
 		"forget", "forget secret/api-key", "forget client/old-laptop", "forget plugin/relays", "forget room/hall",
-		"forget matter", "forget porch-light --plugin relays", "forget Porch",
-		"remove", "remove porch-light", "remove device/porch-light", "remove plugin/relays", "remove client/Bad",
+		"forget matter", "forget hardware/relays/b --plugin relays", "forget porch-light",
+		"remove", "remove porch-light", "remove hardware/hue/0x7", "remove plugin/relays", "remove client/Bad",
 		"remove secret/api-key", "secret remove api-key", "client revoke old-laptop", "devices remove porch-light",
 		"revoke", "rm", "add",
 	} {
@@ -89,7 +89,7 @@ func TestRemoveAndForgetTakeEachOnce(t *testing.T) {
 	if err != nil || len(refs) != 2 || refs[0].ref != "client/old-laptop" || refs[1].ref != "client/ci" {
 		t.Errorf("got %+v, %v", refs, err)
 	}
-	if names, err := forgettable([]string{"porch-light", "device/porch-light"}); err != nil || len(names) != 1 {
+	if names, err := forgettable([]string{"hardware/hue/0x7", "hardware/hue/0x7"}); err != nil || len(names) != 1 {
 		t.Errorf("got %v, %v", names, err)
 	}
 }
@@ -110,8 +110,8 @@ func TestRemoveJSONSaysItFailed(t *testing.T) {
 func TestSetAndPairNameWhatTheyTake(t *testing.T) {
 	var b bytes.Buffer
 	for _, args := range []string{
-		"set secret/api-key", "set desk-plug on true", "set device/desk-plug/on",
-		"pair", "pair device/desk-plug", "pair matter --for 0s", "secret set api-key", "matter", "matter open",
+		"set secret/api-key", "set desk-plug on true", "set hardware/hue/0x7/on",
+		"pair", "pair hardware/hue/0x7", "pair matter --for 0s", "secret set api-key", "matter", "matter open",
 		"open", "deploy --allow-safety-removal", "rollback --allow-safety-removal=true", "init --module example.com/home",
 		"pair matter --for 1m", "pair matter --for 20m",
 	} {

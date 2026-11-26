@@ -444,14 +444,13 @@ func describeDriver(d Device) string {
 	return DescribeHardware(d.Driver, d.ID)
 }
 
-// HardwareRef is the ref of a device's hardware, hardware/<plugin>/<id>, or empty for one that has
-// no plugin's hardware, as with a reserved or simulated device.
+// HardwareRef is the ref of a device's hardware, hardware/<plugin>/<id>, or empty for a reserved
+// device, which has none.
 func HardwareRef(d Device) ident.Ref {
-	plugin, ok := pluginOf(d)
-	if !ok {
+	if d.ID == "" {
 		return ""
 	}
-	return ident.HardwareRef(plugin, d.ID)
+	return ident.DeviceRef(d.Key())
 }
 
 // pluginOf is the name a home imports a device's plugin by, or false for a device no plugin's

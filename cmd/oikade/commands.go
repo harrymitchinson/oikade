@@ -179,7 +179,7 @@ func tail(ctx context.Context, t api.Transport, host string, filter api.EventFil
 }
 
 // eventLine is an event as tail prints it: its time, the ref of what it's about, what happened, and
-// its cause, dimmed: "14:02:07  device/desk-plug/on  true  was false".
+// its cause, dimmed: "14:02:07  hardware/ewelink/1000a1b2c3/on  true  was false".
 func eventLine(p *cli.Printer, e api.Event) string {
 	what, cause := describe(e)
 	line := []string{e.Time.Local().Format("15:04:05")}
@@ -309,9 +309,9 @@ func runSet(ctx context.Context, args []string) error {
 		if device, name, err = capabilityOf(words[0]); err != nil {
 			return err
 		}
-	case len(words) == 3 && !strings.Contains(words[0], "/"):
+	case len(words) == 3 && strings.HasPrefix(words[0], string(ident.Hardware)+"/") && !strings.Contains(words[1], "/"):
 		return cli.UsageErrorf("oikade set takes a capability's ref and its value").
-			WithHint("oikade set device/%s/%s %s", words[0], words[1], words[2])
+			WithHint("oikade set %s/%s %s", words[0], words[1], words[2])
 	default:
 		return cli.UsageErrorf("oikade set takes a capability's ref and its value")
 	}
@@ -373,7 +373,7 @@ func stuck(name string, got, asked any) bool {
 func outcome(device, name string, asked any, c *api.Capability) string {
 	if c == nil {
 		return fmt.Sprintf("%s hasn't answered yet: oikade status %s shows it when it does",
-			ident.CapabilityRef(device, name), device)
+			ident.CapabilityRef(device, name), ident.DeviceRef(device))
 	}
 	is := fmt.Sprintf("%s is %v", ident.CapabilityRef(device, name), or(valueText(name, c.Value), "-"))
 	if !stuck(name, c.Value, asked) {
@@ -432,14 +432,16 @@ func runPause(ctx context.Context, args []string, pause bool) error {
 		"Pause a safety line, a case above its decision's override line. Its claims stay.")
 	words := cli.Parse(fs, args)
 	if len(words) == 3 {
-		ref := ident.CaseRef(words[0], words[1], words[2])
-		if _, _, err := ident.ParseRef(ref.String()); err != nil {
-			return err
+		if n, err := parseNamed(words[0]); err == nil && n.kind == ident.Device && len(n.parts) == 1 {
+			ref := ident.CaseRef(n.parts[0], words[1], words[2])
+			if _, _, err := ident.ParseRef(ref.String()); err != nil {
+				return err
+			}
+			return cli.UsageErrorf("a case is one ref: oikade %s %s", name, ref)
 		}
-		return cli.UsageErrorf("a case is one ref: oikade %s %s", name, ref)
 	}
 	if len(words) != 1 {
-		return cli.UsageErrorf("oikade %s takes one rule's ref, a case's, such as case/desk-plug/on/night, "+
+		return cli.UsageErrorf("oikade %s takes one rule's ref, a case's, such as case/hue/0x2/on/night, "+
 			"or a flow's, such as flow/morning", name)
 	}
 	rule := words[0]
@@ -450,7 +452,7 @@ func runPause(ctx context.Context, args []string, pause bool) error {
 	if !strings.Contains(rule, "/") {
 		// A rule's name on its own is a command typed wrong, whether or not the host is there to
 		// answer it with the rule's ref, as it does when one has that name.
-		why := fmt.Sprintf("%s isn't a rule's ref: oikade %s takes a case's, case/DEVICE/CAPABILITY/CASE, "+
+		why := fmt.Sprintf("%s isn't a rule's ref: oikade %s takes a case's, case/PLUGIN/ID/CAPABILITY/CASE, "+
 			"or a flow's, flow/FLOW", rule, name)
 		if err == nil && resp.Error != "" {
 			why = resp.Error

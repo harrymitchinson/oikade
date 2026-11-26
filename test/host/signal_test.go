@@ -26,7 +26,7 @@ func (r *rig) leaveHome() {
 // awayNever says the away mode, which reads the signal, was never written.
 func (r *rig) awayNever() {
 	r.t.Helper()
-	if n := r.count(wrote, "device", "away-mode", "value", true); n != 0 {
+	if n := r.count(wrote, "device", "hardware/simulator/away-mode", "value", true); n != 0 {
 		r.t.Fatalf("away-mode was written %d times, want none\n%s", n, r.dump())
 	}
 }
@@ -58,7 +58,7 @@ func TestADeployKeepsASignalByItsName(t *testing.T) {
 	r.awayNever()
 
 	r.mustDeploy("renamed-signal")
-	r.awaitCount(1, wrote, "device", "away-mode", "value", true)
+	r.awaitCount(1, wrote, "device", "hardware/simulator/away-mode", "value", true)
 	if n := r.count(changedSignal, "signal", "signal/someone-home"); n != 0 {
 		t.Fatalf("the renamed signal's first value counted as a change\n%s", r.dump())
 	}
@@ -87,7 +87,7 @@ func TestStatusSaysWhatASignalIsAndWhy(t *testing.T) {
 	var out string
 	testkit.Eventually(t, "status to say why the signal lingers", func() bool {
 		out = string(r.stdout(nil, "status", "signal/anyone-home"))
-		return strings.Contains(out, "Its conditions are false: device/presence-sensor/occupied is false")
+		return strings.Contains(out, "Its conditions are false: hardware/simulator/presence-sensor/occupied is false")
 	})
 	if !strings.Contains(out, "signal/anyone-home  true since ") || !strings.Contains(out, ", false at ") {
 		t.Errorf("status doesn't say it's true until its linger ends:\n%s", out)

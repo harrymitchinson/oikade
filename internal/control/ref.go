@@ -16,7 +16,7 @@ const (
 	SourceRule = "Rule/"
 )
 
-// RuleRef is a rule's ref, from its key: case/<device>/<capability>/<case> for a case's
+// RuleRef is a rule's ref, from its key: case/<plugin>/<id>/<capability>/<case> for a case's
 // ("<device> <capability> <case>"), and flow/<name> for a flow's.
 func RuleRef(key string) ident.Ref {
 	if parts := strings.Split(key, " "); len(parts) == 3 {
@@ -30,13 +30,14 @@ func RuleKey(ref string) (string, error) {
 	k, parts, err := ident.ParseRef(ref)
 	switch {
 	case err == nil && k == ident.Case:
-		return CaseKey(parts[0], parts[1], parts[2]), nil
+		device, rest, _ := ident.DeviceOf(k, parts)
+		return CaseKey(device, rest[0], rest[1]), nil
 	case err == nil && k == ident.Flow:
 		return parts[0], nil
 	case err == nil:
 		err = fmt.Errorf("%s isn't a rule", ref)
 	}
-	return "", fmt.Errorf("%w: a rule is a case, as case/DEVICE/CAPABILITY/CASE, or a flow, as flow/FLOW", err)
+	return "", fmt.Errorf("%w: a rule is a case, as case/PLUGIN/ID/CAPABILITY/CASE, or a flow, as flow/FLOW", err)
 }
 
 // SameRule reports whether ref is the ref of the rule whose key is key.

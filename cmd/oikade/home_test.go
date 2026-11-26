@@ -88,12 +88,12 @@ func TestCheckSaysWhichDevicesADeployHides(t *testing.T) {
 	}}
 	hidden := []wire.HiddenPlugin{{Plugin: "tahoma", Shown: []string{"garage-door"}}}
 	var out bytes.Buffer
-	printHiding(&out, list, hidden, []string{"attic-shutter"})
-	if want := "A deploy hides bedroom-shutter from Matter,"; !strings.HasPrefix(out.String(), want) {
+	printHiding(&out, list, hidden, []string{"tahoma/s3"})
+	if want := "A deploy hides hardware/tahoma/s1 from Matter,"; !strings.HasPrefix(out.String(), want) {
 		t.Errorf("got %q, want %q", out.String(), want)
 	}
 	out.Reset()
-	printHiding(&out, list, hidden, []string{"attic-shutter", "bedroom-shutter"})
+	printHiding(&out, list, hidden, []string{"tahoma/s1", "tahoma/s3"})
 	if out.Len() != 0 {
 		t.Errorf("with nothing new to hide: %q", out.String())
 	}
