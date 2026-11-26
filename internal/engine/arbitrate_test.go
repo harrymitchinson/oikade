@@ -381,6 +381,133 @@ func TestAWriteLostWithItsDriverIsNotAnOverride(t *testing.T) {
 	}
 }
 
+func TestAWriteItsDeviceNeverTookIsMadeAgainWhenItsBack(t *testing.T) {
+	r := railRig(t, holdRule(t, "rail", railHold))
+	r.expect(call{"towel-rail", capability.On, true})
+	dev := ident.ID{Name: "towel-rail"}
+	r.clock.Step(time.Minute)
+	r.store.Availability(dev, false)
+	r.at("2026-10-21 13:00 BST")
+	r.expect(call{"towel-rail", capability.On, true})
+	r.store.Availability(dev, true)
+	r.wrote(2, "the write again")
+	r.change("towel-rail", capability.On, true)
+	if w := winner(r.status("towel-rail", capability.On)); w != "Rule/rail Normal" {
+		t.Errorf("winner %q, want the rule's claim to stand", w)
+	}
+}
+
+func TestAWriteLostWhileItsDeviceWasAwayIsntMadeOnceItsNotWanted(t *testing.T) {
+	short := Hold{Device: "towel-rail", Capability: capability.On, Value: true, Window: &Window{Start: At{Time: "12:00"}, End: At{Time: "12:30"}}}
+	r := railRig(t, holdRule(t, "rail", short))
+	r.expect(call{"towel-rail", capability.On, true})
+	r.clock.Step(time.Minute)
+	r.store.Availability(ident.ID{Name: "towel-rail"}, false)
+	r.at("2026-10-21 12:45 BST")
+	r.store.Availability(ident.ID{Name: "towel-rail"}, true)
+	r.settle()
+	// It never went on, so the default it's back to needs no write.
+	r.expect(call{"towel-rail", capability.On, true})
+}
+
+func TestADeviceThatsAwayIsWrittenWhenItsBack(t *testing.T) {
+	later := Hold{Device: "towel-rail", Capability: capability.On, Value: true, Window: &Window{Start: At{Time: "12:30"}, End: At{Time: "14:00"}}}
+	r := railRig(t, holdRule(t, "rail", later))
+	r.expect()
+	dev := ident.ID{Name: "towel-rail"}
+	r.store.Availability(dev, false)
+	r.at("2026-10-21 12:45 BST")
+	r.expect()
+	r.store.Availability(dev, true)
+	r.wrote(1, "the write once it's back")
+	r.change("towel-rail", capability.On, true)
+	// It took it, so its staying in reach changes nothing.
+	r.store.Availability(dev, true)
+	r.at("2026-10-21 12:50 BST")
+	r.expect(call{"towel-rail", capability.On, true})
+	// A hold that ends while it's away is written when it's back.
+	r.store.Availability(dev, false)
+	r.at("2026-10-21 14:15 BST")
+	r.expect(call{"towel-rail", capability.On, true})
+	r.store.Availability(dev, true)
+	r.wrote(2, "the end of the hold once it's back")
+	r.expect(call{"towel-rail", capability.On, true}, call{"towel-rail", capability.On, false})
+}
+
+func TestAWriteThatFinishesOnceItsDeviceHasGoneIsLost(t *testing.T) {
+	r := railRig(t)
+	g := &gate{fakeSetter: r.setter, open: make(chan struct{})}
+	r.e.Setter = g
+	open := sync.OnceFunc(func() { close(g.open) })
+	t.Cleanup(open)
+	dev := ident.ID{Name: "towel-rail"}
+	r.e.Load(holdRule(t, "rail", railHold))
+	r.eventually("the write to start", func() bool {
+		r.e.mu.Lock()
+		defer r.e.mu.Unlock()
+		ar := r.e.arbs[dev][capability.On]
+		return ar != nil && ar.writing
+	})
+	r.store.Availability(dev, false)
+	open()
+	r.wrote(1, "the write under way")
+	r.store.Availability(dev, true)
+	r.wrote(2, "the write again")
+}
+
+func TestAWriteUnderWayWhileItsDeviceDropsOutIsMadeAgain(t *testing.T) {
+	r := railRig(t)
+	g := &gate{fakeSetter: r.setter, open: make(chan struct{})}
+	r.e.Setter = g
+	open := sync.OnceFunc(func() { close(g.open) })
+	t.Cleanup(open)
+	dev := ident.ID{Name: "towel-rail"}
+	r.e.Load(holdRule(t, "rail", railHold))
+	r.eventually("the write to start", func() bool {
+		r.e.mu.Lock()
+		defer r.e.mu.Unlock()
+		ar := r.e.arbs[dev][capability.On]
+		return ar != nil && ar.writing
+	})
+	r.store.Availability(dev, false)
+	r.store.Availability(dev, true)
+	open()
+	r.wrote(2, "the write again")
+}
+
+func TestAFailedWriteIsTriedAgainThoughItsDeviceWentMeanwhile(t *testing.T) {
+	r := railRig(t)
+	r.failing("towel-rail")
+	r.e.Load(holdRule(t, "rail", railHold))
+	r.wrote(1, "the write that fails")
+	dev := ident.ID{Name: "towel-rail"}
+	r.store.Availability(dev, false)
+	r.e.ControlChanged(dev)
+	r.settle()
+	r.failing()
+	r.clock.Step(10 * time.Second)
+	r.store.Availability(dev, true)
+	r.settle()
+	r.at("2026-10-21 12:01 BST")
+	r.wrote(2, "the write again at its retry")
+}
+
+func TestAWallSwitchJustBeforeItsDeviceGoesIsStillAnOverride(t *testing.T) {
+	r := railRig(t, holdRule(t, "rail", railHold))
+	r.expect(call{"towel-rail", capability.On, true})
+	r.clock.Step(2 * time.Second)
+	r.change("towel-rail", capability.On, false)
+	dev := ident.ID{Name: "towel-rail"}
+	r.store.Availability(dev, false)
+	r.at("2026-10-21 12:01 BST")
+	r.store.Availability(dev, true)
+	r.settle()
+	r.expect(call{"towel-rail", capability.On, true})
+	if w := winner(r.status("towel-rail", capability.On)); w != "Device Override" {
+		t.Errorf("winner %q, want the wall switch's override", w)
+	}
+}
+
 func TestAReportAfterALostWriteIsNotAnOverride(t *testing.T) {
 	r := railRig(t, holdRule(t, "rail", railHold))
 	r.change("towel-rail", capability.On, true)
