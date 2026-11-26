@@ -212,6 +212,7 @@ func (s *apiServer) withHold(r *api.Rule, stopped string) {
 	if day, ok := saved.BudgetToday(); ok {
 		r.Budget = &api.RuleBudget{
 			Date: day.Date, TargetMinutes: day.TargetMinutes, PlannedMinutes: day.ScheduledMinutes, RunMinutes: day.RunMinutes,
+			MissedMinutes: day.MissedMinutes,
 		}
 	}
 }

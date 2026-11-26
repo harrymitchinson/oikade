@@ -373,8 +373,9 @@ A budget's conditions come after it, as a case's do: `Budget("summer-extra", tru
 ### How a day runs
 
 - **At `PlanningTime`,** your process plans the day and freezes the plan. The line applies in the planned blocks, so a line above it or a Home app tap still beats it.
-- **Run minutes count** only while the device reports on and is available.
-- **The host keeps the plan and the run minutes,** so a deploy in the middle of the day doesn't run it again. Editing a budget takes effect at the next `PlanningTime`.
+- **Run minutes count** while the device reports on and is available. A stretch offline counts too if the device was on as it went and its first report once back says on, so a relay that ran through a network blip isn't short.
+- **Missed minutes count** a planned run going by with the device off while the budget's conditions are true, whatever kept it off: a line above, a Home app tap, a lost write or a stretch offline. A pause misses nothing, and neither does a slot the conditions rule out. `oikade status` says `missed 30` beside the run (OIK-390).
+- **The host keeps the plan and its run and missed minutes,** so a deploy in the middle of the day doesn't run it again. Editing a budget takes effect at the next `PlanningTime`.
 - **Automations that start with no plan for today** plan from then, so the hours already gone are lost to the day.
 - **A run due in the slot under way,** a minute or more into it, counts its `MinimumOn` from then, not from the slot's start. It starts there only if the slot is longer than `MinimumOn`, and otherwise at a later slot, so `MinimumOn` doesn't hold it on past its block.
 

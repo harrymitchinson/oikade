@@ -194,7 +194,7 @@ func (e *Engine) budgetLook(key ident.ID, s *state, st *HoldState, now time.Time
 		when, whenKnown, whenNext = e.condition(key, hs, h, now, devices)
 		when = when && whenKnown
 	}
-	on, next = e.budgetCondition(key, s, now, devices)
+	on, next = e.budgetCondition(key, s, now, devices, when)
 	on, known = on && when, true
 	if !whenNext.IsZero() && (next.IsZero() || whenNext.Before(next)) {
 		next = whenNext

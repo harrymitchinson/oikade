@@ -73,8 +73,12 @@ type BudgetDay struct {
 	ShortfallMinutes int32         `json:"shortfallMinutes"`
 	Blocks           []BudgetBlock `json:"blocks,omitempty"`
 	// RunMinutes is how long the target has been on and available today, updated at most every
-	// 5 minutes.
+	// 5 minutes. A stretch offline counts if the target was on as it went and its first report once
+	// back says on.
 	RunMinutes int32 `json:"runMinutes"`
+	// MissedMinutes is how much of the planned blocks went by with the target off while the
+	// budget's conditions were true, updated as RunMinutes is.
+	MissedMinutes int32 `json:"missedMinutes,omitempty"`
 	// Starts counts the planned runs the hold has started today.
 	Starts int32 `json:"starts"`
 }
@@ -99,6 +103,15 @@ func (m budgetMetrics) planned(key ident.ID, p *budgetPlan, on bool) {
 	m.scheduled.Set(float64(p.day.ScheduledMinutes), rule)
 	m.desired.Set(float64(btoi(on)), rule)
 	m.todayRun.Set(math.Floor(p.run.Minutes()), rule)
+}
+
+func (m budgetMetrics) credited(key ident.ID, run, missed time.Duration) {
+	if run > 0 {
+		m.run.Add(run.Minutes(), ruleRef(key))
+	}
+	if missed > 0 {
+		m.missed.Add(missed.Minutes(), ruleRef(key))
+	}
 }
 
 // unplanned sets a budget's metrics when it can't plan: nothing is planned or wanted, and the
@@ -128,13 +141,33 @@ type budgetPlan struct {
 	end time.Time
 	day schedule.Day
 	run time.Duration
+	// missed is how much of the planned blocks went by with the target off and the conditions true.
+	missed time.Duration
 	// starts counts the blocks the hold has started, and started is the start of the last one.
 	starts  int
 	started time.Time
-	// credited is when run was last brought up to date, and on whether the target was on and
-	// available then.
+	// credited is when run was last brought up to date, on whether the target was on and available
+	// then, and when whether the budget's conditions were true.
 	credited time.Time
-	on       bool
+	on, when bool
+	// away is the target's stretch offline, nil while it's online.
+	away *awayStretch
+}
+
+// awayStretch is a stretch the target has been offline, which counts once it reports again.
+type awayStretch struct {
+	// on is whether the target was on as it went offline, and seen when it had last reported.
+	on   bool
+	seen time.Time
+	// length is how long it's been offline, and planned how much of that the plan wanted it on.
+	length, planned time.Duration
+}
+
+// target is a budget's target as one look sees it.
+type target struct {
+	// on is its last reported value, which an offline device keeps.
+	on, online bool
+	seen       time.Time
 }
 
 // budgetState is a budget hold's state beyond its HoldState. Use it with e.mu held.
@@ -151,10 +184,11 @@ type budgetState struct {
 	compiledControl    control.Entry
 }
 
-// budgetCondition plans the day if it hasn't been, credits the target's run, and reports
-// whether the plan wants the target on now, and when that next changes. It never returns
-// unknown: a budget that can't be planned keeps the target off. Call with e.mu held.
-func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices *home) (on bool, next time.Time) {
+// budgetCondition plans the day if it hasn't been, credits the target's run and its missed minutes,
+// and reports whether the plan wants the target on now, and when that next changes. when is whether
+// the budget's conditions are true now. It never returns unknown: a budget that can't be planned
+// keeps the target off. Call with e.mu held.
+func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices *home, when bool) (on bool, next time.Time) {
 	h, hs := s.c.hold, s.hold
 	if hs.budget == nil {
 		hs.budget = &budgetState{}
@@ -163,11 +197,15 @@ func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices 
 	dev := ident.ID{Name: h.device}
 	snap, _ := e.Store.Get(dev)
 	// A driver that never reports availability counts as available.
-	targetOn := snap.Discovered && (snap.Online == nil || *snap.Online) && capability.Float(snap.Values[h.capability]) != 0
+	t := target{
+		on:     snap.Discovered && capability.Float(snap.Values[h.capability]) != 0,
+		online: snap.Online == nil || *snap.Online, seen: snap.LastSeen,
+	}
 	p := bs.plan
 	if p != nil {
 		// Credited even when the budget can't plan, so the run isn't lost meanwhile.
-		p.credit(now, targetOn, e.metrics.budget, key)
+		p.credit(now, t, e.metrics.budget, key)
+		p.when = when
 	}
 	b, report := e.compileBudget(s, snap)
 	if b == nil {
@@ -207,14 +245,20 @@ func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices 
 				"target", p.day.TargetMinutes, "scheduled", p.day.ScheduledMinutes, "blocks", len(p.day.Blocks))
 		}
 		p.device, p.capability = h.device, h.capability
-		p.credited, p.on = now, targetOn
+		p.credited, p.when = now, when
 		if prev != nil && prev.device == h.device && prev.capability == h.capability && !now.Before(prev.end) {
 			// The run since the last day ended belongs to this one.
-			p.credited, p.on = prev.end, prev.on
-			p.credit(now, targetOn, e.metrics.budget, key)
+			p.credited, p.on, p.when = prev.end, prev.on, prev.when
+			if a := prev.away; a != nil {
+				p.away = &awayStretch{on: a.on, seen: a.seen}
+			}
 		}
+		p.credit(now, t, e.metrics.budget, key)
+		p.when = when
 		bs.plan = p
-		e.metrics.budget.run.Add(0, ruleRef(key)) // exported at 0 before any run is credited
+		// Exported at 0 before any is credited.
+		e.metrics.budget.run.Add(0, ruleRef(key))
+		e.metrics.budget.missed.Add(0, ruleRef(key))
 	}
 
 	next = p.end
@@ -281,8 +325,8 @@ func (e *Engine) restorePlan(key ident.ID, saved, date string, end, now time.Tim
 		return nil
 	}
 	p := &budgetPlan{
-		date: date, end: end, run: time.Duration(today.RunMinutes) * time.Minute, starts: int(today.Starts),
-		failure: failure,
+		date: date, end: end, run: time.Duration(today.RunMinutes) * time.Minute,
+		missed: time.Duration(today.MissedMinutes) * time.Minute, starts: int(today.Starts), failure: failure,
 	}
 	p.day = schedule.Day{
 		TargetSource:     schedule.TargetSource(today.TargetSource),
@@ -299,22 +343,67 @@ func (e *Engine) restorePlan(key ident.ID, saved, date string, end, now time.Tim
 	return p
 }
 
-// credit adds the time since the last credit to run, if the target was on and available then,
-// and records whether it is now. The engine credits when the target changes, so its state between
-// credits is the one recorded at the last.
-func (p *budgetPlan) credit(now time.Time, on bool, m budgetMetrics, key ident.ID) {
-	if p.on && now.After(p.credited) {
-		until := now
-		if p.end.Before(until) {
-			until = p.end
+// credit adds the time since the last credit to run if the target was on and available then, or
+// the planned part of it to missed if the target was off and the conditions true, and records the
+// target as it is now. The engine credits when the target changes, so its state between credits is
+// the one recorded at the last. A stretch offline counts once the target reports again: as run if
+// it was on at both ends, and otherwise as missed for its planned part.
+func (p *budgetPlan) credit(now time.Time, t target, m budgetMetrics, key ident.ID) {
+	var run, missed time.Duration
+	if until := earlier(now, p.end); until.After(p.credited) {
+		d, planned := until.Sub(p.credited), time.Duration(0)
+		if p.when {
+			planned = p.planned(p.credited, until)
 		}
-		d := until.Sub(p.credited)
-		if d > 0 {
-			p.run += d
-			m.run.Add(d.Minutes(), ruleRef(key))
+		switch {
+		case p.away != nil:
+			p.away.length += d
+			p.away.planned += planned
+		case p.on:
+			run = d
+		default:
+			missed = planned
 		}
 	}
-	p.credited, p.on = now, on
+	switch a := p.away; {
+	case a == nil && !t.online:
+		p.away = &awayStretch{on: t.on, seen: t.seen}
+	case a != nil && t.online && t.seen.After(a.seen):
+		if a.on && t.on {
+			run += a.length
+		} else {
+			missed += a.planned
+		}
+		p.away = nil
+	}
+	p.run, p.missed = p.run+run, p.missed+missed
+	m.credited(key, run, missed)
+	p.credited, p.on = now, t.on && t.online && p.away == nil
+}
+
+// planned is how much of the time from start to end the plan's blocks cover.
+func (p *budgetPlan) planned(start, end time.Time) time.Duration {
+	var d time.Duration
+	for _, b := range p.day.Blocks {
+		if s, e := later(start, b.Start), earlier(end, b.End); e.After(s) {
+			d += e.Sub(s)
+		}
+	}
+	return d
+}
+
+func later(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
+}
+
+func earlier(a, b time.Time) time.Time {
+	if a.Before(b) {
+		return a
+	}
+	return b
 }
 
 func (p *budgetPlan) status() *BudgetDay {
@@ -325,6 +414,7 @@ func (p *budgetPlan) status() *BudgetDay {
 		ScheduledMinutes: int32(p.day.ScheduledMinutes),
 		ShortfallMinutes: int32(p.day.ShortfallMinutes),
 		RunMinutes:       int32(math.Floor(p.run.Minutes())),
+		MissedMinutes:    int32(math.Floor(p.missed.Minutes())),
 		Starts:           int32(p.starts),
 	}
 	for _, b := range p.day.Blocks {
@@ -341,13 +431,14 @@ func planMessage(d schedule.Day) string {
 	return msg
 }
 
-// reportBudget reports a budget hold's status, unless only its run minutes changed and they were
-// reported less than checkpointEvery ago. Call with e.mu held.
+// reportBudget reports a budget hold's status, unless only its run and missed minutes changed and
+// they were reported less than checkpointEvery ago. Call with e.mu held.
 func (e *Engine) reportBudget(key ident.ID, s *state, now time.Time, r BudgetReport) {
 	bs := s.hold.budget
 	r.Generation = s.c.Generation
 	if prev := bs.reported; prev != nil && sameBudget(*prev, r) {
-		if prev.Today == nil || prev.Today.RunMinutes == r.Today.RunMinutes || now.Sub(bs.checkpointed) < checkpointEvery {
+		if prev.Today == nil || prev.Today.RunMinutes == r.Today.RunMinutes && prev.Today.MissedMinutes == r.Today.MissedMinutes ||
+			now.Sub(bs.checkpointed) < checkpointEvery {
 			return
 		}
 	}
@@ -369,7 +460,7 @@ func (e *Engine) reportBudget(key ident.ID, s *state, now time.Time, r BudgetRep
 	}
 }
 
-// sameBudget compares two reports apart from run minutes.
+// sameBudget compares two reports apart from run and missed minutes.
 func sameBudget(a, b BudgetReport) bool {
 	if a.Generation != b.Generation || a.Unplanned != b.Unplanned || a.Reason != b.Reason || a.Message != b.Message ||
 		(a.Today == nil) != (b.Today == nil) {
@@ -379,7 +470,7 @@ func sameBudget(a, b BudgetReport) bool {
 		return true
 	}
 	x, y := *a.Today, *b.Today
-	x.RunMinutes, y.RunMinutes = 0, 0
+	x.RunMinutes, y.RunMinutes, x.MissedMinutes, y.MissedMinutes = 0, 0, 0, 0
 	return x.Date == y.Date && x.TargetSource == y.TargetSource && x.TargetMinutes == y.TargetMinutes &&
 		x.ScheduledMinutes == y.ScheduledMinutes && x.ShortfallMinutes == y.ShortfallMinutes &&
 		x.Starts == y.Starts && slices.EqualFunc(x.Blocks, y.Blocks, func(p, q BudgetBlock) bool {

@@ -877,8 +877,11 @@ func holdState(r api.Rule, now time.Time) []string {
 		state = append(state, "latched")
 	}
 	if b := r.Budget; b != nil {
-		state = append(state, fmt.Sprintf("%s: planned %d of %d min, run %d",
-			b.Date, b.PlannedMinutes, b.TargetMinutes, b.RunMinutes))
+		day := fmt.Sprintf("%s: planned %d of %d min, run %d", b.Date, b.PlannedMinutes, b.TargetMinutes, b.RunMinutes)
+		if b.MissedMinutes > 0 {
+			day += fmt.Sprintf(", missed %d", b.MissedMinutes)
+		}
+		state = append(state, day)
 	}
 	line := []string{strings.Join(state, ", ")}
 	if r.WhyNot != "" {
