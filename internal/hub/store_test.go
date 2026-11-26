@@ -161,19 +161,19 @@ func TestSetDevicesReportsOnlyRealControlChanges(t *testing.T) {
 	}
 }
 
-// A device is its key, its hardware, so a rename is only its Meta: its live state stays, and the
-// log names it as it's called now.
-func TestARenameKeepsLiveStateAndLogsTheNewName(t *testing.T) {
+// A device is its key, its hardware, so a move is only its Meta: its live state stays, and the log
+// names it by its ref.
+func TestAMoveKeepsLiveStateAndLogsTheDevicesRef(t *testing.T) {
 	log := testkit.Logs(t)
 	s := NewStore(log.Logger)
 	instance := driver.InstanceKey{Driver: driver.Plugin, Name: "hue"}
 	lamp := ident.ID{Name: "hue/0x00178801091863f2"}
-	s.SetDevices(instance, map[ident.ID]Meta{lamp: {DisplayName: "desk-lamp", Instance: instance}})
+	s.SetDevices(instance, map[ident.ID]Meta{lamp: {Room: "salon", Instance: instance}})
 	s.Changed(driver.Update{Device: lamp, Capability: "on", Value: true})
 
-	s.SetDevices(instance, map[ident.ID]Meta{lamp: {DisplayName: "reading-lamp", Room: "study", Instance: instance}})
-	if snap, ok := s.Get(lamp); !ok || snap.Values["on"] != true || snap.DisplayName != "reading-lamp" {
-		t.Errorf("after the rename: %+v, %v", snap, ok)
+	s.SetDevices(instance, map[ident.ID]Meta{lamp: {Room: "study", Instance: instance}})
+	if snap, ok := s.Get(lamp); !ok || snap.Values["on"] != true || snap.Room != "study" {
+		t.Errorf("after the move: %+v, %v", snap, ok)
 	}
 	s.Changed(driver.Update{Device: lamp, Capability: "on", Value: false})
 	if !log.Has(`msg="Changed capability"`, "device=hardware/hue/0x00178801091863f2") {

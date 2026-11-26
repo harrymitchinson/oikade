@@ -857,9 +857,8 @@ func (e *Engine) act(ctx context.Context, key ident.ID, a action) (ok bool, arbi
 	case ctx.Err() != nil:
 		return true, nil
 	case a.release != "":
-		rule := e.ruleNamed(a.release)
-		e.release(ident.ID{Name: rule})
-		_ = e.endClaims(ctx, ruleSource(rule), allLevels)
+		e.release(ident.ID{Name: a.release})
+		_ = e.endClaims(ctx, ruleSource(a.release), allLevels)
 		return true, nil
 	case a.room != "":
 		ok, others, arbitrated := e.setRoom(ctx, key, a)
@@ -878,7 +877,7 @@ func (e *Engine) act(ctx context.Context, key ident.ID, a action) (ok bool, arbi
 	return true, nil
 }
 
-// setRoom sets a capability on every discovered device in a room that reports it, in name order.
+// setRoom sets a capability on every discovered device in a room that reports it, in key order.
 // Membership is read now, not when the run started. It tries every device and reports whether
 // all of them succeeded. A member that arbitrates the capability gets a claim, or, when the set
 // has no end, is left out and returned in arbitrated. A member of another type is left out and

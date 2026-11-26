@@ -42,7 +42,7 @@ func declaredHome(t *testing.T, dir string) (*inventory, *engine.Stored[engine.C
 	return known, controls
 }
 
-var readingLamp = []wire.DeviceDeclaration{{Name: "reading-lamp", Plugin: "x", ID: "l1", Room: new("study")}}
+var readingLamp = []wire.DeviceDeclaration{{Hardware: "x/l1", Room: "study"}}
 
 func TestDeclaredDevicesAreSavedFirstAndSurviveARestart(t *testing.T) {
 	dir := t.TempDir()
@@ -50,10 +50,10 @@ func TestDeclaredDevicesAreSavedFirstAndSurviveARestart(t *testing.T) {
 	if err := known.takeDeclared(readingLamp); err != nil {
 		t.Fatal(err)
 	}
-	if snap, ok := known.store.Get(key("x/l1")); !ok || snap.DisplayName != "reading-lamp" {
-		t.Errorf("the hub has %+v, %v, want the lamp by its hardware, called reading-lamp", snap, ok)
+	if snap, ok := known.store.Get(key("x/l1")); !ok || snap.Room != "study" {
+		t.Errorf("the hub has %+v, %v, want the lamp by its hardware, in the study", snap, ok)
 	}
-	if _, err := known.registry.Declare([]registry.Declaration{{Name: "desk-lamp", Driver: "plugin/x", ID: "l1"}}); err != nil {
+	if _, err := known.registry.Declare([]registry.Declaration{{Hardware: "x/l1", Room: "hall"}}); err != nil {
 		t.Fatal(err)
 	}
 	// The registry was changed behind the declaration's back, as a crash before applying would leave
@@ -61,14 +61,30 @@ func TestDeclaredDevicesAreSavedFirstAndSurviveARestart(t *testing.T) {
 	if err := known.loadDeclared(); err != nil {
 		t.Fatal(err)
 	}
-	if d, ok := known.registry.Get("reading-lamp"); !ok || d.Room != "study" {
+	if d, ok := known.registry.ByKey("x/l1"); !ok || d.Room != "study" {
 		t.Errorf("loading the saved declarations gave %+v", known.registry.List())
 	}
 }
 
-// What the host keeps for a device is by its hardware, so a rename leaves its claims where they are,
+// A line a home saved before devices were their hardware names none, so loading it skips that line,
+// and takes the rest.
+func TestSavedDeclarationsWithNoHardwareAreSkipped(t *testing.T) {
+	known, _ := declaredHome(t, t.TempDir())
+	saved := `{"inventory":[{"name":"shed-fan"},{"name":"lamp","plugin":"x","id":"l1"},{"hardware":"x/l1","room":"study"}]}`
+	if err := known.declarations.Put(declaredKey, []byte(saved)); err != nil {
+		t.Fatal(err)
+	}
+	if err := known.loadDeclared(); err != nil {
+		t.Fatal(err)
+	}
+	if d, ok := known.registry.ByKey("x/l1"); !ok || d.Room != "study" || !known.isDeclared("x/l1") {
+		t.Errorf("got %+v", known.registry.List())
+	}
+}
+
+// What the host keeps for a device is by its hardware, so a move leaves its claims where they are,
 // and its rules' keys with them.
-func TestARenameMovesNoClaims(t *testing.T) {
+func TestAMoveMovesNoClaims(t *testing.T) {
 	known, controls := declaredHome(t, t.TempDir())
 	state := engine.ControlState{capability.On: control.State{Claims: []control.Claim{
 		{Source: "Rule/x/l1 on night", Level: control.Safety}, {Source: "Rule/evening", Level: control.Normal},
@@ -88,25 +104,11 @@ func TestARenameMovesNoClaims(t *testing.T) {
 	}
 }
 
-// A reserved name something claims stays declared, and has no hardware, and a declared device stays
-// on record.
-func TestAClaimedReservationStaysDeclaredAndADeclaredDeviceIsntRemoved(t *testing.T) {
-	known, controls := declaredHome(t, t.TempDir())
-	fan := []wire.DeviceDeclaration{{Name: "shed-fan"}, {Name: "lamp", Plugin: "x", ID: "l1"}}
-	if err := known.takeDeclared(fan); err != nil {
+// A device your home's code declares can't be forgotten, as the next deploy would bring it back.
+func TestADeclaredDeviceIsntForgotten(t *testing.T) {
+	known, _ := declaredHome(t, t.TempDir())
+	if err := known.takeDeclared(readingLamp); err != nil {
 		t.Fatal(err)
-	}
-	state := engine.ControlState{capability.On: control.State{Claims: []control.Claim{{Source: "Rule/frost", Level: control.Safety}}}}
-	if err := controls.Put(t.Context(), key("shed-fan"), state); err != nil {
-		t.Fatal(err)
-	}
-	if err := known.takeDeclared(fan[1:]); err == nil || !strings.Contains(err.Error(), "flow/frost holds shed-fan") {
-		t.Errorf("dropped a claimed reservation: %v", err)
-	}
-	// Its claims are under its name, which hardware would leave behind.
-	wired := []wire.DeviceDeclaration{{Name: "shed-fan", Plugin: "x", ID: "f1"}, fan[1]}
-	if err := known.takeDeclared(wired); err == nil || !strings.Contains(err.Error(), "flow/frost holds shed-fan, which is reserved") {
-		t.Errorf("gave a claimed reservation hardware: %v", err)
 	}
 	if resp, _ := known.forget(t.Context(), []string{"x/l1"}, true, nil); !strings.Contains(resp.Error, "declared in your home's code: delete its declaration and deploy, then forget it") {
 		t.Errorf("removed a declared device: %+v", resp)
@@ -142,12 +144,12 @@ func TestADeployWarnsOfARoomItsDeclarationsEmpty(t *testing.T) {
 		driver.AppDevice{ID: "s", Name: "sensor", Room: "study", Capabilities: []string{capability.Occupied}},
 		driver.AppDevice{ID: "d", Name: "desk-lamp", Room: "study", Capabilities: []string{capability.On}},
 	)
-	// The heater, renamed and declared a light, leaves the hall with no plug; the sensor moves to the
-	// loft, but the desk lamp is still in the study.
+	// The heater, declared a light, leaves the hall with no plug; the sensor moves to the loft, but
+	// the desk lamp is still in the study.
 	next := wire.Manifest{
 		Inventory: []wire.DeviceDeclaration{
-			{Name: "radiator", Plugin: "x", ID: "h", Room: new("hall"), DeviceType: devicetype.OnOffLight},
-			{Name: "sensor", Plugin: "x", ID: "s", Room: new("loft")},
+			{Hardware: "x/h", Room: "hall", DeviceType: devicetype.OnOffLight},
+			{Hardware: "x/s", Room: "loft"},
 		},
 		Rules: []wire.RuleInfo{{Name: "x/h on hall-plugs"}, {Name: "x/d on occupied"}, {Name: "attic-fan"}},
 	}
@@ -158,7 +160,7 @@ func TestADeployWarnsOfARoomItsDeclarationsEmpty(t *testing.T) {
 	}
 
 	// Declaring the devices as they are warns of nothing.
-	same := wire.Manifest{Inventory: []wire.DeviceDeclaration{{Name: "heater", Plugin: "x", ID: "h", Room: new("hall")}}, Rules: next.Rules}
+	same := wire.Manifest{Inventory: []wire.DeviceDeclaration{{Hardware: "x/h", Room: "hall"}}, Rules: next.Rules}
 	if got := d.declaredWarning(same, wire.Manifest{}); got != "" {
 		t.Errorf("declaring the heater where it is warns %q", got)
 	}
@@ -177,7 +179,7 @@ func TestADeployWarnsOfADeviceThatKeepsItsOwnDecisionInItsNewRoom(t *testing.T) 
 		}
 	}
 	into := func(room string, settings []wire.DeviceControl) wire.Manifest {
-		return wire.Manifest{Inventory: []wire.DeviceDeclaration{{Name: "pendant", Plugin: "x", ID: "p", Room: &room}}, Control: settings}
+		return wire.Manifest{Inventory: []wire.DeviceDeclaration{{Hardware: "x/p", Room: room}}, Control: settings}
 	}
 	own := decides("Rule/x/p on dinner")
 	want := "hardware/x/p/on keeps its own decision rather than kitchen's, unless the home hands it over with Then"

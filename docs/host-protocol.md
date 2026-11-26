@@ -20,7 +20,7 @@ A process has 5 seconds to send its `hello`:
 {"type":"hello","version":9,"role":"automations","rules":["ewelink/1000a1b2c3 on humid","morning"]}
 ```
 
-A device is its key throughout, its hardware, as an `oikade.Device` line in a home has it: `<plugin>/<id>`, such as `ewelink/1000a1b2c3`, `simulator/<id>` for a simulated device, or a reserved name. So a rename changes nothing here but the `name` a `welcome` gives (OIK-395).
+A device is its key throughout, its hardware, as an `oikade.Device` line in a home has it: `<plugin>/<id>`, such as `ewelink/1000a1b2c3`, or `simulator/<id>` for a simulated device. A device has no other name here (OIK-395).
 
 `version` comes first, so that it can change. It rises with any change to what a message means, because a host outlives a deploy and can meet a binary built against something else. The host refuses any other version, and says so in its log.
 
@@ -33,13 +33,13 @@ A device is its key throughout, its hardware, as an `oikade.Device` line in a ho
 | `signals` | The home's signals, by name, so the `welcome` can return their saved state |
 | `info` | Each rule's `name`, `kind` (`case` or `flow`), `safety` and `latch`, and a case's `device`, `capability` and `case`, which `oikade status` shows and `oikade pause` checks. A Safety rule's `rooms` are each `room`, `capability` and `deviceTypes` (none for any) it writes at Safety, which a deploy checks the declared rooms and types against |
 | `control` | Each `device` and `entry` the home arbitrates, or a `room`'s, with its `deviceTypes`, which each device there of those types with the capability takes unless it has its own |
-| `inventory` | Every device the home declares. One from `Home.Device` has its `name`, and its `plugin` and `id`, `room` and `deviceType` if it gives them. One from `oikade.Device` has no name: its `hardware`, the key as `oikade list devices --json` has it, its `room`, its `deviceType`, the `capabilities` its line gives it and its `label`, if it has one. No `room` leaves the device in its app's room, and `""` puts it in none. None leaves every device under its app's name (OIK-295) |
+| `inventory` | Every device the home declares with `oikade.Device`: its `hardware`, the key as `oikade list devices --json` has it, its `room`, none for a device in none, its `deviceType`, the `capabilities` its line gives it and its `label`, if it has one. A device it leaves out is in its app's room, of its driver's type, with no label (OIK-295) |
 | `matterName` | The Matter bridge's name from `oikade.Options`, empty for `Oikade` (OIK-296) |
-| `hiddenFromMatter` | The plugins whose devices the home keeps off Matter, each `plugin` with the devices it `shown` (OIK-294) |
+| `hiddenFromMatter` | The plugins whose devices the home keeps off Matter, each `plugin` with the keys of the devices it `shown` (OIK-294) |
 
 The host takes these up before the `welcome`, in this order, and refuses the `hello` if it can't:
 
-1. **`inventory`:** it saves it, then applies it to the registry. It can refuse, as with a reserved name something holds that the home stops declaring or gives hardware, or hardware that has reported and lacks a capability its line gives it. Hardware declared by itself keeps the name it has, unless a declared name takes it.
+1. **`inventory`:** it saves it, then applies it to the registry. It can refuse, as with hardware that has reported and lacks a capability its line gives it, or hardware of no plugin that isn't on record.
 2. **`control`:** it adds and changes settings. One the home has dropped stays until a deploy of that version settles.
 3. **`matterName`:** it saves it, then renames the bridge in place.
 4. **`hiddenFromMatter`:** it saves it, then takes the devices off the bridge. A process whose version is still settling has no say here: the host takes the version's `hiddenFromMatter` from its manifest once it's confirmed, so a deploy that fails takes nothing off.
@@ -57,7 +57,7 @@ The host answers `rejected` or `welcome`.
 | Field | Means |
 |---|---|
 | `paused` | The rules not to run |
-| `devices` | Every device, by its `key`, with its `name`, `room`, `capabilities`, `deviceTypes`, `values`, `lastSeen`, `online` once its plugin has said, and the capabilities the host arbitrates (`arbitrated`) |
+| `devices` | Every device, by its `key`, with its `room`, `capabilities`, `deviceTypes`, `values`, `lastSeen`, `online` once its plugin has said, and the capabilities the host arbitrates (`arbitrated`) |
 | `holds` | The saved state of each rule in `rules` that has any |
 | `fires` | When each rule's timers were last accounted for |
 | `averageStates` | The saved state of each average in `averages` |
@@ -162,7 +162,7 @@ A rule's claims end with the rule, but only through a deploy, which is what chec
 The host runs a binary as `<binary> check` before it stops anything. That loads the home with no writes and no session, and prints one line of JSON, `wire.Manifest`, as its last line of output, then exits 0:
 
 ```json
-{"protocol":9,"rules":[{"name":"ewelink/1000a1b2c3 on leak","kind":"case","safety":true,"latch":true,"device":"ewelink/1000a1b2c3","capability":"on","case":"leak"}]}
+{"protocol":10,"rules":[{"name":"ewelink/1000a1b2c3 on leak","kind":"case","safety":true,"latch":true,"device":"ewelink/1000a1b2c3","capability":"on","case":"leak"}]}
 ```
 
 | Field | Means |
@@ -186,7 +186,7 @@ A failure, such as a value's name that isn't an environment variable's, rejects 
 `oikade deploy` and `oikade rollback` talk to the host through its [API](host-api.md), on `api.sock`. A deploy goes in this order, and any failure leaves or brings back the last version:
 
 1. **Upload.** The command streams your values and the binary to the host, which keeps the binary in `uploads` until it has all of it, then copies it to `versions/<id>` in the data directory. The ID comes from its contents, so deploying what's running with the same values changes nothing, and with others starts its processes again with them, through the same steps.
-2. **Check.** The host runs check mode, and compares the result with the running version. A version whose code uses a value the deploy lacks is refused. A Safety rule that's gone, or a rule that's gone and holds a Safety claim, refuses the deploy unless it says `allowSafety`. A case renamed counts, because a hold's latch lives under its key, and so does swapped hardware, whose cases are new ones. A device renamed doesn't.
+2. **Check.** The host runs check mode, and compares the result with the running version. A version whose code uses a value the deploy lacks is refused. A Safety rule that's gone, or a rule that's gone and holds a Safety claim, refuses the deploy unless it says `allowSafety`. A case renamed counts, because a hold's latch lives under its key, and so does swapped hardware, whose cases are new ones. A device's variable renamed doesn't, as the key is its hardware.
 3. **Swap.** The host records the version as unconfirmed, with its values and the last ones to go back to in the same write, and every rule that has anything on record. It sends the old process `SIGTERM`, kills it after 5 seconds if it's still there, and ends its session. It reads the claims again, because the old process could claim until it stopped, and a new finding brings the old version back unless the deploy said `allowSafety`. Then it copies every flow run's journal, and only then does the new process start, so two never overlap. Waiting runs keep their journals and resume.
 4. **Settle.** The host waits for the new process to connect, then for the settle period, 5 seconds unless `--settle` says. Until the version is confirmed, the non-Safety claims a flow gives up when its run is dropped or fails stay in force: the host holds the release back. If the process goes away at any point before that's up, the last version comes back at once, and the command says why, with the journals as they were copied and the held claims never having ended.
 5. **Confirm.** The host confirms the version and keeps the five latest. It ends the claims it held back, except any the flow has claimed again since. It ends what's left of rules the version doesn't have: their claims, Safety ones included, their saved state, and the runs of flows it doesn't have, including one that's now another kind of rule with the same name, because nothing else would. The record says this is due, so a host that dies first does it when it starts.

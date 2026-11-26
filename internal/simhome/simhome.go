@@ -159,7 +159,7 @@ func New(o Options) (*Sim, error) {
 	metas := map[ident.ID]hub.Meta{}
 	for _, d := range o.Devices {
 		metas[key(d.Name)] = hub.Meta{
-			DisplayName: d.Name, Room: d.Room, Instance: instance, Control: s.entries(d), DeviceTypes: d.DeviceTypes,
+			Room: d.Room, Instance: instance, Control: s.entries(d), DeviceTypes: d.DeviceTypes,
 		}
 	}
 	s.store.SetDevices(instance, metas)
@@ -408,7 +408,7 @@ func (s *Sim) Move(device, room string) error {
 	metas := map[ident.ID]hub.Meta{}
 	for _, d := range s.devices {
 		metas[key(d.Name)] = hub.Meta{
-			DisplayName: d.Name, Room: d.Room, Instance: instance, Control: s.entries(d), DeviceTypes: d.DeviceTypes,
+			Room: d.Room, Instance: instance, Control: s.entries(d), DeviceTypes: d.DeviceTypes,
 		}
 	}
 	s.store.SetDevices(instance, metas)

@@ -79,7 +79,7 @@ func (s *apiServer) status() api.Response {
 		}
 		if s.devices != nil {
 			if r, ok := s.devices.registry.ByKey(dev.Name); ok {
-				d.Declare, _ = registry.Undeclared(r)
+				d.Undeclared = !s.devices.isDeclared(r.Key())
 				if plugin, ok := api.PluginOf(r); ok {
 					d.Plugin = plugin
 					if plugins[plugin] == nil {
@@ -271,7 +271,7 @@ func (s *apiServer) set(ctx context.Context, req api.Request) api.Response {
 	dev, ok := s.deviceOf(req.Device)
 	snap, live := s.srv.devices.Get(dev)
 	if !ok || !live {
-		return api.Response{Error: noDevice(s.registry(), req.Device).Error()}
+		return api.Response{Error: noDevice(req.Device).Error()}
 	}
 	if !slices.Contains(snap.Info.Capabilities, req.Capability) {
 		return api.Response{Error: fmt.Sprintf("%s has no %s: oikade status %s lists what it has",
@@ -576,14 +576,8 @@ func (s *apiServer) registry() *registry.Registry {
 	return s.devices.registry
 }
 
-// noDevice is a device the host has no record of, by its key, as every answer says it. A device
-// named by what the registry calls it is its hardware now, which it says.
-func noDevice(r *registry.Registry, key string) error {
-	if r != nil {
-		if d, ok := r.Get(key); ok && d.ID != "" {
-			return fmt.Errorf("%s is %s: a device's ref is its hardware's", ident.DeviceRef(key), ident.DeviceRef(d.Key()))
-		}
-	}
+// noDevice is a device the host has no record of, by its key, as every answer says it.
+func noDevice(key string) error {
 	return fmt.Errorf("there's no %s on record: oikade list devices lists them", ident.DeviceRef(key))
 }
 

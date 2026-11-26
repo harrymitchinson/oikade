@@ -237,11 +237,6 @@ func describe(e api.Event) (what, cause string) {
 		return value(e.Value), cause
 	case api.EventForget:
 		return "forgotten", ""
-	case api.EventRename:
-		if name, ok := e.Previous.(string); ok {
-			cause = "was " + name
-		}
-		return "renamed " + e.Message, cause
 	case api.EventCall:
 		if e.Result != "" {
 			return "called " + e.Message + " and it failed", e.Result

@@ -63,30 +63,30 @@ func TestModuleFromReleaseShowsGoWhenItFails(t *testing.T) {
 
 func TestCheckFindsAShownDeviceThatIsntThePlugins(t *testing.T) {
 	list := registry.Snapshot{Devices: []registry.Device{
-		{Name: "garage-door", ID: "s2", Driver: "plugin/tahoma", Endpoint: 2},
-		{Name: "desk-plug", ID: "p1", Driver: "plugin/lan", Endpoint: 3},
-		{Name: "old-shutter", ID: "s9", Driver: "plugin/tahoma", Endpoint: 4, Removed: true},
+		{ID: "s2", Driver: "plugin/tahoma", Endpoint: 2},
+		{ID: "p1", Driver: "plugin/lan", Endpoint: 3},
+		{ID: "s9", Driver: "plugin/tahoma", Endpoint: 4, Removed: true},
 	}}
-	if err := checkShown(list, []wire.HiddenPlugin{{Plugin: "tahoma", Shown: []string{"garage-door"}}}); err != nil {
+	if err := checkShown(list, []wire.HiddenPlugin{{Plugin: "tahoma", Shown: []string{"tahoma/s2"}}}); err != nil {
 		t.Errorf("a plugin's own device: %v", err)
 	}
-	err := checkShown(list, []wire.HiddenPlugin{{Plugin: "tahoma", Shown: []string{"desk-plug", "old-shutter", "gate"}}})
-	for _, name := range []string{"desk-plug", "old-shutter", "gate"} {
-		if err == nil || !strings.Contains(err.Error(), "ShowOnMatter names "+name+",") {
-			t.Errorf("%s: got %v", name, err)
+	err := checkShown(list, []wire.HiddenPlugin{{Plugin: "tahoma", Shown: []string{"lan/p1", "tahoma/s9", "tahoma/s7"}}})
+	for _, ref := range []string{"hardware/lan/p1", "hardware/tahoma/s9", "hardware/tahoma/s7"} {
+		if err == nil || !strings.Contains(err.Error(), "ShowOnMatter has "+ref+",") {
+			t.Errorf("%s: got %v", ref, err)
 		}
 	}
 }
 
 func TestCheckSaysWhichDevicesADeployHides(t *testing.T) {
 	list := registry.Snapshot{Devices: []registry.Device{
-		{Name: "bedroom-shutter", ID: "s1", Driver: "plugin/tahoma", Endpoint: 2, Capabilities: []string{"position"}},
-		{Name: "garage-door", ID: "s2", Driver: "plugin/tahoma", Endpoint: 3, Capabilities: []string{"position"}},
-		{Name: "attic-shutter", ID: "s3", Driver: "plugin/tahoma", Endpoint: 4, Capabilities: []string{"position"}},
+		{ID: "s1", Driver: "plugin/tahoma", Endpoint: 2, Capabilities: []string{"position"}},
+		{ID: "s2", Driver: "plugin/tahoma", Endpoint: 3, Capabilities: []string{"position"}},
+		{ID: "s3", Driver: "plugin/tahoma", Endpoint: 4, Capabilities: []string{"position"}},
 		// Matter has nothing to show of it, so it was never on the bridge.
-		{Name: "box-signal", ID: "s4", Driver: "plugin/tahoma", Endpoint: 5, Capabilities: []string{"link-quality"}},
+		{ID: "s4", Driver: "plugin/tahoma", Endpoint: 5, Capabilities: []string{"link-quality"}},
 	}}
-	hidden := []wire.HiddenPlugin{{Plugin: "tahoma", Shown: []string{"garage-door"}}}
+	hidden := []wire.HiddenPlugin{{Plugin: "tahoma", Shown: []string{"tahoma/s2"}}}
 	var out bytes.Buffer
 	printHiding(&out, list, hidden, []string{"tahoma/s3"})
 	if want := "A deploy hides hardware/tahoma/s1 from Matter,"; !strings.HasPrefix(out.String(), want) {
@@ -103,12 +103,11 @@ func TestCheckSaysWhichDevicesADeployHides(t *testing.T) {
 func TestCheckSaysWhatTheHostHasNeverSeen(t *testing.T) {
 	var b strings.Builder
 	printUnseen(&b, registry.Snapshot{}, []wire.DeviceDeclaration{
-		{Hardware: "simulator/porch-light"}, {Hardware: "hue/0x9"}, {Name: "lamp", Plugin: "hue", ID: "0x7"},
+		{Hardware: "simulator/porch-light"}, {Hardware: "hue/0x9"},
 	})
 	want := "Warning: the host has never seen hardware/simulator/porch-light, which is no plugin's, so a deploy " +
 		"is refused until it reports\n" +
-		"Warning: the host has never seen hardware/hue/0x9, so its line waits for it to report\n" +
-		"Warning: the host has never seen hardware/hue/0x7, so lamp waits for it to report\n"
+		"Warning: the host has never seen hardware/hue/0x9, so its line waits for it to report\n"
 	if b.String() != want {
 		t.Errorf("got\n%s\nwant\n%s", b.String(), want)
 	}

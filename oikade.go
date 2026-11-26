@@ -27,6 +27,7 @@ import (
 	"log/slog"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
 	"oikade.dev/internal/control"
@@ -557,9 +558,9 @@ func (r *FlowRun) set(s Set) error {
 	return r.run.Apply(s.toEngine(r.decided, r.name))
 }
 
-// Release ends the named rule's claims, and its latch if it's a case: "<device> <capability> <case>"
-// for a case, by its device's name or as its handle has it, or a flow's name. One that fails is
-// logged, and the run ends as failed.
+// Release ends a rule's claims, and its latch if it's a case: "<device's key> <capability> <case>"
+// for a case, such as Valve.Key+" on leak", or a flow's name. One that fails is logged, and the run
+// ends as failed.
 func (r *FlowRun) Release(rule string) {
 	replayed := r.run.Replaying()
 	r.failedStep("release", r.run.Apply(engine.Release(rule)), replayed)
@@ -720,8 +721,6 @@ type Home struct {
 	flows    []*Flow
 	signals  []*madeSignal
 	plugins  []*Plugin
-	// declared are the devices the home declares, from Device.
-	declared []*Declaration
 }
 
 // NewHome makes an empty home with options o: add to it, then call Run.
@@ -755,10 +754,18 @@ func (p *Plugin) HideFromMatter() *Plugin {
 	return p
 }
 
-// ShowOnMatter names the devices of a plugin hidden from Matter that stay on it, such as one its
-// platform doesn't put in the Home app. oikade check fails on a name that isn't one of its devices.
-func (p *Plugin) ShowOnMatter(names ...string) *Plugin {
-	p.shown = append(p.shown, names...)
+// ShowOnMatter keeps devices of a plugin hidden from Matter on it, such as one its platform doesn't
+// put in the Home app.
+//
+//	home.Plugin("tahoma", overkiz.New).HideFromMatter().ShowOnMatter(PortailGarage)
+func (p *Plugin) ShowOnMatter(devices ...member) *Plugin {
+	for _, d := range devices {
+		key := ""
+		if d != nil {
+			key = d.hardware().Key
+		}
+		p.shown = append(p.shown, key)
+	}
 	return p
 }
 
@@ -770,14 +777,18 @@ func (p *Plugin) check() error {
 			p.name))
 	}
 	seen := map[string]bool{}
-	for _, n := range p.shown {
+	for _, key := range p.shown {
+		owner, _, _ := strings.Cut(key, "/")
 		switch {
-		case n == "":
-			errs = append(errs, fmt.Errorf("plugin %s: ShowOnMatter needs a device's name", p.name))
-		case seen[n]:
-			errs = append(errs, fmt.Errorf("plugin %s: ShowOnMatter names %s twice", p.name, n))
+		case key == "":
+			errs = append(errs, fmt.Errorf("plugin %s: ShowOnMatter has a device with no hardware: declare it with "+
+				"oikade.Device", p.name))
+		case owner != p.name:
+			errs = append(errs, fmt.Errorf("plugin %s: ShowOnMatter has %s, which is plugin %s's", p.name, key, owner))
+		case seen[key]:
+			errs = append(errs, fmt.Errorf("plugin %s: ShowOnMatter has %s twice", p.name, key))
 		}
-		seen[n] = true
+		seen[key] = true
 	}
 	return errors.Join(errs...)
 }
@@ -904,7 +915,7 @@ func (h *Home) manifest() wire.Manifest {
 		m.Plugins = append(m.Plugins, p.name)
 	}
 	m.Control = settingsOf(decided)
-	m.Inventory = h.inventory()
+	m.Inventory = inventory()
 	m.Vars = hostVars.names()
 	m.HiddenFromMatter = h.hiddenFromMatter()
 	return m

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"math"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -982,25 +981,6 @@ func (e *Engine) reportHold(key ident.ID, s *state, st HoldState, next, now time
 }
 
 // release clears a latched hold's latch. Call without e.mu held.
-// ruleNamed is the key of a rule a flow names: a case's may have its device's name, as a person
-// writes it, in place of its key.
-func (e *Engine) ruleNamed(rule string) string {
-	parts := strings.Split(rule, " ")
-	if len(parts) != 3 {
-		return rule
-	}
-	e.mu.Lock()
-	_, loaded := e.rules[ident.ID{Name: rule}]
-	e.mu.Unlock()
-	if loaded || e.Store == nil {
-		return rule
-	}
-	if dev, ok := e.Store.Named(parts[0]); ok {
-		return control.CaseKey(dev.Name, parts[1], parts[2])
-	}
-	return rule
-}
-
 func (e *Engine) release(key ident.ID) {
 	e.mu.Lock()
 	defer e.mu.Unlock()

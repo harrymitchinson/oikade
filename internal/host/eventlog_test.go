@@ -222,7 +222,6 @@ func TestTheLogGivesBackWhatWasReported(t *testing.T) {
 		{Type: api.EventPlugin, Ref: "plugin/overkiz", Message: "login refused"},
 		{Type: api.EventMatter, Message: api.MatterControllerPaired, Value: 2.0},
 		{Type: api.EventForget, Device: "kettle"},
-		{Type: api.EventRename, Device: "tea-kettle", Previous: "kettle"},
 		{Type: api.EventRule, Rule: "morning", Result: "succeeded"},
 	}
 	for i := range reported {

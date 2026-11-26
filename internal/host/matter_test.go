@@ -236,7 +236,7 @@ func TestOnlyHardwareThatMapsIsOnTheBridge(t *testing.T) {
 	known := newInventory(reg, data.Namespace(homeSettingsNamespace), data.Namespace(declaredNamespace), devices, eng, logging.Discard())
 	known.attach(simInstance)
 	for _, d := range []driver.AppDevice{
-		{ID: "lamp", Name: "lamp", Capabilities: []string{capability.On}},
+		{ID: "lamp", Name: "Lampe de lecture", Capabilities: []string{capability.On}},
 		{ID: "gone", Name: "gone", Capabilities: []string{capability.On}},
 		{ID: "meter", Name: "meter", Capabilities: []string{capability.Battery}},
 	} {
@@ -245,14 +245,11 @@ func TestOnlyHardwareThatMapsIsOnTheBridge(t *testing.T) {
 		}
 	}
 	if _, _, err := reg.Report(registry.Report{
-		ID: "away", Driver: "other/plugin", Name: "away", Capabilities: []string{capability.On},
+		ID: "away", Driver: "other/plugin", Capabilities: []string{capability.On},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.Remove("gone"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := reg.Declare([]registry.Declaration{{Name: "future"}}); err != nil {
+	if err := reg.Remove("simulator/gone"); err != nil {
 		t.Fatal(err)
 	}
 	devices.Discovered(key("simulator/lamp"), driver.Info{Found: true})
@@ -262,8 +259,8 @@ func TestOnlyHardwareThatMapsIsOnTheBridge(t *testing.T) {
 	if len(want) != 2 {
 		t.Fatalf("on the bridge: %+v", want)
 	}
-	lamp, _ := reg.Get("lamp")
-	away, _ := reg.Get("away")
+	lamp, _ := reg.ByKey("simulator/lamp")
+	away, _ := reg.ByKey("plugin/away")
 	if d := want[lamp.Endpoint]; d.Key != key("simulator/lamp") || d.Absent || d.Unique == "" {
 		t.Errorf("lamp: %+v", d)
 	}
@@ -277,11 +274,17 @@ func TestOnlyHardwareThatMapsIsOnTheBridge(t *testing.T) {
 	if got, wantID := want[lamp.Endpoint].Unique, matterbridge.UniqueID("BRIDGE/"+strconv.Itoa(int(lamp.Endpoint))); got != wantID {
 		t.Errorf("lamp's unique ID = %q, want %q", got, wantID)
 	}
-	// Matter shows the label your code gives it, in place of its name.
-	if _, err := reg.Declare([]registry.Declaration{{Name: "future"}, {Hardware: key("simulator/lamp").Name, Label: "Reading lamp"}}); err != nil {
+	// Matter shows its app's name, or the label your code gives it.
+	if d := want[lamp.Endpoint]; d.Name != "Lampe de lecture" || d.Label != "" {
+		t.Errorf("the lamp is %q, labelled %q, on the bridge", d.Name, d.Label)
+	}
+	if d := want[away.Endpoint]; d.Name != "away" {
+		t.Errorf("a device its app gives no name is %q on the bridge, want its ID", d.Name)
+	}
+	if _, err := reg.Declare([]registry.Declaration{{Hardware: "simulator/lamp", Label: "Reading lamp"}}); err != nil {
 		t.Fatal(err)
 	}
-	if d := m.want()[lamp.Endpoint]; d.Label != "Reading lamp" || d.Name != lamp.Name {
+	if d := m.want()[lamp.Endpoint]; d.Label != "Reading lamp" || d.Name != "Lampe de lecture" {
 		t.Errorf("a labelled lamp is %q, labelled %q, on the bridge", d.Name, d.Label)
 	}
 }
@@ -321,18 +324,18 @@ func TestAHiddenPluginsDevicesAreOffTheBridge(t *testing.T) {
 	if got := names(); len(got) != 3 {
 		t.Fatalf("before any home hides them: %v", got)
 	}
-	if err := options.takeHidden([]wire.HiddenPlugin{{Plugin: "tahoma", Shown: []string{"garage-door"}}}); err != nil {
+	if err := options.takeHidden([]wire.HiddenPlugin{{Plugin: "tahoma", Shown: []string{"tahoma/s2"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := names(), []string{"desk-plug", "garage-door"}; !slices.Equal(got, want) {
 		t.Errorf("on the bridge: %v, want %v", got, want)
 	}
 	// It keeps its endpoint, so shown again it's the same device.
-	before, _ := reg.Get("bedroom-shutter")
+	before, _ := reg.ByKey("tahoma/s1")
 	if err := options.takeHidden(nil); err != nil {
 		t.Fatal(err)
 	}
-	after, _ := reg.Get("bedroom-shutter")
+	after, _ := reg.ByKey("tahoma/s1")
 	if d := m.want()[before.Endpoint]; d.Name != "bedroom-shutter" || after.Endpoint != before.Endpoint {
 		t.Errorf("shown again on endpoint %d: %+v", before.Endpoint, d)
 	}

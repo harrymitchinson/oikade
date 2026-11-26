@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -62,22 +63,10 @@ func andList(items []string) string {
 	return strings.Join(items[:len(items)-1], ", ") + " and " + items[len(items)-1]
 }
 
-// printUndeclared gives the lines that would declare the devices your home doesn't, which it needs
-// only to name, place or type them.
-func printUndeclared(out io.Writer, lines []string) {
-	if len(lines) == 0 {
-		return
-	}
-	slices.Sort(lines)
-	_, _ = fmt.Fprintln(out, "To name, place or type a device that's not in your code, declare it in your home:")
-	for _, l := range lines {
-		_, _ = fmt.Fprintln(out, "  "+l)
-	}
-}
-
 // deviceMarks are what the host says of devices beyond the registry, by their hardware: those whose
-// plugin the running version doesn't import, and those your home keeps off Matter.
-type deviceMarks struct{ unimported, hidden map[string]bool }
+// plugin the running version doesn't import, those your home keeps off Matter, and those its code
+// declares.
+type deviceMarks struct{ unimported, hidden, declared map[string]bool }
 
 // noDevices says what would put devices on record, and that --all shows any forgotten ones.
 func noDevices(stderr io.Writer, forgotten int) {
@@ -98,9 +87,9 @@ const (
 	notInYourCode    = "not in your code"
 )
 
-// printDevices prints the table, fitted to out's width unless wide, and returns the lines that would
-// declare the devices that are marked not in your code, and the columns that didn't fit. A device's
-// STATE is its record's, and never what's wrong with it now, which is oikade status's.
+// printDevices prints the table, fitted to out's width unless wide, and returns the refs of the
+// devices marked not in your code, and the columns that didn't fit. A device's STATE is its
+// record's, and never what's wrong with it now, which is oikade status's.
 func printDevices(out *cli.Printer, list registry.Snapshot, marks deviceMarks, wide bool,
 ) (undeclared, dropped []string) {
 	list.Devices = slices.Clone(list.Devices)
@@ -124,8 +113,6 @@ func printDevices(out *cli.Printer, list registry.Snapshot, marks deviceMarks, w
 		switch {
 		case d.Removed:
 			state = "forgotten"
-		case d.Reserved():
-			state = "reserved"
 		case marks.unimported[d.Key()]:
 			state = notImported
 		}
@@ -136,9 +123,9 @@ func printDevices(out *cli.Printer, list registry.Snapshot, marks deviceMarks, w
 				state += ", " + hiddenFromMatter
 			}
 		}
-		if line, ok := registry.Undeclared(d); ok {
+		if !d.Removed && !marks.declared[d.Key()] {
 			state += ", " + notInYourCode
-			undeclared = append(undeclared, line)
+			undeclared = append(undeclared, ident.DeviceRef(d.Key()).String())
 		}
 		endpoint := ""
 		if d.Endpoint != 0 {
@@ -154,11 +141,12 @@ func printDevices(out *cli.Printer, list registry.Snapshot, marks deviceMarks, w
 type listedDevice struct {
 	registry.Device
 	// Ref is its ref, its hardware's, such as hardware/zigbee2mqtt/0x00158d0001a2b3c4, and Hardware what
-	// its line in your code says it is, as zigbee2mqtt/0x00158d0001a2b3c4. A reserved device has no
-	// hardware, and its ref is device/NAME.
+	// its line in your code says it is, as zigbee2mqtt/0x00158d0001a2b3c4.
 	Ref         string            `json:"ref"`
-	Hardware    string            `json:"hardware,omitempty"`
+	Hardware    string            `json:"hardware"`
 	DeviceTypes []devicetype.Type `json:"deviceTypes"`
+	// Declared is a device a line in your home's code declares.
+	Declared bool `json:"declared,omitempty"`
 	// PluginNotImported is a device whose plugin the running version doesn't import.
 	PluginNotImported bool `json:"pluginNotImported,omitempty"`
 	// Matter is false for a device your home keeps off Matter, and left out otherwise.
@@ -171,12 +159,10 @@ func listed(list registry.Snapshot, marks deviceMarks) []listedDevice {
 	devices := make([]listedDevice, 0, len(list.Devices))
 	for _, d := range list.Devices {
 		l := listedDevice{
-			Device: d, Ref: ident.DeviceRef(d.Key()).String(),
+			Device: d, Ref: ident.DeviceRef(d.Key()).String(), Hardware: d.Key(),
 			DeviceTypes:       append([]devicetype.Type{}, d.DeviceTypes()...),
+			Declared:          marks.declared[d.Key()],
 			PluginNotImported: !d.Removed && marks.unimported[d.Key()],
-		}
-		if d.ID != "" {
-			l.Hardware = d.Key()
 		}
 		if !d.Removed && marks.hidden[d.Key()] {
 			l.Matter = new(bool)
@@ -222,7 +208,7 @@ func runTypes(ctx context.Context, args []string) error {
 	if err != nil {
 		return cli.Errorf("couldn't read your home's package: %v", err)
 	}
-	list = declaredIn(ctx, os.Stderr, *module, list, func(ctx context.Context) (wire.Manifest, error) {
+	list = undeclaredIn(ctx, os.Stderr, *module, list, func(ctx context.Context) (wire.Manifest, error) {
 		return homeManifest(ctx, *module)
 	})
 	devices, unknown := toAdd(list)
@@ -239,11 +225,11 @@ func runTypes(ctx context.Context, args []string) error {
 	if err != nil {
 		return cli.Errorf("couldn't write %s: %v", path, err)
 	}
-	printAdded(std.err, path, *out == "-", replaced, list, got, unknown)
+	printAdded(std.err, path, *out == "-", replaced, got, unknown)
 	return nil
 }
 
-// toAdd are the devices on record that list, from declaredIn, has, which oikade types adds, and the
+// toAdd are the devices on record that list, from undeclaredIn, has, which oikade types adds, and the
 // hardware it can't, as no device type fits it, or it hasn't reported.
 func toAdd(list registry.Snapshot) ([]newDevice, []registry.Device) {
 	var devices []newDevice
@@ -271,11 +257,7 @@ func toAdd(list registry.Snapshot) ([]newDevice, []registry.Device) {
 			sb, _ := capability.Lookup(b)
 			return strings.Compare(sa.Go, sb.Go)
 		})
-		name := registry.Slug(d.AppName, d.ID)
-		if d.Declared {
-			name = d.Name
-		}
-		devices = append(devices, newDevice{name: name, key: d.Key(), room: d.Room, typ: typ, more: more})
+		devices = append(devices, newDevice{name: cmp.Or(d.AppName, d.ID), key: d.Key(), room: d.Room, typ: typ, more: more})
 	}
 	return devices, unknown
 }
@@ -289,9 +271,7 @@ func count(n int, thing string) string {
 }
 
 // printAdded says what oikade types added to path, or would have, when printing it.
-func printAdded(p *cli.Printer, path string, printing, replaced bool, list registry.Snapshot, got added,
-	unknown []registry.Device,
-) {
+func printAdded(p *cli.Printer, path string, printing, replaced bool, got added, unknown []registry.Device) {
 	done, add, replace := p.Done, "Added", "Replaced"
 	if printing {
 		done, add, replace = func(format string, a ...any) { p.Printf(format+"\n", a...) }, "Would add", "Would replace"
@@ -319,15 +299,6 @@ func printAdded(p *cli.Printer, path string, printing, replaced bool, list regis
 		p.Hint("%s had a name that was taken, so it ends with a hash of its hardware: rename it in %s",
 			andList(got.clashed), path)
 	}
-	var both []string
-	for _, d := range list.Devices {
-		if name, ok := got.names[d.Key()]; ok && d.Declared {
-			both = append(both, fmt.Sprintf("home.Device(%q) for %s", d.Name, name))
-		}
-	}
-	if len(both) > 0 {
-		p.Hint("Delete %s from your code: %s declares %s now", andList(both), path, them(both))
-	}
 	var unseen, untyped []string
 	for _, d := range unknown {
 		if len(d.Capabilities) == 0 {
@@ -345,44 +316,35 @@ func printAdded(p *cli.Printer, path string, printing, replaced bool, list regis
 	}
 }
 
-// declaredIn is the host's devices as your home's declarations would make them once it's deployed,
-// so that a name you declare has its handle before the deploy that gives it, without the hardware it
-// declares with oikade.Device, which it names itself. A home that doesn't build, as when it already
-// names that handle, has its declarations read from its source.
-func declaredIn(ctx context.Context, stderr io.Writer, module string, list registry.Snapshot,
+// undeclaredIn is the host's devices without those your home's code declares, which it names
+// itself. A home that doesn't build, as when it already names a device oikade types hasn't written,
+// has its declarations read from its source.
+func undeclaredIn(ctx context.Context, stderr io.Writer, module string, list registry.Snapshot,
 	manifest func(context.Context) (wire.Manifest, error),
 ) registry.Snapshot {
 	if _, err := os.Stat(filepath.Join(module, "go.mod")); err != nil {
-		_, _ = fmt.Fprintf(stderr, "%s isn't a Go module, so devices are under the host's names, not your declarations': "+
-			"pass your home's with --module\n", module)
+		_, _ = fmt.Fprintf(stderr, "%s isn't a Go module, so which devices your code declares can't be read: pass your "+
+			"home's with --module\n", module)
 		return list
 	}
-	_, _ = fmt.Fprintln(stderr, "Building your home for its device declarations")
+	_, _ = fmt.Fprintln(stderr, "Building your home for its devices")
 	var inventory []wire.DeviceDeclaration
 	if m, err := manifest(ctx); err == nil {
 		inventory = m.Inventory
 	} else {
 		if inventory, err = declarationsInSource(module); err != nil {
-			_, _ = fmt.Fprintf(stderr, "Your home doesn't build, and its source can't be read, so devices are under "+
-				"the host's names: %v\n", err)
+			_, _ = fmt.Fprintf(stderr, "Your home doesn't build, and its source can't be read, so which devices it "+
+				"declares can't be: %v\n", err)
 			return list
 		}
-		_, _ = fmt.Fprintf(stderr, "Your home doesn't build, so its %d device declarations are read from its source\n",
-			len(inventory))
+		_, _ = fmt.Fprintf(stderr, "Your home doesn't build, so its %d devices are read from its source\n", len(inventory))
 	}
-	declared, err := registry.Declaring(list, wire.Declarations(inventory))
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "The host would refuse your declarations, so devices are under its names: %v\n", err)
-		declared = list
-		declared.Devices = slices.Clone(list.Devices)
-	}
-	// Your code names what it declares with oikade.Device, so a handle would clash with it.
-	byHardware := map[string]bool{}
+	declared := map[string]bool{}
 	for _, d := range inventory {
-		byHardware[d.Hardware] = d.Hardware != ""
+		declared[d.Hardware] = true
 	}
-	declared.Devices = slices.DeleteFunc(declared.Devices, func(d registry.Device) bool { return byHardware[d.Key()] })
-	return declared
+	list.Devices = slices.DeleteFunc(slices.Clone(list.Devices), func(d registry.Device) bool { return declared[d.Key()] })
+	return list
 }
 
 // printTakenOffMatter says which devices a deploy took off Matter, which controllers have lost with
@@ -391,8 +353,12 @@ func printTakenOffMatter(out io.Writer, devices []string) {
 	if len(devices) == 0 {
 		return
 	}
+	refs := make([]string, 0, len(devices))
+	for _, key := range devices {
+		refs = append(refs, ident.DeviceRef(key).String())
+	}
 	_, _ = fmt.Fprintf(out, "Took %s off Matter, as your home hides them: controllers lost their rooms and scenes\n",
-		strings.Join(devices, ", "))
+		strings.Join(refs, ", "))
 }
 
 // printUnimported says which devices are left on record by plugins a version doesn't import, and how

@@ -52,7 +52,7 @@ func TestCheckFailsForWhatACommandFixes(t *testing.T) {
 		// Nothing a command fixes.
 		{"a device offline", func(st *api.Status) { st.Devices[0].Online = &off }, nil, false},
 		{"a bridge with no controller", func(st *api.Status) { st.Matter.Fabrics = nil }, nil, false},
-		{"a device not in your code", func(st *api.Status) { st.Devices[1].Declare = "home.Device(…)" }, nil, false},
+		{"a device not in your code", func(st *api.Status) { st.Devices[1].Undeclared = true }, nil, false},
 		{"a deploy restarting the automations", func(st *api.Status) {
 			st.Home.Process, st.Home.Deploying = false, true
 		}, nil, false},

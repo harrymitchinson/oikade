@@ -292,7 +292,7 @@ A claim must say when it ends:
 - **`For(d)`** ends it after that long.
 - **`UntilNext()`** ends it when the winner without it next changes. For the towel rail, that's when the morning case starts.
 - **Both** end it at whichever comes first. The boost ends after an hour, unless what the other lines want changes sooner.
-- **`UntilReleased()`** ends it at an `r.Release("<name>")` in a flow, its own or another's.
+- **`UntilReleased()`** ends it at an `r.Release` of its rule in a flow, its own or another's: a flow's name, or a case's device's `Key`, capability and name, as in [Latches](#latches).
 
 Of two claims on one line, the later wins. A `Set` with none of these on a decided capability of a single device is an error when it runs. A `Set` on a capability with no decision is a plain write, and none of this applies to it. [Writing flows](writing-flows.md#a-flows-claims) says what happens to a flow's claims when a run ends badly.
 
@@ -307,7 +307,7 @@ home.Decide(GarageHeater.On).
 	Default(true)
 ```
 
-Overheating turns the heater off. Turning it on from the Home app is reverted at once, and the heater stays off after the garage cools, until someone opens the door to check. No other rule is needed to reset it, and an `r.Release("garage-heater on overheat")` in a flow ends the latch too.
+Overheating turns the heater off. Turning it on from the Home app is reverted at once, and the heater stays off after the garage cools, until someone opens the door to check. No other rule is needed to reset it, and an `r.Release(GarageHeater.Key + " on overheat")` in a flow ends the latch too.
 
 - **A latch is worked out from state,** not from a change. If the garage overheated while your process was down and is still too hot when it next sees the temperature, it latches then. If the garage overheats and cools again while your process is down, nothing latches.
 - **The Home app keeps showing your tap** for about 10 seconds before it shows the heater off again. Oikade has already sent the real value by then, and sending it later doesn't change the wait (OIK-239).
@@ -404,7 +404,7 @@ home.Flow("lights-out", func(r *oikade.FlowRun) {
 }).When(Entree.Occupied) // any sensor in the hall
 ```
 
-A group's members are devices, and a group's capability covers the members that have it. So `radiators.Humidity` compiles, and `oikade check` refuses it, since no radiator has one. A group's name is how `oikade status` and `oikade pause` name its decision's cases, `case/radiators/setpoint/windows-open`, so it can't be a device's name too.
+A group's members are devices, and a group's capability covers the members that have it. So `radiators.Humidity` compiles, and `oikade check` refuses it, since no radiator has one. A group's name is how `oikade status` and `oikade pause` name its decision's cases, `case/radiators/setpoint/windows-open`.
 
 ### Which of a room's devices
 
@@ -468,14 +468,14 @@ A room with no devices in it, or none of the read's kinds, stops the condition t
 
 - **A group's or a room's trigger** fires on a change from any member: for a room, any device in the room and of its kinds at the time of the change.
 - **A group's `Set`** writes each member with the capability, each ranked by its own decision, and one that fails doesn't stop the others.
-- **A room's `Set`** sets every device in the room, of its kinds, that has reported the capability, in name order, and skips the rest. So `on` on a room with no kinds leaves the motion sensor alone, and turns off a heater along with the lamps, while `Lights` leave the heaters alone. Membership is read when the `Set` runs, so a lamp added to the room during a `Sleep` is included in the `Set`s after it.
+- **A room's `Set`** sets every device in the room, of its kinds, that has reported the capability, in the order of their refs, and skips the rest. So `on` on a room with no kinds leaves the motion sensor alone, and turns off a heater along with the lamps, while `Lights` leave the heaters alone. Membership is read when the `Set` runs, so a lamp added to the room during a `Sleep` is included in the `Set`s after it.
 - **If some devices fail,** the others are still set and the flow carries on, so a dead bulb can't leave the rest of the room on. The run counts as `failed`. A room with nothing to set counts as `succeeded`.
 - **`Restart` with a room trigger** restarts the run on a change from any sensor in the room, which suits people moving between sensors. Drivers only report real changes, so someone standing still in front of one sensor doesn't restart the run. Keep the `Sleep` longer than the time your sensor holds occupancy after the last movement.
 - **A room `Set` with no end skips arbitrated members,** because a claim must end (see [Claims from flows](#claims-from-flows)). The log names them, with members of other types, as `Skipped Room members`.
 
 ## Composing a home
 
-`oikade.NewHome` makes a home from its `oikade.Options`, and everything else is added to it: `home.Decide` adds a decision, `home.Flow` a flow, `home.Plugin` a plugin and `home.Device` a [declaration](devices.md#declaring-devices-in-code). `home.Run()` runs it. An ordinary Go function can take the home and add to it, so what belongs together stays together and can move between files:
+`oikade.NewHome` makes a home from its `oikade.Options`, and everything else is added to it: `home.Decide` adds a decision, `home.Flow` a flow and `home.Plugin` a plugin, and its devices are the ones the program [declares with `oikade.Device`](devices.md#declaring-devices-in-code). `home.Run()` runs it. An ordinary Go function can take the home and add to it, so what belongs together stays together and can move between files:
 
 ```go
 func home() *oikade.Home {

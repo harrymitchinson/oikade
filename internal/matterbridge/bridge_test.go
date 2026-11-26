@@ -90,9 +90,9 @@ func TestBridgeFollowsDevices(t *testing.T) {
 	})
 }
 
-// A displayName change renames the bridged device in place: the same endpoint, keeping its state,
-// with a new NodeLabel.
-func TestBridgeRenamesInPlace(t *testing.T) {
+// A bridged device's NodeLabel is its app's name, or the Label your code gives it, and either
+// changing relabels it in place: the same endpoint, keeping its state.
+func TestBridgeLabelsADeviceByItsAppsNameOrItsLabel(t *testing.T) {
 	sensor := device("hall-sensor", 3, capability.Occupied)
 	sensor.Name = "Hall sensor"
 	b := newBridgeRig()

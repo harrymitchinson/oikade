@@ -284,12 +284,12 @@ func startWith(t *testing.T, c Config, timings timing, cl *cloud, declared ...st
 	env := plugin.Environment{MQTTURL: broker, Root: root, SecretsDir: b.secrets}
 	devices := make([]contract.DeclaredDevice, 0, len(declared))
 	for _, d := range declared {
-		// id=name is a device the host has under another name.
-		id, name, ok := strings.Cut(d, "=")
+		// id=label is a device your code labels.
+		id, label, ok := strings.Cut(d, "=")
 		if !ok {
-			name = id
+			label = id
 		}
-		devices = append(devices, contract.DeclaredDevice{ID: id, Name: name, DisplayName: name})
+		devices = append(devices, contract.DeclaredDevice{ID: id, Name: id, DisplayName: label})
 	}
 	b.handler = newBridge(c, env, devices, func() (lan, error) { return b.lan, nil }, timings, b.now, slog.New(slog.DiscardHandler))
 	if cl != nil {

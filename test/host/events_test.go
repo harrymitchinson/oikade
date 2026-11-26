@@ -110,21 +110,6 @@ func TestADevicesHistoryIsInTheTailAndTheLog(t *testing.T) {
 	logged(t, log, online, "forgotten device", forgotten)
 }
 
-// A deploy that renames a device says so, by its hardware, with the name it had and has.
-func TestARenameIsInTheTailAndTheLog(t *testing.T) {
-	t.Parallel()
-	r := startPlugins(t)
-	events := r.tailing()
-	tailStarted(r, events)
-	renamed := func(e api.Event) bool {
-		return e.Type == api.EventRename && e.Device == "relays/valve" && e.Ref == "hardware/relays/valve" &&
-			e.Previous == "valve" && e.Message == "mains-valve"
-	}
-	r.mustDeploy("plugins-mains")
-	awaitEvent(t, events, renamed)
-	logged(t, r.eventLog(), 0, "rename", renamed)
-}
-
 // A window still open when the host stops closes in the log, so the next host's is a new one, and
 // each opening has its closing.
 func TestAWindowOpenWhenTheHostStopsClosesInTheLog(t *testing.T) {

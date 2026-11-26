@@ -29,13 +29,14 @@ EWELINK_APP_SECRET=…
 ```console
 $ oikade setup ewelink-lan
 …
+1000aabbcc is "Greenhouse heater" in the eWeLink app: oikade.Label("Greenhouse heater") on ewelink-lan/1000aabbcc's line in your home's code shows it so in the Home app
 ewelink-lan is set up: 2 LAN keys kept, 0 already up to date
 ```
 
-5. **Name each device in your home's code,** as setup says, with the [declaration](../../docs/devices.md) that gives it its name in the eWeLink app:
+5. **Label each device in your home's code,** as setup says, since the LAN protocol doesn't say a device's name in the eWeLink app. `oikade types` adds its line, and an [`oikade.Label`](../../docs/devices.md#declaring-devices-in-code) on it is the name the Home app shows:
 
 ```go
-home.Device("greenhouse-heater").Hardware("ewelink-lan", "1000aabbcc")
+var GreenhouseHeater = oikade.Device[oikade.OnOffPlugInUnit]("ewelink-lan/1000aabbcc", oikade.Label("Greenhouse heater"))
 ```
 
 | `ewelinklan.Config` field | What it is |

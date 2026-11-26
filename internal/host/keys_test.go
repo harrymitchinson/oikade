@@ -19,16 +19,15 @@ func TestAStoreKeptByNameStartsAgainWhatsUnderAHardwaresName(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = data.Close() })
-	devices := registry.Snapshot{Devices: []registry.Device{
-		{Name: "valve", Driver: "plugin/relays", ID: "v1"},
-		{Name: "fan"},
-	}}
 	put := func(namespace, key, value string) {
 		t.Helper()
 		if err := data.Namespace(namespace).Put(key, []byte(value)); err != nil {
 			t.Fatal(err)
 		}
 	}
+	// The registry as a host saved it before devices were their hardware: the fan is a reserved name.
+	put(registry.Namespace, "state", `{"next":4,"devices":[`+
+		`{"name":"valve","driver":"plugin/relays","id":"v1","endpoint":2},{"name":"fan","endpoint":3}]}`)
 	gone := map[string][]string{
 		engine.ControlStatesNamespace: {"valve"},
 		engine.HoldStatesNamespace:    {"valve on leak", "taps on leak"},
@@ -61,7 +60,7 @@ func TestAStoreKeptByNameStartsAgainWhatsUnderAHardwaresName(t *testing.T) {
 	}
 
 	log := testkit.Logs(t)
-	if err := keyByHardware(data, devices, log.Logger); err != nil {
+	if err := keyByHardware(data, log.Logger); err != nil {
 		t.Fatal(err)
 	}
 	if !log.Has(`msg="Started claims, latches and flow runs again, as the store kept them by device name"`, "states=5", "runs=1") {
@@ -87,7 +86,7 @@ func TestAStoreKeptByNameStartsAgainWhatsUnderAHardwaresName(t *testing.T) {
 
 	// Once: what's under the valve's name from now on is another device's, a reserved one, say.
 	put(engine.ControlStatesNamespace, "valve", `{}`)
-	if err := keyByHardware(data, devices, logging.Discard()); err != nil {
+	if err := keyByHardware(data, logging.Discard()); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok, _ := data.Namespace(engine.ControlStatesNamespace).Get("valve"); !ok {

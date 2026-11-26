@@ -112,13 +112,13 @@ type Manifest struct {
 }
 
 // HiddenPlugin is a plugin whose devices a home keeps off Matter, because the Home app has them
-// already, except the ones it shows.
+// already, except the ones it shows, by their keys.
 type HiddenPlugin struct {
 	Plugin string   `json:"plugin"`
 	Shown  []string `json:"shown,omitempty"`
 }
 
-// Hidden says whether hidden keeps a plugin's device off Matter.
+// Hidden says whether hidden keeps a plugin's device, by its key, off Matter.
 func Hidden(hidden []HiddenPlugin, plugin, device string) bool {
 	for _, h := range hidden {
 		if h.Plugin == plugin {
@@ -128,18 +128,13 @@ func Hidden(hidden []HiddenPlugin, plugin, device string) bool {
 	return false
 }
 
-// DeviceDeclaration is a device a home declares: its name, and the hardware, room and type it gives
-// it, or, from oikade.Device, its hardware and no name. One with neither an ID nor its hardware
-// reserves the name.
+// DeviceDeclaration is a device a home declares, with oikade.Device: its hardware, and the room, type
+// and label it gives it.
 type DeviceDeclaration struct {
-	Name string `json:"name,omitempty"`
-	// Hardware is the key of hardware declared by itself, with oikade.Device, as hue/0x1.
-	Hardware string `json:"hardware,omitempty"`
-	// Plugin is the name the home imports the hardware's plugin by.
-	Plugin string `json:"plugin,omitempty"`
-	ID     string `json:"id,omitempty"`
-	// Room is nil for a device in its app's room, and empty for one in none.
-	Room       *string         `json:"room,omitempty"`
+	// Hardware is its key, as hue/0x1.
+	Hardware string `json:"hardware"`
+	// Room is empty for a device in none.
+	Room       string          `json:"room,omitempty"`
 	DeviceType devicetype.Type `json:"deviceType,omitempty"`
 	// Capabilities are those the line gives the hardware, which it must have.
 	Capabilities []string `json:"capabilities,omitempty"`
@@ -152,11 +147,7 @@ func Declarations(decls []DeviceDeclaration) []registry.Declaration {
 	out := make([]registry.Declaration, 0, len(decls))
 	for _, d := range decls {
 		r := registry.Declaration{
-			Name: d.Name, Hardware: d.Hardware, ID: d.ID, Room: d.Room, DeviceType: d.DeviceType,
-			Capabilities: d.Capabilities, Label: d.Label,
-		}
-		if d.Plugin != "" {
-			r.Driver = driver.Plugin + "/" + d.Plugin
+			Hardware: d.Hardware, Room: d.Room, DeviceType: d.DeviceType, Capabilities: d.Capabilities, Label: d.Label,
 		}
 		if plugin, id, ok := strings.Cut(d.Hardware, "/"); ok {
 			r.Driver, r.ID = driver.Plugin+"/"+plugin, id
@@ -218,9 +209,7 @@ type Change struct {
 // Device is a device as the host has it. Every message names a device by its Key, which is its
 // hardware, so a rename changes nothing your process keeps for it.
 type Device struct {
-	Key string `json:"key"`
-	// Name is what the device is called, for what a person reads.
-	Name string `json:"name,omitempty"`
+	Key  string `json:"key"`
 	Room string `json:"room,omitempty"`
 	// Arbitrated are the capabilities the host arbitrates, which take claims rather than writes.
 	Arbitrated   []string `json:"arbitrated,omitempty"`

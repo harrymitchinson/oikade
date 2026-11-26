@@ -210,7 +210,7 @@ func sameProtocol(m wire.Manifest) error {
 	return nil
 }
 
-// printUnseen warns of the hardware your home declares that the host has never seen, whose name
+// printUnseen warns of the hardware your home declares that the host has never seen, whose line
 // waits for it to report, or, for hardware no plugin's, which a deploy refuses until it has.
 func printUnseen(out io.Writer, list registry.Snapshot, inventory []wire.DeviceDeclaration) {
 	for _, d := range wire.Declarations(inventory) {
@@ -219,16 +219,13 @@ func printUnseen(out io.Writer, list registry.Snapshot, inventory []wire.DeviceD
 		}) {
 			continue
 		}
-		hardware := ident.DeviceRef(d.Key())
-		switch {
-		case !strings.HasPrefix(d.Driver, driver.Plugin+"/"):
+		hardware := ident.DeviceRef(d.Hardware)
+		if !strings.HasPrefix(d.Driver, driver.Plugin+"/") {
 			_, _ = fmt.Fprintf(out, "Warning: the host has never seen %s, which is no plugin's, so a deploy is refused "+
 				"until it reports\n", hardware)
-		case d.Name != "":
-			_, _ = fmt.Fprintf(out, "Warning: the host has never seen %s, so %s waits for it to report\n", hardware, d.Name)
-		default:
-			_, _ = fmt.Fprintf(out, "Warning: the host has never seen %s, so its line waits for it to report\n", hardware)
+			continue
 		}
+		_, _ = fmt.Fprintf(out, "Warning: the host has never seen %s, so its line waits for it to report\n", hardware)
 	}
 }
 
@@ -253,11 +250,11 @@ func hostDevices(ctx context.Context, t api.Transport) (api.Response, bool) {
 func checkShown(list registry.Snapshot, hidden []wire.HiddenPlugin) error {
 	var errs []error
 	for _, h := range hidden {
-		for _, name := range h.Shown {
-			i := slices.IndexFunc(list.Devices, func(d registry.Device) bool { return d.Name == name })
+		for _, key := range h.Shown {
+			i := slices.IndexFunc(list.Devices, func(d registry.Device) bool { return d.Key() == key })
 			if i < 0 || list.Devices[i].Removed || !isPlugins(list.Devices[i], h.Plugin) {
-				errs = append(errs, fmt.Errorf("plugin %s: ShowOnMatter names %s, which isn't one of its devices on record "+
-					"(oikade list devices lists them)", h.Plugin, name))
+				errs = append(errs, fmt.Errorf("plugin %s: ShowOnMatter has %s, which isn't one of its devices on record "+
+					"(oikade list devices lists them)", h.Plugin, ident.DeviceRef(key)))
 			}
 		}
 	}

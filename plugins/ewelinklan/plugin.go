@@ -116,14 +116,14 @@ type bridge struct {
 	humidity map[string]bool
 	env      plugin.Environment
 	declared []string
-	// named are the declared devices the host has under a name other than their ID.
-	named  map[string]bool
-	listen func() (lan, error)
-	timing timing
-	now    func() time.Time
-	log    *slog.Logger
-	client *http.Client
-	cloud  cloud
+	// labelled are the declared devices the host shows by a label of their own.
+	labelled map[string]bool
+	listen   func() (lan, error)
+	timing   timing
+	now      func() time.Time
+	log      *slog.Logger
+	client   *http.Client
+	cloud    cloud
 	// app is your eWeLink developer app, from Config, which only setup uses.
 	app app
 
@@ -157,13 +157,14 @@ func newBridge(c Config, env plugin.Environment, declared []contract.DeclaredDev
 		humidity[strings.ToLower(id)] = true
 	}
 	ids := make([]string, 0, len(declared))
-	named := map[string]bool{}
+	labelled := map[string]bool{}
 	for _, d := range declared {
 		ids = append(ids, d.ID)
-		named[d.ID] = d.Name != d.ID
+		// DisplayName is Name unless a Label or the app gives one.
+		labelled[d.ID] = d.DisplayName != d.Name
 	}
 	return &bridge{
-		humidity: humidity, env: env, declared: ids, named: named, listen: listen, timing: t, now: now, log: log,
+		humidity: humidity, env: env, declared: ids, labelled: labelled, listen: listen, timing: t, now: now, log: log,
 		client: &http.Client{Timeout: t.http}, cloud: ewelink,
 		app:     app{id: strings.TrimSpace(c.AppID), secret: strings.TrimSpace(c.AppSecret)},
 		devices: map[string]*device{}, records: newRecords(), skipped: map[string]bool{}, early: map[string]contract.State{},

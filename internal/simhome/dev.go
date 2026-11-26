@@ -15,37 +15,23 @@ import (
 	"oikade.dev/internal/ident"
 )
 
-// Declared are the devices inventory declares with oikade.Device, as their lines give them, by
-// their keys. A device in no room is in none, with no app to give it one. Hardware it declares with
-// Home.Device has no capabilities to simulate, so it's an error, which says what to run.
-func Declared(inventory []wire.DeviceDeclaration) ([]Device, error) {
-	var out []Device
-	var old []string
-	for _, d := range wire.Declarations(inventory) {
-		if d.Hardware == "" {
-			if d.ID != "" {
-				old = append(old, d.Name)
-			}
-			continue
-		}
-		dev := Device{Name: d.Hardware, Capabilities: d.Capabilities}
-		if d.Room != nil {
-			dev.Room = *d.Room
-		}
+// Declared are the devices inventory declares, as their lines give them, by their keys. A device in
+// no room is in none, with no app to give it one.
+func Declared(inventory []wire.DeviceDeclaration) []Device {
+	declarations := wire.Declarations(inventory)
+	out := make([]Device, 0, len(declarations))
+	for _, d := range declarations {
 		typ := d.DeviceType
 		if !devicetype.Choosable(typ) {
 			typ = ""
 		}
-		dev.DeviceTypes = devicetype.Of(typ, "", d.Capabilities)
-		out = append(out, dev)
-	}
-	if len(old) > 0 {
-		return nil, fmt.Errorf("your home declares the hardware of %s with home.Device, which has no capabilities to "+
-			"simulate: run oikade types, which gives each an oikade.Device line, and delete the home.Device lines",
-			strings.Join(old, ", "))
+		out = append(out, Device{
+			Name: d.Hardware, Room: d.Room, Capabilities: d.Capabilities,
+			DeviceTypes: devicetype.Of(typ, "", d.Capabilities),
+		})
 	}
 	slices.SortFunc(out, func(a, b Device) int { return strings.Compare(a.Name, b.Name) })
-	return out, nil
+	return out
 }
 
 const devHelp = `Commands:

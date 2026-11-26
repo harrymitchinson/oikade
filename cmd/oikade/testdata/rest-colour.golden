@@ -27,7 +27,6 @@ To add another controller, run oikade pair matter, or share the bridge from one 
 14:02:07  matter  window closed
 14:02:07  matter  controller left  [2mfabric 1[0m
 14:02:07  hardware/zigbee2mqtt/0x00158d0001a2b3c4  forgotten
-14:02:07  hardware/relays/valve  renamed mains-valve  [2mwas valve[0m
 14:02:07  flow/morning  called forecast  [2mgot true[0m
 14:02:07  flow/morning  called tariff  [2mgot {"cheap":true,"until":"07:00"}[0m
 14:02:07  flow/morning  called notify and it failed  [2mthe push service timed out[0m

@@ -457,7 +457,7 @@ func (s *server) takenOffMatter(m wire.Manifest) []string {
 	var out []string
 	for _, d := range s.plugins.known.registry.List().Devices {
 		if api.HiddenFromMatter(m.HiddenFromMatter, d) && !api.HiddenFromMatter(now, d) {
-			out = append(out, d.Name)
+			out = append(out, d.Key())
 		}
 	}
 	slices.Sort(out)
@@ -973,7 +973,7 @@ func key(name string) ident.ID {
 
 func deviceOf(key string, snap hub.Snapshot) wire.Device {
 	d := wire.Device{
-		Key: key, Name: snap.DisplayName, Room: snap.Room, Discovered: snap.Discovered,
+		Key: key, Room: snap.Room, Discovered: snap.Discovered,
 		Capabilities: slices.Clone(snap.Info.Capabilities), DeviceTypes: slices.Clone(snap.DeviceTypes),
 		Values: snap.Values, LastSeen: snap.LastSeen, Online: snap.Online,
 	}

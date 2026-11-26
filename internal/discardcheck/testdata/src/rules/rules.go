@@ -40,7 +40,7 @@ func thrownAway(s oikade.Set, g oikade.Bool, n oikade.Number, r *oikade.FlowRun,
 func notFlagged(s oikade.Set, g oikade.Bool, r *oikade.FlowRun, st oikade.Snapshot) {
 	// A decision, a flow, a signal, a plugin and a declared device are the home's as they're built.
 	home := oikade.NewHome()
-	home.Device("porch-light").Hardware("zigbee", "0x1").Room("Porch")
+	oikade.Device[oikade.OnOffLight]("zigbee/0x1")
 	home.Decide(g).Case("a", true, g).Default(false)
 	home.Flow("a", func(r *oikade.FlowRun) { r.Set(s) }).When(g.Becomes(true))
 	home.Signal("a", g).Linger(1)

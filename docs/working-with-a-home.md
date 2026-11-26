@@ -44,7 +44,7 @@ hardware/ewelink-lan/1000aabbcc               hall   on false
 hardware/ewelink-lan/1000ddeeff                                                                                no LAN key: oikade setup ewelink-lan
 hardware/overkiz/io:%2F%2F0812-4471-2093%2F5  study  position 40%                                              went offline today 12:25
 hardware/toshiba/5f1c0c2e                            mode cool, on true, setpoint 21.5°C, temperature 24.25°C  not in your code
-hardware/toshiba/5f1c0c2e isn't in your code: oikade list devices shows how to declare it
+hardware/toshiba/5f1c0c2e isn't in your code: oikade types adds it
 Hint: oikade status hardware/toshiba/5f1c0c2e says why each of its values is what it is
 
 case/toshiba/5f1c0c2e/on/too-warm  case  active since 13:52
@@ -54,7 +54,7 @@ flow/morning  flow
 - **What's left to set up** comes first, on stderr. See [below](#whats-left-to-set-up).
 - **Then the running version** and your automations, or when they went down.
 - **Each device** is a line, by its hardware's ref, with its room, its values in their units, and what's wrong with it, such as `went offline 8 min ago`. The table fits the terminal: the room goes first, then values shorten, then a long ref, and `--wide` shows it all.
-- **A device your code doesn't declare** says `not in your code`, and a line after the table says how to declare it.
+- **A device your code doesn't declare** says `not in your code`, and a line after the table says [`oikade types`](devices.md#devices-in-your-code) adds it.
 - **Your rules** follow, a line each, with what each is doing. See [Rules](#rules).
 
 ### What's left to set up

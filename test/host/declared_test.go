@@ -12,12 +12,29 @@ import (
 	"oikade.dev/internal/registry"
 )
 
+// declared is the devices list devices --json says a line in your home's code declares.
+func (r *rig) declared() map[string]bool {
+	r.t.Helper()
+	var listed []struct {
+		Hardware string `json:"hardware"`
+		Declared bool   `json:"declared"`
+	}
+	if err := json.Unmarshal(r.stdout(nil, "list", "devices", "--json"), &listed); err != nil {
+		r.t.Fatal(err)
+	}
+	out := map[string]bool{}
+	for _, d := range listed {
+		out[d.Hardware] = d.Declared
+	}
+	return out
+}
+
 func TestADeployAppliesTheHomesDeviceDeclarations(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)
 	var before registry.Device
 	r.until("the relay", func() bool {
-		i := slices.IndexFunc(r.devices().Devices, func(d registry.Device) bool { return d.Name == "relay" })
+		i := slices.IndexFunc(r.devices().Devices, func(d registry.Device) bool { return d.Key() == "relays/relay" })
 		if i >= 0 {
 			before = r.devices().Devices[i]
 		}
@@ -28,37 +45,39 @@ func TestADeployAppliesTheHomesDeviceDeclarations(t *testing.T) {
 		t.Fatalf("%v: %s\nThe log:\n%s", err, stderr, r.dump())
 	}
 	r.awaitDeployed()
-	for _, want := range []string{"Renamed relay to porch-relay", "Moved porch-relay to porch",
-		"Set porch-relay's device type to OnOffLight", "Reserved shed-fan"} {
+	for _, want := range []string{"Moved hardware/relays/relay to porch",
+		"Set hardware/relays/relay's device type to OnOffLight", `Labelled hardware/relays/relay "Porch light" on Matter`} {
 		if !strings.Contains(stderr, want) {
 			t.Errorf("no %q in:\n%s", want, stderr)
 		}
 	}
-	d := deviceOf(t, r.devices(), "porch-relay")
-	if !d.Declared || d.Room != "porch" || d.DeviceType != devicetype.OnOffLight || d.Endpoint != before.Endpoint {
-		t.Errorf("got %+v, want it declared, in the porch, a light, on endpoint %d", d, before.Endpoint)
+	d := deviceOf(t, r.devices(), "relays/relay")
+	if d.Room != "porch" || d.DeviceType != devicetype.OnOffLight || d.Label != "Porch light" ||
+		d.Endpoint != before.Endpoint {
+		t.Errorf("got %+v, want it in the porch, a light, labelled, on endpoint %d", d, before.Endpoint)
 	}
-	if !deviceOf(t, r.devices(), "shed-fan").Reserved() {
-		t.Error("shed-fan isn't reserved")
+	if !r.declared()["relays/relay"] {
+		t.Error("list devices --json doesn't say the relay is declared")
 	}
 
-	// A version that declares nothing gives it back its app's name.
+	// A version that declares nothing gives it back its app's room and its driver's type.
 	stderr, err = r.deploy("plugins")
 	if err != nil {
 		t.Fatalf("%v: %s", err, stderr)
 	}
 	r.awaitDeployed()
-	if !strings.Contains(stderr, "Gave porch-relay back its app's name, relay") {
+	if !strings.Contains(stderr, "Gave hardware/relays/relay back its app's room and its driver's type") {
 		t.Errorf("got:\n%s", stderr)
 	}
-	if d := deviceOf(t, r.devices(), "relay"); d.Declared || d.Room != before.Room || d.Endpoint != before.Endpoint {
+	if d := deviceOf(t, r.devices(), "relays/relay"); d.Room != before.Room || d.Label != "" ||
+		d.Endpoint != before.Endpoint || r.declared()["relays/relay"] {
 		t.Errorf("got %+v, want it as before", d)
 	}
 }
 
-// A device is its hardware, so renaming it moves nothing: its claims and a held latch stay where they
-// are, under its hardware's key, and both survive a restart of the host.
-func TestARenameKeepsClaimsAndAHeldLatchWithNothingMoved(t *testing.T) {
+// A device is its hardware, so declaring it moves nothing: its claims and a held latch stay where
+// they are, under its hardware's key, and both survive a restart of the host.
+func TestDeclaringADeviceKeepsClaimsAndAHeldLatch(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)
 	r.change("leak-sensor", opened, true)
@@ -72,10 +91,10 @@ func TestARenameKeepsClaimsAndAHeldLatchWithNothingMoved(t *testing.T) {
 
 	stderr, err := r.deploy("plugins-mains")
 	if err != nil {
-		t.Fatalf("a rename was refused: %v: %s\nThe log:\n%s", err, stderr, r.dump())
+		t.Fatalf("declaring the valve was refused: %v: %s\nThe log:\n%s", err, stderr, r.dump())
 	}
 	r.awaitDeployed()
-	if !strings.Contains(stderr, "Renamed valve to mains-valve") {
+	if !strings.Contains(stderr, "Moved hardware/relays/valve to utility") {
 		t.Errorf("got:\n%s", stderr)
 	}
 	for _, launch := range []func(){func() {}, func() { r.launchedPlugins() }} {
@@ -113,53 +132,57 @@ func (r *rig) expectLatched() {
 	}
 }
 
-func TestADeviceNotInYourCodeSaysHowToDeclareIt(t *testing.T) {
+func TestADeviceNotInYourCodeSaysSo(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)
 	r.untilValue("relays/valve", true)
-	want := `home.Device("valve").Hardware("relays", "valve")`
-	if stderr, err := r.oikade(nil, "list", "devices"); err != nil || !strings.Contains(stderr, want) {
-		t.Errorf("oikade devices said %v:\n%s", err, stderr)
+	if stderr, err := r.oikade(nil, "list", "devices"); err != nil || !strings.Contains(stderr,
+		"aren't in your code: oikade types adds them") {
+		t.Errorf("oikade list devices said %v:\n%s", err, stderr)
 	}
 	if out := string(r.stdout(nil, "list", "devices")); !strings.Contains(out, "not in your code") {
 		t.Errorf("got:\n%s", out)
 	}
-	if out := string(r.stdout(nil, "status", "--json")); !strings.Contains(out, `"declare":"home.Device(\"valve\")`) {
-		t.Errorf("oikade status --json has no line to declare valve:\n%s", out)
+	out := string(r.stdout(nil, "status", "--json", "hardware/relays/valve"))
+	if !strings.Contains(out, `"undeclared":true`) {
+		t.Errorf("oikade status --json doesn't say the valve isn't in your code:\n%s", out)
 	}
 
 	r.mustDeploy("plugins-mains")
-	if out := string(r.stdout(nil, "list", "devices", "--json")); !strings.Contains(out, `"name":"mains-valve"`) ||
-		!strings.Contains(out, `"declared":true`) {
-		t.Errorf("got:\n%s", out)
+	if !r.declared()["relays/valve"] {
+		t.Error("list devices --json doesn't say the valve is declared")
 	}
-	if stderr, _ := r.oikade(nil, "list", "devices"); strings.Contains(stderr, `home.Device("mains-valve")`) {
-		t.Errorf("a declared device has a line to declare it:\n%s", stderr)
+	if out := string(r.stdout(nil, "status", "--json", "hardware/relays/valve")); strings.Contains(out, `"undeclared"`) {
+		t.Errorf("a declared device isn't in your code:\n%s", out)
 	}
 }
 
-// Swapped hardware is a new device to what the host keeps: the Safety case on the old hardware goes,
-// which a deploy says, and the spare's own claims it afresh. The name keeps its endpoint.
-func TestADeclaredSwapOfHardwareStartsItsClaimsAgain(t *testing.T) {
+// Swapped hardware is a new device to what the host keeps: it has an endpoint of its own, the
+// Safety case on the old hardware goes, which a deploy says, and the spare's own claims it afresh.
+// The old hardware keeps its endpoint.
+func TestADeclaredSwapOfHardwareIsANewDevice(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)
 	r.until("the spare relay", func() bool {
-		return slices.ContainsFunc(r.devices().Devices, func(d registry.Device) bool { return d.ID == "spare-relay" })
+		return slices.ContainsFunc(r.devices().Devices, func(d registry.Device) bool {
+			return d.Key() == "relays/spare-relay"
+		})
 	})
 	r.mustDeploy("plugins-valve")
-	before := deviceOf(t, r.devices(), "valve")
+	before := deviceOf(t, r.devices(), "relays/valve")
 	r.change("leak-sensor", opened, true)
 	r.untilValue("relays/valve", false)
 
-	// The valve failed: its declaration's ID moves onto the spare.
+	// The valve failed: its line in your code names the spare.
 	stderr, err := r.deploy("plugins-swapped")
 	if err == nil || !strings.Contains(stderr, "Safety case case/relays/valve/on/leak-shutoff is gone") {
 		t.Fatalf("a swap that ends the old hardware's Safety case went ahead: %v: %s", err, stderr)
 	}
 	r.mustDeploy("plugins-swapped", "--allow-safety")
-	after := deviceOf(t, r.devices(), "valve")
-	if after.ID != "spare-relay" || after.Endpoint != before.Endpoint {
-		t.Errorf("got %+v, was %+v", after, before)
+	spare, old := deviceOf(t, r.devices(), "relays/spare-relay"), deviceOf(t, r.devices(), "relays/valve")
+	if spare.Endpoint == before.Endpoint || old.Endpoint != before.Endpoint {
+		t.Errorf("the spare is on endpoint %d, and the valve on %d, want the valve's %d its own", spare.Endpoint,
+			old.Endpoint, before.Endpoint)
 	}
 	r.untilValue("relays/spare-relay", false)
 	r.stop()
@@ -187,11 +210,11 @@ func TestADeclaredTypeThatTakesADeviceOutOfASafetyRoomWaitsForAllowSafety(t *tes
 		"hardware/relays/relay would leave the devices case/porch/on/porch-leak writes at Safety") {
 		t.Fatalf("declared the porch's plug a light: %v: %s", err, stderr)
 	}
-	if d := deviceOf(t, r.devices(), "relay"); d.DeviceType != devicetype.OnOffPlugInUnit {
+	if d := deviceOf(t, r.devices(), "relays/relay"); d.DeviceType != devicetype.OnOffPlugInUnit {
 		t.Errorf("the refused deploy left the relay a %q", d.DeviceType)
 	}
 	r.mustDeploy("plugins-porch-light", "--allow-safety")
-	if d := deviceOf(t, r.devices(), "relay"); d.DeviceType != devicetype.OnOffLight {
+	if d := deviceOf(t, r.devices(), "relays/relay"); d.DeviceType != devicetype.OnOffLight {
 		t.Errorf("with --allow-safety, the relay is a %q", d.DeviceType)
 	}
 }
@@ -202,15 +225,6 @@ func TestAStoreKeptByNameStartsItsClaimsAndLatchesAgain(t *testing.T) {
 	t.Parallel()
 	r := preparePlugins(t)
 	s := r.openStore()
-	// As the last host left it, with the valve on record.
-	devices, err := registry.Open(s.Namespace(registry.Namespace))
-	if err != nil {
-		t.Fatal(err)
-	}
-	valve := registry.Report{ID: "valve", Driver: "plugin/relays", Name: "valve", Capabilities: []string{"on"}}
-	if _, _, err := devices.Report(valve); err != nil {
-		t.Fatal(err)
-	}
 	put := func(namespace, key string, v any) {
 		raw, err := json.Marshal(v)
 		if err != nil {
@@ -219,6 +233,11 @@ func TestAStoreKeptByNameStartsItsClaimsAndLatchesAgain(t *testing.T) {
 		if err := s.Namespace(namespace).Put(key, raw); err != nil {
 			t.Fatal(err)
 		}
+	}
+	// As the last host left it, with the valve on record by its name.
+	if err := s.Namespace(registry.Namespace).Put("state", []byte(`{"next":3,"devices":[`+
+		`{"name":"valve","id":"valve","driver":"plugin/relays","capabilities":["on"],"endpoint":2}]}`)); err != nil {
+		t.Fatal(err)
 	}
 	put(engine.ControlStatesNamespace, "valve", engine.ControlState{"on": control.State{Claims: []control.Claim{
 		{Source: "Rule/valve on leak-shutoff", Level: control.Safety},
@@ -276,8 +295,9 @@ func TestARoomFollowsTheSensorPlacedInIt(t *testing.T) {
 	t.Parallel()
 	r := start(t)
 	r.mustDeploy("cuisine")
-	motion, light := deviceOf(t, r.devices(), "cuisine-motion"), deviceOf(t, r.devices(), "cuisine-light")
-	if !motion.Declared || motion.Room != "cuisine" || light.Room != "cuisine" ||
+	motion := deviceOf(t, r.devices(), "simulator/cuisine-motion")
+	light := deviceOf(t, r.devices(), "simulator/cuisine-light")
+	if !r.declared()["simulator/cuisine-motion"] || motion.Room != "cuisine" || light.Room != "cuisine" ||
 		light.DeviceType != devicetype.OnOffLight || light.Label != "Plafond" {
 		t.Errorf("the sensor is %+v, and the light %+v", motion, light)
 	}

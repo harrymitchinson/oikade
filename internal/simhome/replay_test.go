@@ -221,7 +221,6 @@ func TestALogWithADevicesHistoryReplaysTheSame(t *testing.T) {
 		{Type: api.EventMatter, Ref: "matter", Message: api.MatterWindowClosed},
 		{Type: api.EventMatter, Ref: "matter", Message: api.MatterControllerLeft, Value: 1.0},
 		{Type: api.EventForget, Device: "shed-lamp", Ref: "device/shed-lamp"},
-		{Type: api.EventRename, Device: "hall-lamp", Ref: "device/hall-lamp", Previous: "relay-3"},
 	}
 	for i := range history {
 		history[i].Time = at.Add(time.Duration(i) * time.Minute)

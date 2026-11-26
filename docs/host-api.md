@@ -20,7 +20,7 @@ A `GET` takes no body. A `POST` takes a JSON object, and every field is optional
 | `GET /v1/info` | | `goos`, `goarch`, and `hostVersion`, oikade-host's own version |
 | `GET /v1/status` | | `status`: see [Status](#status) |
 | `GET /v1/matter` | | `matter`, the bridge as `status` has it |
-| `GET /v1/devices` | | `registry`; `unimported`, the devices of plugins the running version doesn't import; `outsidePlugins`; `safetyHeld`, the plugins' devices a Safety claim holds; `hiddenFromMatter`, the devices your home keeps off Matter |
+| `GET /v1/devices` | | `registry`; `unimported`, the devices of plugins the running version doesn't import; `outsidePlugins`; `safetyHeld`, the plugins' devices a Safety claim holds; `hiddenFromMatter`, the devices your home keeps off Matter; `declared`, the devices the code last attached declares |
 | `POST /v1/deploy` | Your values and the binary, as `multipart/form-data` ([Deploys](#deploys)), and `?allowSafety=true` in the query | See [what a deploy answers](#what-a-deploy-answers) |
 | `POST /v1/rollback` | `allowSafety`; `vars`, values that replace the host's | The same as a deploy, but `unchanged` |
 | `POST /v1/set` | `device`, its hardware as your code names it, such as `hue/0x2`; `capability`; `value` | `outcome`: the capability with its claims, once the device answered and nothing wrote it back, after up to 3 seconds; none if the device hadn't answered. A set a Safety claim refuses has `outcome` as the capability is, beside `error` |
@@ -78,7 +78,7 @@ Only the closing boundary says it's all there. The host keeps the upload in `upl
 | `varsChanged` | The names of the values it added, changed or removed |
 | `missingVars` | The values a refused version uses that its set lacks |
 | `deviceChanges` | What the version's device declarations changed, a line each |
-| `unseen` | The names it declares whose hardware hasn't reported |
+| `unseen` | The hardware it declares that hasn't reported |
 | `warning` | Rooms a hold reads that the declarations leave empty, and devices they put in a room whose decision they don't take |
 | `unimported` | The devices on record of plugins the running version doesn't import, each with its `device`, `ref`, `plugin`, and `safety` if a Safety claim holds it |
 | `takenOffMatter` | The devices on the bridge the version hides from Matter |
@@ -90,7 +90,7 @@ Only the closing boundary says it's all there. The host keeps the upload in `upl
 | Field | Means |
 |---|---|
 | `home` | Your home: `version`, `deploying`, `process`, and `since`, when your automations last connected or went down, or the host started |
-| `devices` | Each device, by its `hardware`, as your code names it, such as `hue/0x2`, and its `ref`, with its `room`, `online`, its `capabilities`, its `deviceTypes`, its `plugin` if a plugin reports it, its `problem` if its driver says one, `offlineSince` while it's offline (when the host first heard it was), `pluginNotImported`, and `declare`, the line that would declare it, if your code doesn't |
+| `devices` | Each device, by its `hardware`, as your code names it, such as `hue/0x2`, and its `ref`, with its `room`, `online`, its `capabilities`, its `deviceTypes`, its `plugin` if a plugin reports it, its `problem` if its driver says one, `offlineSince` while it's offline (when the host first heard it was), `pluginNotImported`, and `undeclared` if your code doesn't declare it |
 | `rules` | Each rule: see below |
 | `signals` | Each [signal](automations.md#signals), in the order your home made them: see below |
 | `plugins` | Each plugin the running binary imports or that reports a device on record: its `name`, its `ref` (`plugin/NAME`), its `problem` if it says something's wrong with it as a whole (OIK-17), `needsSetup` if it says its [setup](#setup) needs running, and the `devices` it reports |
@@ -177,7 +177,7 @@ Both take a filter in the query, and the host does the filtering, so a caller do
 | A `ref` | Its events |
 |---|---|
 | `hardware/hue/0x2` | Everything about the device and its capabilities, as the log keeps a device by its hardware |
-| `hardware/hue/0x2/on` | The capability's, and what happened to the device as a whole: it went offline, or was forgotten or renamed |
+| `hardware/hue/0x2/on` | The capability's, and what happened to the device as a whole: it went offline, or was forgotten |
 | `room/hall`, `room/hall/on` | The same, for each device in the room now, not those that were in it then |
 | `case/hue/0x2/on/dusk`, `flow/morning` | The rule's runs, pauses and outside calls, and the writes it made (`by`) |
 | `signal/anyone-home` | The signal's changes |
@@ -203,7 +203,6 @@ An `Event` has its `time` and `type`. Every event but `process`, `deploy` and `e
 | `matter` | The Matter bridge's commissioning window opened or closed, or a controller paired or left. A window has opened once it's advertised, and one still open when the host stops closes then. The bridge says each once it has advertised the change, which can be a second or two after | `message`: `window opened`, `window closed`, `controller paired` or `controller left`; `value`, the controller's fabric |
 | `signal` | A [signal](automations.md#signals) changed, as the host saved it. A new or renamed signal's first value isn't a change. Your process saves the latest state only, so a change and its undoing before the first reaches the host can be neither | `ref`, the signal's; `value`, what it is now; `previous`, what it was |
 | `forget` | A device was forgotten, so its history stops here | `device` |
-| `rename` | A deploy renamed a device, or gave its hardware the name your home declares | `device`; `previous`, its name before; `message`, its name from then on |
 | `process` | Your process connected or disconnected | `message` |
 | `deploy` | A new version took over | `message`, the version |
 | `end` | The stream ended: the event log's last line, or the host ending a tail | `message`: why, if it stopped short |

@@ -24,7 +24,7 @@ Hint: add it to .env, or set it in the environment
 Your home is fine: 12 rules, 2 plugins
 ```
 
-If it can reach your host, it also checks your code against the devices on record. It lists the devices a deploy would leave behind because their [plugin is no longer imported](running-a-home.md#removing-a-plugin), the ones it would [take off Matter](devices.md#hiding-a-plugins-devices-from-matter), and declared hardware that hasn't reported. It fails on a `ShowOnMatter` name that isn't one of that plugin's devices.
+If it can reach your host, it also checks your code against the devices on record. It lists the devices a deploy would leave behind because their [plugin is no longer imported](running-a-home.md#removing-a-plugin), the ones it would [take off Matter](devices.md#hiding-a-plugins-devices-from-matter), and declared hardware that hasn't reported. It fails on a `ShowOnMatter` device that isn't one of that plugin's devices.
 
 ## Tests
 
@@ -120,7 +120,7 @@ Sat 11:05 Wrote hardware/simulator/porch-light/on = false
 | `restart` | Crashes your automations, and starts them again |
 | `help`, `quit` | |
 
-- **The devices** are the ones your home [declares with `oikade.Device`](devices.md#declaring-devices-in-code), in their rooms, of their types and with the capabilities their lines give them. A device in no room is in none. None has a value until you set it. Hardware declared with `home.Device` has no capabilities to simulate, so `oikade dev`, `oikade replay` and `oikadetest` refuse it: `oikade types` gives it a line.
+- **The devices** are the ones your home [declares with `oikade.Device`](devices.md#declaring-devices-in-code), in their rooms, of their types and with the capabilities their lines give them. A device in no room is in none. None has a value until you set it.
 - **Your values** come from `.env` and the environment, or the file `--env-file` names, as on the host. `oikade dev` doesn't run plugins, so nothing logs in.
 - **Your automations' log** goes to standard error, beside the conversation on standard output, so `oikade dev 2>dev.log` keeps it apart.
 

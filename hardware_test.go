@@ -7,9 +7,11 @@ import (
 	"strings"
 	"testing"
 
+	"oikade.dev/contract/v1"
 	"oikade.dev/internal/devicetype"
 	"oikade.dev/internal/host/wire"
 	"oikade.dev/internal/ident"
+	"oikade.dev/sdk/plugin"
 )
 
 // declaring gives a test the program's declarations to itself, and puts back what was there.
@@ -67,30 +69,29 @@ func TestADeviceHasItsHardwareInEveryCapability(t *testing.T) {
 	}
 
 	h := decide(func(h *Home) {
-		h.Plugin("hue", zigbee)
+		h.Plugin("hue", aPlugin)
 		h.Group("lamps", plafond, prise)
 		h.Decide(plafond.On).Case("someone-in", true, cuisine.Occupied.Any()).Default(false)
 	})
 	if _, _, err := h.compile(); err != nil {
 		t.Fatal(err)
 	}
-	cuisineRoom, none := "cuisine", ""
 	want := []wire.DeviceDeclaration{
 		{
-			Hardware: "hue/0x1", Room: &cuisineRoom, DeviceType: devicetype.OccupancySensor,
+			Hardware: "hue/0x1", Room: "cuisine", DeviceType: devicetype.OccupancySensor,
 			Capabilities: []string{"battery", "occupied", "temperature"},
 		},
 		{
-			Hardware: "hue/0x2", Room: &cuisineRoom, DeviceType: devicetype.DimmableLight,
+			Hardware: "hue/0x2", Room: "cuisine", DeviceType: devicetype.DimmableLight,
 			Capabilities: []string{"brightness", "on"}, Label: "Plafond",
 		},
-		{Hardware: "hue/0x3", Room: &none, DeviceType: devicetype.OnOffPlugInUnit, Capabilities: []string{"on"}},
+		{Hardware: "hue/0x3", DeviceType: devicetype.OnOffPlugInUnit, Capabilities: []string{"on"}},
 	}
 	g, _ := json.Marshal(h.manifest().Inventory)
 	if w, _ := json.Marshal(want); string(g) != string(w) {
 		t.Errorf("got %s, want %s", g, w)
 	}
-	if r := wire.Declarations(want); r[0].Driver != "plugin/hue" || r[0].ID != "0x1" || r[0].Key() != "hue/0x1" {
+	if r := wire.Declarations(want); r[0].Driver != "plugin/hue" || r[0].ID != "0x1" || r[0].Hardware != "hue/0x1" {
 		t.Errorf("the registry gets %+v", r[0])
 	}
 }
@@ -124,10 +125,6 @@ func TestDevicesAreChecked(t *testing.T) {
 		"twice": {
 			func(*Home) { Device[OnOffLight]("relays/a"); Device[OnOffPlugInUnit]("relays/a") }, "declared twice",
 		},
-		"both ways": {
-			func(h *Home) { Device[OnOffLight]("relays/a"); h.Device("lamp").Hardware("relays", "a") },
-			"Home.Device declares it too, as lamp",
-		},
 		"not a capability": {func(*Home) {
 			Device[struct {
 				OnOffLight
@@ -160,12 +157,12 @@ func TestDevicesAreChecked(t *testing.T) {
 		"a bad room": {func(*Home) { Device[OnOffLight]("relays/a", Room("Le Salon")) }, `"Le Salon" isn't a room name`},
 		"not a struct": {func(*Home) { Device[DeviceType]("relays/a") },
 			"its type, oikade.DeviceType, isn't a device type"},
-		"a plugin named as the simulator": {func(h *Home) { h.Plugin(ident.Simulator, zigbee) },
+		"a plugin named as the simulator": {func(h *Home) { h.Plugin(ident.Simulator, aPlugin) },
 			"plugin simulator: simulator is simulated hardware's"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			declaring(t)
-			h := decide(func(h *Home) { h.Plugin("relays", zigbee); tc.add(h) })
+			h := decide(func(h *Home) { h.Plugin("relays", aPlugin); tc.add(h) })
 			if _, _, err := h.compile(); err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Errorf("got %v, want an error with %q", err, tc.want)
 			}
@@ -193,7 +190,7 @@ func TestADeviceCanEmbedAStructThatIsntExported(t *testing.T) {
 	if lamp.Temperature != (Number{Device: "relays/a", Capability: Temperature}) {
 		t.Errorf("got %+v", lamp)
 	}
-	h := decide(func(h *Home) { h.Plugin("relays", zigbee); h.Group("warm", lamp) })
+	h := decide(func(h *Home) { h.Plugin("relays", aPlugin); h.Group("warm", lamp) })
 	if _, _, err := h.compile(); err != nil {
 		t.Fatal(err)
 	}
@@ -233,3 +230,5 @@ func TestEveryDeviceTypeIsInGo(t *testing.T) {
 		t.Errorf("Go has %v, and devicetype %v", got, all)
 	}
 }
+
+var aPlugin = func(plugin.Environment, []contract.DeclaredDevice) (plugin.Handler, error) { return nil, nil }

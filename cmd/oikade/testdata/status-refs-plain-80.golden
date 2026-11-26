@@ -49,4 +49,4 @@ Paired controllers
   fabric 1: Home, vendor 0x0000
 --- stderr
 Hint: --wide shows ROOM
-hardware/toshiba/5f1c0c2e isn't in your code: oikade list devices shows how to declare it
+hardware/toshiba/5f1c0c2e isn't in your code: oikade types adds it

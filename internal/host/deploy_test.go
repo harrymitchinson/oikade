@@ -30,20 +30,20 @@ func TestRenamedLatchedSafetyHoldIsFlagged(t *testing.T) {
 	}
 }
 
-// A case is keyed by its device's hardware, so renaming the device leaves its Safety cases as they
+// A case is keyed by its device's hardware, so moving the device leaves its Safety cases as they
 // were, and what goes is named by its hardware's ref.
-func TestADeviceRenamedInTheSameDeployKeepsItsSafetyCases(t *testing.T) {
-	valve := func(name string) wire.Manifest {
+func TestADeviceMovedInTheSameDeployKeepsItsSafetyCases(t *testing.T) {
+	valve := func(room string) wire.Manifest {
 		m := manifest(wire.RuleInfo{Name: "x/v on leak", Kind: wire.KindCase, Safety: true, Device: "x/v"})
 		m.Control = []wire.DeviceControl{{Device: "x/v", Entry: control.Entry{Capability: "on", Lines: []string{"Rule/x/v on leak"}}}}
-		m.Inventory = []wire.DeviceDeclaration{{Name: name, Plugin: "x", ID: "v"}}
+		m.Inventory = []wire.DeviceDeclaration{{Hardware: "x/v", Room: room}}
 		return m
 	}
-	old, next := valve("water-valve"), valve("mains-valve")
+	old, next := valve("cellar"), valve("utility")
 	held := map[string]control.Level{"x/v on leak": control.Safety}
 	safetyHeld := func(device, _ string) bool { return device == "x/v" }
 	if got := safetyFindings(old, next, held, safetyHeld); len(got) != 0 {
-		t.Errorf("a rename was taken for Safety going: %q", got)
+		t.Errorf("a move was taken for Safety going: %q", got)
 	}
 	next.Rules, next.Control = nil, nil
 	want := []string{

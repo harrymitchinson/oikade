@@ -48,8 +48,8 @@ func TestUnimportedDevicesSayHowToRemoveThemAndCallOutSafety(t *testing.T) {
 func TestDevicesMarkThoseWhosePluginIsntImported(t *testing.T) {
 	var out bytes.Buffer
 	printDevices(cli.Plain(&out, 0), registry.Snapshot{Devices: []registry.Device{
-		{Name: "boiler", AppName: "Boiler", ID: "b", Driver: "plugin/relays", Endpoint: 2},
-		{Name: "lamp", AppName: "Lamp", ID: "l", Driver: "plugin/shades", Endpoint: 3},
+		{AppName: "Boiler", ID: "b", Driver: "plugin/relays", Endpoint: 2},
+		{AppName: "Lamp", ID: "l", Driver: "plugin/shades", Endpoint: 3},
 	}}, deviceMarks{unimported: map[string]bool{"relays/b": true}}, false)
 	lines := strings.Split(out.String(), "\n")
 	if !strings.Contains(lines[1], "plugin not imported") || strings.Contains(lines[2], "plugin not imported") {
@@ -59,9 +59,9 @@ func TestDevicesMarkThoseWhosePluginIsntImported(t *testing.T) {
 
 func TestDevicesMarkThoseHiddenFromMatter(t *testing.T) {
 	list := registry.Snapshot{Devices: []registry.Device{
-		{Name: "bedroom-shutter", ID: "s1", Driver: "plugin/tahoma", Endpoint: 2},
-		{Name: "garage-door", ID: "s2", Driver: "plugin/tahoma", Endpoint: 3},
-		{Name: "attic-shutter", ID: "s3", Driver: "plugin/tahoma", Endpoint: 4},
+		{ID: "s1", Driver: "plugin/tahoma", Endpoint: 2},
+		{ID: "s2", Driver: "plugin/tahoma", Endpoint: 3},
+		{ID: "s3", Driver: "plugin/tahoma", Endpoint: 4},
 	}}
 	marks := deviceMarks{hidden: map[string]bool{"tahoma/s1": true, "tahoma/s3": true}}
 
@@ -125,90 +125,63 @@ func TestStatusSaysADeviceIsOffline(t *testing.T) {
 	}
 }
 
-func TestDevicesNotInYourCodeSayHowToDeclareThem(t *testing.T) {
+func TestDevicesNotInYourCodeAreMarked(t *testing.T) {
 	list := registry.Snapshot{Devices: []registry.Device{
-		{Name: "attic-fan", ID: "0x1", Driver: "plugin/zigbee", Endpoint: 2},
-		{Name: "porch-light", ID: "0x2", Driver: "plugin/zigbee", Endpoint: 3, Declared: true},
-		{Name: "kettle", ID: "k", Driver: "simulated/simulator", Endpoint: 4},
+		{ID: "0x1", Driver: "plugin/zigbee", Endpoint: 2},
+		{ID: "0x2", Driver: "plugin/zigbee", Endpoint: 3},
+		{ID: "k", Driver: "simulated/simulator", Endpoint: 4},
 	}}
 	var out bytes.Buffer
-	printDevices(cli.Plain(&out, 0), list, deviceMarks{}, false)
+	marks := deviceMarks{declared: map[string]bool{"zigbee/0x2": true}}
+	undeclared, _ := printDevices(cli.Plain(&out, 0), list, marks, false)
 	lines := strings.Split(out.String(), "\n")
 	// By ref: the simulator's kettle, then the attic fan and the porch light.
-	if !strings.Contains(lines[2], "hardware/zigbee/0x1") || !strings.Contains(lines[2], notInYourCode) ||
-		strings.Contains(lines[1], notInYourCode) || strings.Contains(lines[3], notInYourCode) {
+	if !strings.Contains(lines[1], notInYourCode) || !strings.Contains(lines[2], notInYourCode) ||
+		strings.Contains(lines[3], notInYourCode) {
 		t.Errorf("got\n%s", out.String())
 	}
-	out.Reset()
-	printUndeclared(&out, []string{`home.Device("attic-fan").Hardware("zigbee", "0x1")`})
-	if want := "To name, place or type a device that's not in your code, declare it in your home:\n" +
-		`  home.Device("attic-fan").Hardware("zigbee", "0x1")` + "\n"; out.String() != want {
-		t.Errorf("got\n%s", out.String())
-	}
-	raw, err := json.Marshal(listed(list, deviceMarks{}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(raw), `"name":"attic-fan"`) || strings.Count(string(raw), `"declared":false`) != 2 ||
-		strings.Count(string(raw), `"declared":true`) != 1 {
-		t.Errorf("got %s", raw)
+	if !slices.Equal(undeclared, []string{"hardware/simulator/k", "hardware/zigbee/0x1"}) {
+		t.Errorf("got %q", undeclared)
 	}
 }
 
-func TestTypesNamesDevicesAsYourHomeDeclaresThem(t *testing.T) {
+// oikade types leaves out the devices your code declares, read from its build, or from its source
+// when it doesn't build.
+func TestTypesLeavesOutTheDevicesYourCodeDeclares(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module home\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	list := registry.Snapshot{Next: 3, Devices: []registry.Device{
-		{Name: "lamp-2", AppName: "lamp-2", ID: "0x2", Driver: "plugin/zigbee", Endpoint: 2, Capabilities: []string{"on"}},
+	list := registry.Snapshot{Next: 4, Devices: []registry.Device{
+		{AppName: "Lampe", ID: "0x2", Driver: "plugin/zigbee", Endpoint: 2, Capabilities: []string{"on"}},
+		{AppName: "Prise", ID: "0x3", Driver: "plugin/zigbee", Endpoint: 3, Capabilities: []string{"on"}},
 	}}
 	declares := func(context.Context) (wire.Manifest, error) {
-		return wire.Manifest{Inventory: []wire.DeviceDeclaration{{Name: "porch-light", Plugin: "zigbee", ID: "0x2"}}}, nil
+		return wire.Manifest{Inventory: []wire.DeviceDeclaration{{Hardware: "zigbee/0x2", Room: "porch"}}}, nil
 	}
 	var stderr bytes.Buffer
-	got := declaredIn(t.Context(), &stderr, dir, list, declares)
-	if len(got.Devices) != 1 || got.Devices[0].Name != "porch-light" || list.Devices[0].Name != "lamp-2" {
+	got := undeclaredIn(t.Context(), &stderr, dir, list, declares)
+	if len(got.Devices) != 1 || got.Devices[0].Key() != "zigbee/0x3" || len(list.Devices) != 2 {
 		t.Errorf("got %+v, from %+v", got.Devices, list.Devices)
 	}
-	// Code that already names the new handle doesn't build until oikade types writes it, so the
-	// declarations come from the source.
 	broken := func(context.Context) (wire.Manifest, error) {
-		return wire.Manifest{}, errors.New("undefined: PorchLight")
+		return wire.Manifest{}, errors.New("undefined: Prise")
 	}
-	code := "package main\n\nfunc main() {\n\thome.Device(\"porch-light\").\n" +
-		"\t\tHardware(\"zigbee\", \"0x2\").Room(\"porch\")\n\t_ = PorchLight.On\n}\n"
+	code := "package main\n\nvar Lampe = oikade.Device[oikade.OnOffLight](\"zigbee/0x2\")\n\n" +
+		"func main() { _ = Prise.On }\n"
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(code), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	stderr.Reset()
-	got = declaredIn(t.Context(), &stderr, dir, list, broken)
-	if got.Devices[0].Name != "porch-light" || got.Devices[0].Room != "porch" ||
-		!strings.Contains(stderr.String(), "its 1 device declarations are read from its source") {
-		t.Errorf("got %+v, and said %q", got.Devices, stderr.String())
-	}
-	// Hardware your code declares with oikade.Device it names itself, so it has no handle.
-	byHardware := func(context.Context) (wire.Manifest, error) {
-		return wire.Manifest{Inventory: []wire.DeviceDeclaration{{Hardware: "zigbee/0x2", Room: new("porch")}}}, nil
-	}
-	if got := declaredIn(t.Context(), &stderr, dir, list, byHardware); len(got.Devices) != 0 {
-		t.Errorf("got %+v", got.Devices)
-	}
-	// Even when the host would refuse the declarations.
-	refused := func(context.Context) (wire.Manifest, error) {
-		return wire.Manifest{Inventory: []wire.DeviceDeclaration{
-			{Hardware: "zigbee/0x2"}, {Name: "attic-fan", Plugin: "zigbee", ID: "0x2"},
-		}}, nil
-	}
-	stderr.Reset()
-	if got := declaredIn(t.Context(), &stderr, dir, list, refused); len(got.Devices) != 0 || len(list.Devices) != 1 ||
-		!strings.Contains(stderr.String(), "would refuse") {
+	got = undeclaredIn(t.Context(), &stderr, dir, list, broken)
+	if len(got.Devices) != 1 || got.Devices[0].Key() != "zigbee/0x3" ||
+		!strings.Contains(stderr.String(), "its 1 devices are read from its source") {
 		t.Errorf("got %+v, and said %q", got.Devices, stderr.String())
 	}
 	// Outside a module there's nothing to build, and it says so.
 	stderr.Reset()
-	outside := declaredIn(t.Context(), &stderr, t.TempDir(), list, broken)
-	if outside.Devices[0].Name != "lamp-2" || !strings.Contains(stderr.String(), "--module") {
+	if outside := undeclaredIn(t.Context(), &stderr, t.TempDir(), list, broken); len(outside.Devices) != 2 ||
+		!strings.Contains(stderr.String(), "--module") {
 		t.Errorf("got %+v, and said %q", outside.Devices, stderr.String())
 	}
 }
@@ -219,10 +192,8 @@ func TestDeclarationsAreReadFromTheSource(t *testing.T) {
 
 import "oikade.dev"
 
-func declare(home *oikade.Home, name string) {
-	home.Device("study-blind").Hardware("overkiz", "io://1").Room("study").Is(oikade.WindowCovering{})
-	home.Device("shed-fan")
-	home.Device(name).Room("hall") // not a literal, so not read
+func lamp(hardware string) oikade.OnOffLight {
+	return oikade.Device[oikade.OnOffLight](hardware) // not a literal, so not read
 }
 
 var (
@@ -241,12 +212,7 @@ var (
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []wire.DeviceDeclaration{
-		{Name: "study-blind", Plugin: "overkiz", ID: "io://1", Room: new("study"), DeviceType: "WindowCovering"},
-		{Name: "shed-fan"},
-		{Hardware: "hue/0x2"},
-		{Hardware: "hue/0x3"},
-	}
+	want := []wire.DeviceDeclaration{{Hardware: "hue/0x2"}, {Hardware: "hue/0x3"}}
 	g, _ := json.Marshal(got)
 	if w, _ := json.Marshal(want); string(g) != string(w) {
 		t.Errorf("got %s, want %s", g, w)
@@ -257,27 +223,24 @@ func TestStatusMarksADeviceNotInYourCode(t *testing.T) {
 	var out, stderr bytes.Buffer
 	printStatus(cli.Plain(&out, 0), cli.Plain(&stderr, 0), &api.Status{Devices: []api.Device{
 		{
-			Hardware: "zigbee/0x1", Ref: "hardware/zigbee/0x1", Declare: `home.Device("attic-fan").Hardware("zigbee", "0x1")`,
+			Hardware: "zigbee/0x1", Ref: "hardware/zigbee/0x1", Undeclared: true,
 			Capabilities: []api.Capability{{Name: "on", Value: true}, {Name: "power"}},
 		},
-		{Hardware: "zigbee/0x2", Ref: "hardware/zigbee/0x2", Declare: `home.Device("new-plug").Hardware("zigbee", "0x2")`},
+		{Hardware: "zigbee/0x2", Ref: "hardware/zigbee/0x2", Undeclared: true},
 	}}, false, time.Now())
 	if strings.Count(out.String(), notInYourCode) != 2 ||
 		!strings.Contains(out.String(), "hardware/zigbee/0x1        on true  "+notInYourCode) {
 		t.Errorf("want each device marked once:\n%s", out.String())
 	}
-	// How to declare them is oikade list devices' to say.
-	const once = "\n2 devices aren't in your code: oikade list devices shows how to declare them\n"
-	if !strings.HasSuffix(stderr.String(), once) ||
-		strings.Contains(stderr.String(), "home.Device") {
+	if once := "\n2 devices aren't in your code: oikade types adds them\n"; !strings.HasSuffix(stderr.String(), once) {
 		t.Errorf("got:\n%s", stderr.String())
 	}
 }
 
 func TestDevicesShowTheirHardwareByItsRef(t *testing.T) {
 	list := registry.Snapshot{Devices: []registry.Device{
-		{Name: "study-blind", ID: "io://0812-4471-2093/5", Driver: "plugin/overkiz", Endpoint: 2},
-		{Name: "kettle", ID: "k", Driver: "simulated/simulator", Endpoint: 3},
+		{ID: "io://0812-4471-2093/5", Driver: "plugin/overkiz", Endpoint: 2},
+		{ID: "k", Driver: "simulated/simulator", Endpoint: 3},
 	}}
 	const ref = "hardware/overkiz/io:%2F%2F0812-4471-2093%2F5"
 	var out bytes.Buffer

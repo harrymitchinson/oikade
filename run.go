@@ -94,7 +94,7 @@ func runAutomations(ctx context.Context, h *Home, rules []*engine.Compiled, flow
 		Rules: names, Averages: averageNames, Signals: signalNames, Info: h.manifest().Rules, Control: settings,
 		MatterName:       h.options.MatterName,
 		HiddenFromMatter: h.hiddenFromMatter(),
-		Inventory:        h.inventory(),
+		Inventory:        inventory(),
 	})
 	if err != nil {
 		return err
@@ -219,10 +219,7 @@ func runDev(h *Home) error {
 	if err != nil {
 		return err
 	}
-	devices, err := simhome.Declared(home.Inventory)
-	if err != nil {
-		return err
-	}
+	devices := simhome.Declared(home.Inventory)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	// Standard output is the conversation with you, so the log goes beside it.
@@ -243,10 +240,7 @@ func runReplay(h *Home) error {
 	if err != nil {
 		return err
 	}
-	devices, err := simhome.Declared(home.Inventory)
-	if err != nil {
-		return err
-	}
+	devices := simhome.Declared(home.Inventory)
 	// Errors only: a mistake in a condition is what explains a missing write, and a week of the rest
 	// would bury it.
 	log := logging.Text(os.Stderr, slog.LevelError)
@@ -273,7 +267,7 @@ func (h *Home) simulated() (simhome.Home, error) {
 	signals, _ := h.compileSignals()
 	return simhome.Home{
 		Compile: h.compile, Control: settings, Site: h.options.site(), Averages: averagesUsed, Signals: signals,
-		Inventory: h.inventory(),
+		Inventory: inventory(),
 	}, nil
 }
 
@@ -371,7 +365,7 @@ func deviceKey(name string) ident.ID {
 }
 
 func meta(d wire.Device, settings []wire.DeviceControl) hub.Meta {
-	m := hub.Meta{DisplayName: d.Name, Room: d.Room, Instance: hostInstance, DeviceTypes: slices.Clone(d.DeviceTypes)}
+	m := hub.Meta{Room: d.Room, Instance: hostInstance, DeviceTypes: slices.Clone(d.DeviceTypes)}
 	home := wire.SettingsFor(settings, d.Key, d.Room, d.DeviceTypes, d.Arbitrated)
 	for _, c := range d.Arbitrated {
 		// The host runs the arbiter, so only the name matters here to a claim. A budget plans around

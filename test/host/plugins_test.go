@@ -122,7 +122,7 @@ func TestAnImportedPluginsDevicesAreUsableAtOnce(t *testing.T) {
 	r.untilValue("relays/relay", false)
 	r.stdout(nil, "set", "hardware/relays/relay/on", "on")
 	r.untilValue("relays/relay", true)
-	if d := deviceOf(t, r.devices(), "relay"); d.Driver != "plugin/relays" || d.Endpoint == 0 ||
+	if d := deviceOf(t, r.devices(), "relays/relay"); d.Driver != "plugin/relays" || d.Endpoint == 0 ||
 		d.Manufacturer != "Oikade" || d.Model != "Simulated switch" || !strings.HasPrefix(d.SerialNumber, "SIM-") ||
 		d.FirmwareVersion != "1.0.0" {
 		t.Fatalf("got %+v", d)
@@ -326,11 +326,11 @@ func TestAControllerDrivesAPluginsDevice(t *testing.T) {
 	r.until("the commissioning window", func() bool { return r.matter().Window })
 	c := &controller{t: t, r: r, port: port, cm: nodetest.New(t)}
 	c.admin = c.cm.Commission(nodetest.Addr(port), r.matter().Passcode)
-	endpoint := c.endpoint("relay")
+	endpoint := c.endpoint("relays/relay")
 	if vendor, product := c.info(endpoint, 0x01), c.info(endpoint, 0x03); vendor != "Oikade" || product != "Simulated switch" {
 		t.Errorf("VendorName %v and ProductName %v, want what the plugin says", vendor, product)
 	}
-	relay := deviceOf(t, r.devices(), "relay")
+	relay := deviceOf(t, r.devices(), "relays/relay")
 	if serial, firmware := c.info(endpoint, 0x0F), c.info(endpoint, 0x0A); serial != "SIM-"+strings.ToUpper(relay.ID) ||
 		firmware != "1.0.0" {
 		t.Errorf("SerialNumber %v and SoftwareVersionString %v, want what the plugin says", serial, firmware)
@@ -349,7 +349,7 @@ func TestAHomeKeepsAPluginsDevicesOffMatter(t *testing.T) {
 	r.until("the commissioning window", func() bool { return r.matter().Window })
 	c := &controller{t: t, r: r, port: port, cm: nodetest.New(t)}
 	c.admin = c.cm.Commission(nodetest.Addr(port), r.matter().Passcode)
-	relay, valve := c.endpoint("relay"), c.endpoint("valve")
+	relay, valve := c.endpoint("relays/relay"), c.endpoint("relays/valve")
 	r.until("the relay on the bridge", func() bool { return len(c.deviceTypes(relay)) > 0 })
 
 	stderr, err := r.deploy("plugins-hidden")
@@ -358,7 +358,8 @@ func TestAHomeKeepsAPluginsDevicesOffMatter(t *testing.T) {
 	}
 	r.awaitDeployed()
 	// The plugin may have reported spare-relay by now, which would be in the list too.
-	if !strings.Contains(stderr, "Took hangs, once, panics, relay") || !strings.Contains(stderr, "off Matter") {
+	if !strings.Contains(stderr, "Took hardware/relays/hangs, hardware/relays/once, hardware/relays/panics, hardware/relays/relay") ||
+		!strings.Contains(stderr, "off Matter") {
 		t.Errorf("the deploy said:\n%s", stderr)
 	}
 	r.until("the relay off the bridge", func() bool { return len(c.deviceTypes(relay)) == 0 })
@@ -369,18 +370,16 @@ func TestAHomeKeepsAPluginsDevicesOffMatter(t *testing.T) {
 	r.setting("relays/relay", "on")
 	r.untilValue("relays/relay", true)
 	var listed []struct {
-		Name   string `json:"name"`
-		Driver string `json:"driver"`
-		Matter *bool  `json:"matter"`
+		Hardware string `json:"hardware"`
+		Matter   *bool  `json:"matter"`
 	}
 	if err := json.Unmarshal(r.stdout(nil, "list", "devices", "--json"), &listed); err != nil {
 		t.Fatal(err)
 	}
 	for _, d := range listed {
-		// Each plugin reports a spare relay, so which is whose is by driver.
-		hidden := d.Driver == "plugin/relays" && d.Name != "valve"
+		hidden := strings.HasPrefix(d.Hardware, "relays/") && d.Hardware != "relays/valve"
 		if hidden != (d.Matter != nil && !*d.Matter) {
-			t.Errorf("%s: matter is %v", d.Name, d.Matter)
+			t.Errorf("%s: matter is %v", d.Hardware, d.Matter)
 		}
 	}
 
@@ -401,7 +400,7 @@ func TestAHomeKeepsAPluginsDevicesOffMatter(t *testing.T) {
 	}
 	r.awaitDeployed()
 	r.until("the relay back on the bridge", func() bool { return len(c.deviceTypes(relay)) > 0 })
-	if got := c.endpoint("relay"); got != relay {
+	if got := c.endpoint("relays/relay"); got != relay {
 		t.Errorf("the relay came back on endpoint %d, not %d", got, relay)
 	}
 	if strings.Contains(stderr, "off Matter") {
@@ -440,7 +439,7 @@ func TestAFailedDeployLeavesThePluginsDevicesOnMatter(t *testing.T) {
 	if n := r.count("Removed bridged device"); n != 0 {
 		t.Errorf("a version that never settled took %d devices off the bridge. The log:\n%s", n, r.dump())
 	}
-	if got := deviceOf(t, r.devices(), "relay"); got.ID == "" {
+	if got := deviceOf(t, r.devices(), "relays/relay"); got.ID == "" {
 		t.Errorf("relay: %+v", got)
 	}
 }
@@ -560,7 +559,7 @@ func TestAVersionThatDropsAPluginSaysWhatItLeftBehind(t *testing.T) {
 
 	// Once nothing imports it, the list and status say so, rather than just offline.
 	type listed struct {
-		Name              string `json:"name"`
+		Hardware          string `json:"hardware"`
 		PluginNotImported bool   `json:"pluginNotImported"`
 	}
 	r.until("relay to be marked", func() bool {
@@ -568,7 +567,7 @@ func TestAVersionThatDropsAPluginSaysWhatItLeftBehind(t *testing.T) {
 		if err := json.Unmarshal(r.stdout(nil, "list", "devices", "--json"), &list); err != nil {
 			t.Fatal(err)
 		}
-		return slices.Contains(list, listed{Name: "relay", PluginNotImported: true})
+		return slices.Contains(list, listed{Hardware: "relays/relay", PluginNotImported: true})
 	})
 	if !slices.ContainsFunc(r.status().Devices, func(d api.Device) bool { return d.Hardware == "relays/relay" && d.PluginNotImported }) {
 		t.Fatal("status doesn't mark relay")
@@ -580,7 +579,7 @@ func TestAVersionThatDropsAPluginSaysWhatItLeftBehind(t *testing.T) {
 	r.stdout(nil, "forget", "--plugin", "relays", "--allow-safety")
 	for _, d := range r.devices().Devices {
 		if d.Driver == "plugin/relays" && !d.Removed {
-			t.Errorf("%s stayed", d.Name)
+			t.Errorf("%s stayed", d.Key())
 		}
 	}
 }

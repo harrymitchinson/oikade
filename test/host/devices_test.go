@@ -24,15 +24,25 @@ func (r *rig) devices() registry.Snapshot {
 	return list
 }
 
-func deviceOf(t *testing.T, list registry.Snapshot, name string) registry.Device {
+// deviceOf is the device on record with the key, or else the one with the ID.
+func deviceOf(t *testing.T, list registry.Snapshot, ref string) registry.Device {
 	t.Helper()
+	var found []registry.Device
 	for _, d := range list.Devices {
-		if d.Name == name && !d.Removed {
+		if d.Removed {
+			continue
+		}
+		if d.Key() == ref {
 			return d
 		}
+		if d.ID == ref {
+			found = append(found, d)
+		}
 	}
-	t.Fatalf("no %s in %+v", name, list)
-	return registry.Device{}
+	if len(found) != 1 {
+		t.Fatalf("%d devices are %s in %+v", len(found), ref, list)
+	}
+	return found[0]
 }
 
 // pair simulates pairing hardware, and waits until the host has it.
@@ -259,7 +269,7 @@ func TestRemovingARoomsLastSensorWarnsOfTheHoldsThatReadIt(t *testing.T) {
 		t.Errorf("got %v: %q, want no warning while the cellar has a sensor", err, stderr)
 	}
 	for _, d := range r.devices().Devices {
-		if d.Name == "damp-sensor" && !d.Removed {
+		if d.ID == "damp-sensor" && !d.Removed {
 			t.Errorf("damp-sensor is still on record: %+v", d)
 		}
 	}

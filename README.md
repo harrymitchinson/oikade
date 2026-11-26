@@ -21,7 +21,7 @@ Your home is a Go module of decisions and flows. It compiles, runs in tests on a
 └───────────────────┘     └─────────────────────────┘     └──────────────────────────────┘
 ```
 
-- **`oikade-host`** is long-lived, one per home. It owns everything that must survive: which devices exist, their names and rooms, claims, and Matter's pairing. It serves Matter, an API on a local socket and over TLS on the network, and metrics on `:8080`.
+- **`oikade-host`** is long-lived, one per home. It owns everything that must survive: which devices exist, their rooms and Matter endpoints, claims, and Matter's pairing. It serves Matter, an API on a local socket and over TLS on the network, and metrics on `:8080`.
 - **Your automations** are your module's binary. The host starts it, restarts it if it dies, and swaps it on a deploy, while Matter stays up and your devices stay as they are.
 - **Plugins** connect device platforms. Each runs as a process of its own, so one that hangs is restarted while the rest carry on.
 - **`oikade`** is the CLI: `init`, `test`, `dev`, `deploy`, `status` and the rest. It reaches the host over its API.
@@ -105,7 +105,7 @@ The guides go on from here, in order: more automations, how to test them, then a
 1. [Automations](docs/automations.md): decisions, conditions, times of day, arbitration, budgets, groups and rooms
 2. [Writing flows](docs/writing-flows.md): automations as ordinary Go that survive a crash
 3. [Testing a home](docs/testing.md): `oikade check`, `oikadetest`, `oikade dev` and `oikade replay`
-4. [Devices](docs/devices.md): names, refs, declaring devices in code, capabilities and the Matter bridge
+4. [Devices](docs/devices.md): refs, declaring devices in code, capabilities and the Matter bridge
 5. [Running a home](docs/running-a-home.md): installing the host, deploying, your values, CI, upgrades and backups
 6. [Working with a running home](docs/working-with-a-home.md): `status`, `history`, `tail`, `set` and `pause`
 7. [A host on a Raspberry Pi](docs/deploy-raspberry-pi.md): from a bare Pi to a paired home, step by step

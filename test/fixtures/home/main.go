@@ -318,6 +318,14 @@ func declareByHardware(h *oikade.Home) {
 			oikade.OnOffPlugInUnit
 			Temperature oikade.Number
 		}](hardware("relays", valve))
+	case "plugins-landing":
+		oikade.Device[oikade.OnOffPlugInUnit](hardware("quiet", "quiet.needs-setup"), oikade.Room("landing"))
+	case "plugins-porch-plug":
+		oikade.Device[oikade.OnOffPlugInUnit](hardware("relays", "relay"), oikade.Room("porch"))
+	case "plugins-porch-light":
+		oikade.Device[oikade.OnOffLight](hardware("relays", "relay"), oikade.Room("porch"))
+	case "plugins-declared":
+		oikade.Device[oikade.OnOffLight](hardware("relays", "relay"), oikade.Room("porch"), oikade.Label("Porch light"))
 	case "cuisine":
 		cuisine := oikade.Room("cuisine")
 		oikade.Device[oikade.OccupancySensor](sim("cuisine-motion"), cuisine)
@@ -341,25 +349,21 @@ func home() *oikade.Home {
 		options.MatterName = "Cottage"
 	}
 	h := oikade.NewHome(options)
-	// The valve under the name the home declares for it, which tests rename, or move onto the spare
-	// relay, with a Safety claim on it. Its handle has its hardware, which a rename leaves as it is.
-	valve, valveHandle := valve, valve
+	// The valve, with a Safety claim on it, which tests declare, and swap for the spare relay.
+	valveHandle := sim(valve)
 	if plugins {
 		valveHandle = hardware("relays", valve)
 	}
+	quiet := hardware("quiet", "quiet.needs-setup")
 	switch variant {
 	case "plugins-mains":
-		valve = "mains-valve"
-		h.Device(valve).Hardware("relays", "valve")
+		oikade.Device[oikade.OnOffPlugInUnit](valveHandle, oikade.Room("utility"), oikade.Label("Mains valve"))
 	case "plugins-valve":
-		h.Device(valve).Hardware("relays", "valve")
+		oikade.Device[oikade.OnOffPlugInUnit](valveHandle)
 	case "plugins-swapped":
-		h.Device(valve).Hardware("relays", "spare-relay")
 		valveHandle = hardware("relays", "spare-relay")
-	case "plugins-landing":
-		h.Device("quiet").Hardware("quiet", "quiet.needs-setup").Room("landing")
+		oikade.Device[oikade.OnOffPlugInUnit](valveHandle)
 	}
-	quiet := hardware("quiet", "quiet.needs-setup")
 
 	h.Flow("routine", routine).When(open("flow-go"))
 	h.Flow("editable", editable).When(open("edit-go"))
@@ -371,8 +375,8 @@ func home() *oikade.Home {
 		h.Flow(parkedName, parked).When(open("park-go"))
 	}
 	h.Flow("reset", func(r *oikade.FlowRun) {
-		r.Release(valve + " on " + leakShutoff)
-		r.Release("siren on leak-alarm")
+		r.Release(valveHandle + " on " + leakShutoff)
+		r.Release(sim("siren") + " on leak-alarm")
 	}).When(open("reset"))
 	h.Flow(claimMoment, setting(on("claimed").To(false).For(time.Hour))).When(open("claim-go"))
 	h.Flow("study-setback", setting(studyHeater.To(18))).When(open("study-go"))
@@ -464,18 +468,11 @@ func home() *oikade.Home {
 
 	// The porch's plugs are switched off at Safety on a leak, and a test declares the relay there
 	// as a plug, then as a light, which the hold would no longer reach.
-	if porch, ok := map[string]oikade.DeviceType{
-		"plugins-porch-plug": oikade.OnOffPlugInUnit{}, "plugins-porch-light": oikade.OnOffLight{},
-	}[variant]; ok {
-		h.Device("relay").Hardware("relays", "relay").Room("porch").Is(porch)
+	if strings.HasPrefix(variant, "plugins-porch-") {
 		h.Decide(h.Room(oikade.Room("porch"), oikade.Plugs).On).
 			Case("porch-leak", false, open("leak-sensor")).
 			OverrideFor(time.Hour).
 			Default(true)
-	}
-	if variant == "plugins-declared" {
-		h.Device("porch-relay").Hardware("relays", "relay").Room("porch").Is(oikade.OnOffLight{})
-		h.Device("shed-fan").Room("shed")
 	}
 	declareByHardware(h)
 	switch {
@@ -483,7 +480,7 @@ func home() *oikade.Home {
 		imported := h.Plugin("relays", faultyRelays)
 		if strings.Contains(variant, "hidden") {
 			// As a platform that puts its devices in the Home app itself, but one.
-			imported.HideFromMatter().ShowOnMatter(valve)
+			imported.HideFromMatter().ShowOnMatter(oikade.Device[oikade.OnOffPlugInUnit](valveHandle))
 		}
 		h.Plugin("quiet", quietRelays)
 	case variant == "zigbee":

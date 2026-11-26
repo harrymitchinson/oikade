@@ -45,11 +45,14 @@ func listings(now time.Time) []listing {
 		{kindDevices, func(out, stderr *cli.Printer, empty, asJSON bool) error {
 			list, marks := aHome()
 			if empty {
-				list.Devices = []registry.Device{{Name: "old-plug", Removed: true}}
+				list.Devices = []registry.Device{{ID: "p", Driver: "plugin/ewelink-lan", Removed: true}}
 			}
 			resp := api.Response{Registry: &list, Unimported: []api.Unimported{{Device: "porch-light"}}}
-			for name := range marks.hidden {
-				resp.HiddenFromMatter = append(resp.HiddenFromMatter, name)
+			for key := range marks.hidden {
+				resp.HiddenFromMatter = append(resp.HiddenFromMatter, key)
+			}
+			for key := range marks.declared {
+				resp.Declared = append(resp.Declared, key)
 			}
 			return printDeviceList(out, stderr, resp, listOptions{json: asJSON})
 		}},
@@ -129,7 +132,12 @@ func TestListJSONIsAnArray(t *testing.T) {
 		if !strings.HasPrefix(out.String(), "[{") || stderr.Len() != 0 {
 			t.Errorf("list %s --json: %s%s", l.kind, out.String(), stderr.String())
 		}
-		if l.kind != kindContexts && strings.Count(out.String(), `"ref":"`) != strings.Count(out.String(), `"name":"`) {
+		// A device has its hardware's ID where the rest have a name.
+		each := map[string]string{kindDevices: `"id":"`}[l.kind]
+		if each == "" {
+			each = `"name":"`
+		}
+		if l.kind != kindContexts && strings.Count(out.String(), `"ref":"`) != strings.Count(out.String(), each) {
 			t.Errorf("list %s --json has a thing with no ref: %s", l.kind, out.String())
 		}
 		out.Reset()
@@ -184,8 +192,8 @@ func TestAWordFromElsewhereNamesTheCommand(t *testing.T) {
 // A forgotten device is listed only with --all, and a list without one says it's there.
 func TestListDevicesLeavesForgottenOnesOut(t *testing.T) {
 	list := registry.Snapshot{Devices: []registry.Device{
-		{Name: "hall-lamp", ID: "l", Driver: "plugin/ewelink-lan", Endpoint: 2},
-		{Name: "old-plug", ID: "p", Driver: "plugin/ewelink-lan", Endpoint: 3, Removed: true},
+		{ID: "l", Driver: "plugin/ewelink-lan", Endpoint: 2},
+		{ID: "p", Driver: "plugin/ewelink-lan", Endpoint: 3, Removed: true},
 	}}
 	var out, stderr bytes.Buffer
 	resp := api.Response{Registry: &list}

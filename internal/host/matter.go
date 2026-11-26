@@ -1,6 +1,7 @@
 package host
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -326,8 +327,8 @@ func (m *matterBridge) Discovered(ident.ID, driver.Info) { m.changed() }
 func (m *matterBridge) Reassigned(ident.ID) { m.changed() }
 
 // want is what should be on the bridge. A device on record stays there while its driver is away, so
-// controllers don't see it vanish, and only reserved and removed ones, and those the home hides from
-// Matter, are left out. A hidden one keeps its endpoint on record, so it comes back as the same
+// controllers don't see it vanish, and only removed ones, and those the home hides from Matter, are
+// left out. A hidden one keeps its endpoint on record, so it comes back as the same
 // device if it's shown again.
 func (m *matterBridge) want() map[uint16]matterbridge.Device {
 	out := map[uint16]matterbridge.Device{}
@@ -339,9 +340,9 @@ func (m *matterBridge) want() map[uint16]matterbridge.Device {
 		dev := devKey(d)
 		snap, live := m.devices.Get(dev)
 		out[d.Endpoint] = matterbridge.Device{
-			Key: dev, Endpoint: d.Endpoint, Name: d.Name, Label: d.Label, Capabilities: d.Capabilities,
+			Key: dev, Endpoint: d.Endpoint, Name: cmp.Or(d.AppName, d.ID), Label: d.Label, Capabilities: d.Capabilities,
 			Type: devicetype.OnOffOf(d.DeviceType, d.DriverDeviceType, d.Capabilities),
-			// A name can move, and an endpoint can't, so a controller keeps its device through either.
+			// An endpoint stays with its hardware, so a controller keeps its device through a rename.
 			Unique:  matterbridge.UniqueID(m.id.UniqueID + "/" + strconv.Itoa(int(d.Endpoint))),
 			Absent:  !live || !snap.Discovered,
 			Product: d.Product,

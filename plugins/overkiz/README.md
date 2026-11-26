@@ -36,7 +36,7 @@ TAHOMA_TOKEN=…
 
 **The hub's certificate is checked,** so nothing else on your network can pose as the hub and take its token. Overkiz signs each hub's certificate for its name, `gateway-<pin>.local`, and the plugin carries Overkiz's root certificate and checks that name against the PIN. Without a PIN it can only check that Overkiz signed the certificate, so any TaHoma hub's would pass, and it logs a warning saying so. A certificate it refuses shows in `oikade status`, with the names it gives and what to check.
 
-**A TaHoma hub puts its devices in the Home app itself,** so on Oikade's Matter bridge too they'd show twice. `HideFromMatter()` keeps them off the bridge, and `ShowOnMatter(names...)` names any TaHoma doesn't share ([Hiding a plugin's devices from Matter](../../docs/devices.md#hiding-a-plugins-devices-from-matter)).
+**A TaHoma hub puts its devices in the Home app itself,** so on Oikade's Matter bridge too they'd show twice. `HideFromMatter()` keeps them off the bridge, and `ShowOnMatter(devices...)` takes the `oikade.Device` lines of any TaHoma doesn't share ([Hiding a plugin's devices from Matter](../../docs/devices.md#hiding-a-plugins-devices-from-matter)).
 
 ## Setting up a Cozytouch account
 

@@ -189,7 +189,9 @@ func TestStatusTakesAHardwareRefAndARoom(t *testing.T) {
 		t.Fatalf("oikade list devices: %v\n%s", err, out)
 	}
 	out, err = run(t, bin, dir, "", "status", "hardware/simulator/porch-light", "--data-dir", data)
-	if err != nil || !strings.HasPrefix(out, "hardware/simulator/porch-light\n") || strings.Contains(out, "Plafond") {
+	// No home is attached, so nothing is in its code.
+	if err != nil || !strings.HasPrefix(out, "hardware/simulator/porch-light: not in your code\n") ||
+		strings.Contains(out, "Plafond") {
 		t.Errorf("oikade status hardware/simulator/porch-light: %v\n%s", err, out)
 	}
 	if out, err := run(t, bin, dir, "", "types", "--data-dir", data); err != nil {

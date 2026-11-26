@@ -21,7 +21,7 @@ func TestTypesAddsALineForEachNewDevice(t *testing.T) {
 		name: "Cuisine détecteur", key: "hue/0x1", room: "cuisine", typ: devicetype.OccupancySensor,
 		more: []string{"battery", "temperature"},
 	}
-	prise := newDevice{name: registry.Slug("", "1002a9b9e2"), key: "ewelink/1002a9b9e2", typ: devicetype.OnOffPlugInUnit}
+	prise := newDevice{name: "1002a9b9e2", key: "ewelink/1002a9b9e2", typ: devicetype.OnOffPlugInUnit}
 	salon := newDevice{name: "Salon", key: "toshibaac/ac1", room: "salon", typ: devicetype.RoomAirConditioner}
 
 	got, added, err := addDevices(nil, "main", nil, []newDevice{plafond, capteur, prise, salon})
@@ -104,20 +104,19 @@ func TestTypesRefusesAFileThatIsntGo(t *testing.T) {
 
 func TestTypesNamesEachDeviceFromItsApp(t *testing.T) {
 	list := registry.Snapshot{Devices: []registry.Device{
-		{Name: "old-name", AppName: "Salon - Lampe d'appoint", ID: "0x1", Driver: "plugin/hue", Room: "salon",
+		{AppName: "Salon - Lampe d'appoint", ID: "0x1", Driver: "plugin/hue", Room: "salon",
 			Capabilities: []string{"on", "brightness", "link-quality", "from-a-newer-plugin"}},
-		{Name: "pool-pump", Declared: true, ID: "1002a9b9e2", Driver: "plugin/ewelink", Capabilities: []string{"on"}},
-		{Name: "unseen", ID: "0x9", Driver: "plugin/hue"},
-		{Name: "reserved"},
-		{Name: "gone", ID: "0x8", Driver: "plugin/hue", Removed: true, Capabilities: []string{"on"}},
+		{ID: "1002a9b9e2", Driver: "plugin/ewelink", Capabilities: []string{"on"}},
+		{ID: "0x9", Driver: "plugin/hue"},
+		{ID: "0x8", Driver: "plugin/hue", Removed: true, Capabilities: []string{"on"}},
 	}}
 	devices, unknown := toAdd(list)
 	want := []newDevice{
 		{
-			name: "salon-lampe-d-appoint", key: "hue/0x1", room: "salon", typ: devicetype.DimmableLight,
+			name: "Salon - Lampe d'appoint", key: "hue/0x1", room: "salon", typ: devicetype.DimmableLight,
 			more: []string{"link-quality"},
 		},
-		{name: "pool-pump", key: "ewelink/1002a9b9e2", typ: devicetype.OnOffPlugInUnit},
+		{name: "1002a9b9e2", key: "ewelink/1002a9b9e2", typ: devicetype.OnOffPlugInUnit},
 	}
 	if len(devices) != len(want) || len(unknown) != 1 || unknown[0].Key() != "hue/0x9" {
 		t.Fatalf("got %+v, and %v", devices, unknown)
@@ -149,11 +148,8 @@ func hash8(ref string) string {
 }
 
 func TestTypesSaysWhatItAddedAndWhatToDoNext(t *testing.T) {
-	list := registry.Snapshot{Devices: []registry.Device{
-		{Name: "pool-pump", Declared: true, ID: "1002a9b9e2", Driver: "plugin/ewelink"},
-	}}
 	got := added{
-		names:   map[string]string{"ewelink/1002a9b9e2": "PoolPump", "toshibaac/ac1": "Salon96196d18"},
+		names:   map[string]string{"ewelink/1002a9b9e2": "PriseGarage", "toshibaac/ac1": "Salon96196d18"},
 		rooms:   []string{"Salon"},
 		clashed: []string{"Salon96196d18"},
 	}
@@ -161,12 +157,11 @@ func TestTypesSaysWhatItAddedAndWhatToDoNext(t *testing.T) {
 	unknown := []registry.Device{
 		{ID: "0x9", Driver: "plugin/hue"}, {ID: "0x7", Driver: "plugin/hue", Capabilities: []string{"battery"}},
 	}
-	printAdded(printerOf(&b), "devices.go", true, true, list, got, unknown)
+	printAdded(printerOf(&b), "devices.go", true, true, got, unknown)
 	for _, want := range []string{
 		"Would replace devices.go, which an older oikade types wrote",
-		"Would add 2 devices and 1 room to devices.go: PoolPump and Salon96196d18",
+		"Would add 2 devices and 1 room to devices.go: PriseGarage and Salon96196d18",
 		"Salon96196d18 had a name that was taken",
-		`Delete home.Device("pool-pump") for PoolPump from your code`,
 		"Left out hue/0x9, which hasn't reported yet",
 		"Left out hue/0x7, as no device type fits",
 	} {
@@ -175,12 +170,12 @@ func TestTypesSaysWhatItAddedAndWhatToDoNext(t *testing.T) {
 		}
 	}
 	b.Reset()
-	printAdded(printerOf(&b), "devices.go", false, false, registry.Snapshot{}, added{}, nil)
+	printAdded(printerOf(&b), "devices.go", false, false, added{}, nil)
 	if !strings.Contains(b.String(), "devices.go has every device on record") {
 		t.Errorf("said %q", b.String())
 	}
 	b.Reset()
-	printAdded(printerOf(&b), "devices.go", false, false, registry.Snapshot{}, added{}, unknown)
+	printAdded(printerOf(&b), "devices.go", false, false, added{}, unknown)
 	if strings.Contains(b.String(), "every device") || !strings.Contains(b.String(), "Nothing to add to devices.go") {
 		t.Errorf("with devices left out, said %q", b.String())
 	}

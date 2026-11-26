@@ -352,8 +352,8 @@ type DevicesFile struct {
 }
 
 // DeclaredDevice is a device on record for the plugin, from its devices file or, for a plugin your
-// home imports, from the host. Name is its name in your home, DisplayName one for people, and Room
-// its room, if it has one.
+// home imports, from the host. Name is a name for it, from its app's name or its ID, DisplayName the
+// one people see, as Matter controllers show it, and Room its room, if it has one.
 type DeclaredDevice struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`

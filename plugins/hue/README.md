@@ -11,7 +11,6 @@ Each device appears in `oikade list devices` as `hardware/<plugin>/<ID>`, where 
    ```go
    home.Plugin("hue", hue.New(hue.Config{})).
    	HideFromMatter() // the Hue bridge puts these in the Home app itself
-   home.Device("hall-light").Hardware("hue", "0x7cc6b6fffecb1814").Room("hall").Is(oikade.OnOffLight{})
    ```
 
    Until it has a key for the bridge, `oikade status` says `Plugin hue needs setup: run oikade setup hue`.
@@ -26,6 +25,11 @@ Each device appears in `oikade list devices` as `hardware/<plugin>/<ID>`, where 
    ```
 
    Setup waits 2 minutes for the button. The bridge names the key `oikade#hue`, after the plugin.
+3. **Run `oikade types`,** which adds a line to `devices.go` for each of the bridge's devices, in its room in the Hue app:
+
+   ```go
+   var HallLight = oikade.Device[oikade.OnOffLight]("hue/0x7cc6b6fffecb1814", Hall)
+   ```
 
 **Setup finds the bridge over mDNS** on the host's network, or at `Address`. With more than one bridge and no `Address`, it lists them and asks which, by ID, as it does when the bridge it set up before doesn't answer. Run again while its key works, it changes nothing. A key removed in the Hue app, or a new bridge, needs setup again, and the bridge's button pressed.
 
@@ -39,7 +43,7 @@ Each device appears in `oikade list devices` as `hardware/<plugin>/<ID>`, where 
 
 ## What it reports
 
-A device's ID is its Zigbee MAC, as Zigbee2MQTT writes it, such as `0x7cc6b6fffecb1814`. It stays the same on a new bridge, and when a device moves from the Hue bridge to Zigbee2MQTT, so only the plugin's name in `Hardware` changes. Its manufacturer, model, firmware version, name and room are as the Hue app has them.
+A device's ID is its Zigbee MAC, as Zigbee2MQTT writes it, such as `0x7cc6b6fffecb1814`. It stays the same on a new bridge, and when a device moves from the Hue bridge to Zigbee2MQTT, so only the plugin in its line's hardware changes, from `hue/0x7cc6b6fffecb1814` to `zigbee/0x7cc6b6fffecb1814`. Its manufacturer, model, firmware version, name and room are as the Hue app has them.
 
 | On the bridge | Device type | Capabilities |
 |---|---|---|

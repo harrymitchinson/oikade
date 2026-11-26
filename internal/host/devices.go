@@ -41,8 +41,17 @@ type inventory struct {
 	// home is the device settings your home declares, which win over any on record.
 	home         []wire.DeviceControl
 	declarations *store.Namespace
-	// emit, if set, puts a forgotten device and a renamed one in the event log.
+	// declared are the keys of the devices the home last attached declares.
+	declared map[string]bool
+	// emit, if set, puts a forgotten device in the event log.
 	emit func(api.Event)
+}
+
+// isDeclared says the home last attached declares the device whose key that is.
+func (i *inventory) isDeclared(key string) bool {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return i.declared[key]
 }
 
 func (i *inventory) record(e api.Event) {
@@ -134,12 +143,10 @@ func (i *inventory) meta(d registry.Device) (hub.Meta, bool) {
 	var entries []control.Entry
 	if len(d.Control) > 0 {
 		if err := json.Unmarshal(d.Control, &entries); err != nil {
-			i.log.Error("Ignored unreadable arbitration settings", "err", err, "device", d.Name)
+			i.log.Error("Ignored unreadable arbitration settings", "err", err, "device", ident.DeviceRef(d.Key()))
 		}
 	}
-	return hub.Meta{
-		DisplayName: d.Name, Room: d.Room, Instance: instance, Control: i.withHome(d, entries), DeviceTypes: d.DeviceTypes(),
-	}, true
+	return hub.Meta{Room: d.Room, Instance: instance, Control: i.withHome(d, entries), DeviceTypes: d.DeviceTypes()}, true
 }
 
 // withHome is what's on record for a device, overlaid with what the home says: its own settings, and
@@ -324,8 +331,8 @@ func (i *inventory) forgetLocked(ctx context.Context, keys []string, allowSafety
 		case !ok && forgotten[key]:
 			refused = append(refused, fmt.Sprintf("%s is forgotten already", ident.DeviceRef(key)))
 		case !ok:
-			refused = append(refused, noDevice(i.registry, key).Error())
-		case d.Declared:
+			refused = append(refused, noDevice(key).Error())
+		case i.declared[d.Key()]:
 			// The next deploy, or start, would bring it back.
 			refused = append(refused, fmt.Sprintf("%s is declared in your home's code: delete its declaration and "+
 				"deploy, then forget it", ident.DeviceRef(key)))
@@ -356,9 +363,9 @@ func (i *inventory) forgetLocked(ctx context.Context, keys []string, allowSafety
 		}
 		f.Device, f.Ref = key, ident.DeviceRef(key).String()
 		f.Ended, _ = i.claimed(ident.ID{Name: key})
-		if err := i.registry.Remove(d.Name); err != nil {
+		if err := i.registry.Remove(key); err != nil {
 			if errors.Is(err, registry.ErrNoDevice) {
-				err = noDevice(i.registry, key)
+				err = noDevice(key)
 			}
 			problems = append(problems, err.Error())
 			break
@@ -389,6 +396,11 @@ func (s *apiServer) device(req api.Request) api.Response {
 			resp.SafetyHeld = p.safetyHeld(list)
 		}
 		resp.HiddenFromMatter = api.HiddenDevices(list, s.srv.options.hiddenFromMatter())
+		for _, d := range list.Devices {
+			if s.devices.isDeclared(d.Key()) {
+				resp.Declared = append(resp.Declared, d.Key())
+			}
+		}
 		return resp
 	case api.TypeForget:
 		return s.forget(req)

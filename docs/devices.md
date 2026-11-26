@@ -1,12 +1,12 @@
 # Devices
 
-What Oikade knows about each device, how you name, place and type it, and how it reaches the Home app through the Matter bridge.
+What Oikade knows about each device, how you place, type and label it, and how it reaches the Home app through the Matter bridge.
 
 ## How a device arrives
 
-The host keeps the list of devices, which it calls the record. A device you pair in its platform's app is on record the moment its plugin reports it, and usable at once. Its name and room are copied from the app once, each made into a [name](#names), so the app's `Living Room` is `living-room`. Oikade never writes to an app's names, or follows them after that.
+The host keeps the list of devices, which it calls the record. A device you pair in its platform's app is on record the moment its plugin reports it, and usable at once. A device is its hardware: the host knows it by its plugin and the ID its plugin gives it, and keeps no name of its own for it. Its name and room in its app are read once, and it's in its app's room, made into a [name](#names), so the app's `Living Room` is `living-room`. Oikade never writes to an app's names, or follows them after that.
 
-To name, place or type a device yourself, [declare it in your code](#declaring-devices-in-code), and a deploy applies that.
+To place, type or label a device yourself, [declare it in your code](#declaring-devices-in-code), and a deploy applies that.
 
 ## Listing devices
 
@@ -24,8 +24,7 @@ hardware/ewelink-lan/1000ddeeff                        Porch                plug
 hardware/overkiz/io:%2F%2F0812-4471-2093%2F5           Volet bureau  study  hidden from Matter        WindowCovering      position
 hardware/toshiba/5f1c0c2e-77b3-4f8e-9d4a-1b2c3d4e5f60  Bureau               paired, not in your code  RoomAirConditioner  mode, on, setpoint, temperature
 Hint: --wide shows ENDPOINT
-To name, place or type a device that's not in your code, declare it in your home:
-  home.Device("office-ac").Hardware("toshiba", "5f1c0c2e-77b3-4f8e-9d4a-1b2c3d4e5f60")
+hardware/toshiba/5f1c0c2e-77b3-4f8e-9d4a-1b2c3d4e5f60 isn't in your code: oikade types adds it
 Hint: oikade status shows what each is doing now, and what's wrong with it
 ```
 
@@ -34,11 +33,10 @@ Each device is its hardware's ref, which every command takes, then the name and 
 | STATE | |
 |---|---|
 | `paired` | On record with its hardware |
-| `reserved` | Your home declares the name, and it has no hardware yet. See [Reserving a name](#reserving-a-name) |
 | `forgotten` | You [forgot](#forgetting-a-device) it. Only `--all` lists it |
 | `plugin not imported` | The running version doesn't import its plugin. See [Removing a plugin](running-a-home.md#removing-a-plugin) |
 | `hidden from Matter` | Your home [keeps its plugin's devices off Matter](#hiding-a-plugins-devices-from-matter) |
-| `not in your code` | Your home doesn't declare it. The lines after the table say how to |
+| `not in your code` | Your home's code doesn't declare it, so it's in its app's room. [`oikade types`](#devices-in-your-code) adds it |
 
 The table keeps to the terminal's width, and is whole when piped. The endpoint, device types and capabilities columns go first, then the app's name shortens, then a long ref, and `--wide` shows them all.
 
@@ -46,7 +44,7 @@ The table keeps to the terminal's width, and is whole when piped. The endpoint, 
 
 - **What the plugin says it is:** its `manufacturer`, `model`, `serialNumber`, `firmwareVersion` and `hardwareVersion`. Each is kept while the plugin says nothing of it, so a device that's offline still has them, and the Home app shows them on the bridged device too.
 - **Where it came from:** its app's name and room as `appName` and `appRoom`, its hardware's ID as `id`, and its hardware as your code names it as `hardware`, such as `hue/0x2`, whose ref is its `ref`.
-- **Whether your home declares it,** as `declared`, and its room, as `roomDeclared`. `oikade status --json` has the line that would declare it as `declare`.
+- **Its room, type and label,** as `room`, `deviceType` and `label`, which are your code's for a device it declares. `oikade status --json` has `"undeclared": true` for one it doesn't.
 
 ## Devices in your code
 
@@ -65,7 +63,6 @@ oikade types --out - | less   # or read what devices.go would be first
 - **It's named from its app's name,** in plain letters, as Go needs: "Salon - Lampe d'appoint" is `SalonLampeDAppoint`, and one whose name can't start with a letter starts with `Device`, as `Device1002a9b9e2` does.
 - **A name that's taken,** as by a device named like its room, ends with the first 8 characters of a SHA-256 of its hardware's ref, as `Salon96196d18`, which never changes. `oikade types` says to rename it.
 - **Hardware your code names already** is left alone: whatever an `oikade.Device` line in your home's package names, and the hardware its build declares (`--module`, `.` by default), or its source when it doesn't build.
-- **Hardware `home.Device` declares** gets a line under its declared name, so code that uses it keeps compiling, and `oikade types` says to delete the `home.Device`, as a piece of hardware is declared one way.
 - **A device no device type fits,** such as a remote with only a battery, or one that hasn't reported yet, is left out, and `oikade types` says which. Name a capability of one yourself, as `oikade.Number{Device: "hue/0x7", Capability: oikade.Battery}`.
 - **A file an older `oikade types` wrote,** which starts `// Code generated by oikade types`, is replaced with lines for every device on record.
 - **`--out FILE` and `--package NAME`** say which file in your module it adds to, `devices.go` by default, and a new one's package, `main`. A file an older `oikade types` wrote keeps its package.
@@ -81,7 +78,7 @@ oikade forget --plugin relays    # every device of a plugin you no longer import
 
 Forgetting a device ends its claims and takes it off the Matter bridge, and `forget` says both. One that a Safety claim holds needs `--allow-safety`. A device stays on record until you forget it, reported or not.
 
-- **It keeps its endpoint,** so hardware that comes back gets its name, room and endpoint back.
+- **It keeps its endpoint,** so hardware that comes back gets its room and endpoint back.
 - **A plugin's device stays forgotten** while the plugin lists it, and comes back if it leaves the list and returns, as a device re-paired in its app does. `forget` says which.
 - **A simulated device** comes back when it next reports.
 - **A device your home declares is refused:** delete its declaration and deploy, then forget it.
@@ -93,11 +90,11 @@ A device its plugin says is offline shows as offline in `oikade status`, with wh
 
 ## Names
 
-Every name Oikade owns follows one rule: lowercase letters, digits and single dashes, starting with a letter, and at most 63 of them, such as `porch-light`. That's devices, rooms, groups, a decision's cases, flows, plugins and the API's clients, so a name needs no quoting anywhere you paste it. [Your values](running-a-home.md#your-values) have names of their own, as environment variables do, such as `TOSHIBA_PASSWORD`.
+Every name Oikade owns follows one rule: lowercase letters, digits and single dashes, starting with a letter, and at most 63 of them, such as `porch-light`. That's rooms, groups, a decision's cases, flows, plugins and the API's clients, so a name needs no quoting anywhere you paste it. A device has no name but its hardware's ref outside your code, and in it, its variable's. [Your values](running-a-home.md#your-values) have names of their own, as environment variables do, such as `TOSHIBA_PASSWORD`.
 
 `oikade check` refuses a name in your code that doesn't follow the rule, and `oikade-host add` and `--outside-plugins` refuse one on the command line. Each suggests a name that would do: `"Living Room" isn't a room name: use lowercase letters, digits and single dashes, starting with a letter, such as "living-room"`.
 
-Nothing rewrites a name you wrote. A name copied from an app is made into one instead: a letter with an accent becomes its letter, and each run of anything that's still not `a` to `z` or `0` to `9` a dash, so the app's `Entrée détecteur` is `entree-detecteur`. `oikade list devices --json` keeps the app's own as `appName` and `appRoom`.
+Nothing rewrites a name you wrote. A room copied from an app is made into one instead: a letter with an accent becomes its letter, and each run of anything that's still not `a` to `z` or `0` to `9` a dash, so the app's `Entrée & couloir` is `entree-couloir`. `oikade list devices --json` keeps the app's own name and room as `appName` and `appRoom`.
 
 ## Refs
 
@@ -113,13 +110,13 @@ A ref names one thing, by its kind and then its name, and any parts, each a URI 
 | A plugin, a client | `plugin/zigbee2mqtt`, `client/laptop` |
 | An outside change's claim: a Matter controller's, the device's own, `oikade set`'s | `matter`, `device`, `command` |
 
-- **Commands take refs:** `oikade status hardware/hue/0x2`. Only `oikade setup` takes a bare name, a plugin's, and `matter` is the Matter bridge. Outside your code, a device has no name but its hardware, so a rename in your code changes no ref.
+- **Commands take refs:** `oikade status hardware/hue/0x2`. Only `oikade setup` takes a bare name, a plugin's, and `matter` is the Matter bridge. Outside your code, a device has no name but its hardware, so renaming its variable changes no ref.
 - **Output prints them.** Each thing `--json` lists has its `ref`, and a claim's `source` in `oikade status --json` is one, so `oikade pause` takes a case's or a flow's straight from it. Answers and errors name a capability, a case or a flow by its ref, such as `hardware/hue/0x2/on is false, not true: case/hue/0x2/on/hall-too-humid holds it`.
 - **Your code prints them.** A handle's `String` is its ref: `CuisinePlafond.On` prints `hardware/hue/0x001788010f9c0392/on`, and a room's or a group's capability `room/hall/temperature` or `group/radiators/setpoint`.
 - **Logs and metrics use them.** Log lines give a device, a rule, a claim's source or an average as a ref (`device=hardware/hue/0x2`, `rule=case/hue/0x2/on/night`, `source=matter`, `average=hardware/hue/0x9/humidity over=10m`), and metrics' `device` and `rule` labels are refs.
-- **A simulated device** is the simulator's: `hardware/simulator/porch-light` for the device `porch-light` in `oikade-host --simulate`'s file. A reserved name, with no hardware yet, is `device/NAME`.
+- **A simulated device** is the simulator's: `hardware/simulator/porch-light` for the device `porch-light` in `oikade-host --simulate`'s file.
 
-Only a hardware ID is the plugin's and not Oikade's, so it's percent-encoded where it needs to be: the Overkiz ID `io://0812-4471-2093/5` is `hardware/overkiz/io:%2F%2F0812-4471-2093%2F5`, and `oikade.Device` takes it as `overkiz/io:%2F%2F0812-4471-2093%2F5`, as `--json` has it in `hardware`. `Hardware` in your code takes the plugin's name and the raw ID, as `id` in `--json` and the line `oikade list devices` gives an undeclared device have it.
+Only a hardware ID is the plugin's and not Oikade's, so it's percent-encoded where it needs to be: the Overkiz ID `io://0812-4471-2093/5` is `hardware/overkiz/io:%2F%2F0812-4471-2093%2F5`, and `oikade.Device` takes it as `overkiz/io:%2F%2F0812-4471-2093%2F5`, as `--json` has it in `hardware`. `--json` has the raw ID as `id`.
 
 ## Declaring devices in code
 
@@ -149,46 +146,37 @@ home.Decide(CuisinePlafond.On).Case("someone-in", true, Cuisine.Occupied.Any()).
 - **`oikade.Device[T](hardware, ...)` is a device.** Its hardware is its ref without `hardware/`, as `oikade list devices` shows it, and a simulated one's is `simulator/` and its ID. `T` is [what it is](#what-a-device-is), a struct with the capabilities a device of that type always has, or a struct of one and the device's other capabilities, named as in [Capabilities](#capabilities). Each is the hardware's, so `CuisinePlafond.On` is that lamp's, and a typo doesn't compile.
 - **Declare devices at package level.** Every device the program declares is its home's. Its name is its variable's, which only your code sees: the host knows it by its hardware, and keeps the name its app gives it.
 - **`oikade.Room(name)` is a room,** and the devices in it as a [group](automations.md#groups-and-rooms), so `Cuisine.Occupied.Any()` is true while anything in it senses someone. A device placed in it is there, and one with no room is in none, whatever its app says. `home.Room(Salon, oikade.Lights)` is some kinds of a room's devices.
-- **`oikade.Label(name)`** is the name Matter controllers, such as the Home app, show for it, in place of the one the host has.
+- **`oikade.Label(name)`** is the name Matter controllers, such as the Home app, show for it, in place of its app's name.
 
-`home.Device` declares a device by a name of your choosing, as the host keeps it, and can reserve a name for hardware that isn't paired yet:
-
-```go
-home.Device("porch-light").Hardware("zigbee", "0x00178801049a2b3c").Room("porch").Is(oikade.OnOffLight{})
-home.Device("greenhouse-fan").Room("greenhouse") // no hardware yet: the name is reserved
-```
-
-`Hardware` takes the name your home imports the device's plugin by, with `home.Plugin`, and the ID `oikade list devices --json` shows. Without `Room`, a declared device stays in its app's room, and `Room("")` puts it in none. `Is` takes one of the [six on/off types](#what-a-device-is). A piece of hardware is declared one way or the other, not both. Declaring is optional: a device you don't declare works under its app's name.
+A device your code doesn't declare works too: it's in its app's room, of the type its plugin says, and on Matter under its app's name, or else its ID.
 
 ### What a deploy does with them
 
-A deploy applies the declarations, matched by hardware, and lists what it changed: `Renamed lamp to porch-light`, `Moved porch-light to porch`, `Labelled salon-clim "Clim salon" on Matter`. The host keeps the declarations before applying them, so a host that stops in between applies them when it starts.
+A deploy applies the lines, matched by hardware, and lists what it changed: `Moved hardware/hue/0x2 to salon`, `Set hardware/ewelink/1000a1b2c3's device type to OnOffLight`, `Labelled hardware/toshibaac/ac1 "Clim salon" on Matter`. The host keeps the lines before applying them, so a host that stops in between applies them when it starts.
 
-- **A declared name keeps its Matter endpoint,** so the Home app keeps its room and scenes.
-- **A rename moves nothing.** The host keeps a device's claims, latches, pauses and averages by its hardware, not its name, so a Safety hold keeping `water-valve` closed holds it as `mains-valve`, with no `--allow-safety`, and your code's handles don't change.
-- **Stop declaring a device,** and the next deploy gives it back its app's name, or removes a reserved name.
+- **A device keeps its Matter endpoint,** so the Home app keeps its room and scenes.
+- **Renaming its variable changes nothing outside your code.** The host keeps a device's claims, latches, pauses and averages by its hardware, so a Safety hold keeping the mains valve closed holds it whatever your code calls it.
+- **Delete a device's line,** and the next deploy gives it back its app's room, its plugin's type and no label. It stays on record, `not in your code`.
 
 ### Swapping hardware
 
-Change a declaration's ID to swap a failed device for new hardware. The name, room and endpoint stay, so the Home app keeps its rooms and automations, and the new hardware's own entry goes. Claims don't: the host keeps them by hardware, so the new hardware's cases are new ones, and a Safety case on the old hardware is one gone, which the deploy refuses without `--allow-safety`. Hardware a declared name takes over keeps its own claims, as a rename does.
+Change a line's hardware to swap a failed device for new hardware, and the new hardware is a new device, with a Matter endpoint of its own. A controller sees it as a new accessory, to put in its room and scenes, and the old hardware keeps its own, on the bridge, until you [forget](#forgetting-a-device) it. Claims are kept by hardware too, so the new hardware's cases are new ones, and a Safety case on the old hardware is one gone, which the deploy refuses without `--allow-safety`.
 
-### Reserving a name
+### Hardware that hasn't reported
 
-A declaration with no hardware, or hardware that hasn't reported, reserves its name until it does, and `oikade check` and the deploy say so. So you can write code for something that isn't paired yet, which does nothing until the hardware arrives.
-
-A reserved device has no hardware, so `oikade types` gives it no line. Until it's paired, name a capability yourself, such as `oikade.Bool{Device: "greenhouse-fan", Capability: oikade.On}`. Give it its `Hardware` and deploy, and the name moves onto it, then run `oikade types`, which gives it a line under its name, and delete its `home.Device`. A reserved name that stops being declared, or takes hardware, is refused while something claims it, because its claims are the name's and not the hardware's.
+A line for a plugin's hardware the host hasn't seen yet puts it on record, with its endpoint, and `oikade check` and the deploy say it waits for its hardware. So you can write code for something that isn't paired yet, which does nothing until it reports. Hardware that's no plugin's, such as a simulated device, has to be on record first.
 
 ### What's refused
 
-`oikade check` refuses a name or a piece of hardware declared twice, or both ways, a name a device can't have, a type that isn't one of the six on/off types, a field of a device's struct that isn't a capability, and a plugin your home doesn't import.
+`oikade check` refuses a piece of hardware declared twice, hardware that isn't its ref without `hardware/`, a field of a device's struct that isn't a capability, a room's name that doesn't follow the [rule](#names), an empty label, and hardware of a plugin your home doesn't import.
 
-A deploy refuses a type the device can't be, hardware that lacks a capability its line gives it (`relays/valve has no temperature, which its line in your code gives it`), a name an undeclared device has, and hardware of no plugin that isn't on record, and the old version keeps running. Hardware a plugin hasn't reported yet waits for it, as a reserved name does. It also refuses a declared room or type that takes a device out of a Safety case's room write, until you pass `--allow-safety`, and names the case. That's a plug a Safety hold on the porch's plugs keeps off that you now declare a light, or move to the shed. Only Safety cases count, because what a flow writes isn't known until it runs.
+A deploy refuses a type the device can't be, hardware that lacks a capability its line gives it (`relays/valve has no temperature, which its line in your code gives it`), and hardware of no plugin that isn't on record, and the old version keeps running. It also refuses a room or type that takes a device out of a Safety case's room write, until you pass `--allow-safety`, and names the case. That's a plug a Safety hold on the porch's plugs keeps off that you now declare a light, or move to the shed. Only Safety cases count, because what a flow writes isn't known until it runs.
 
 ## What a device is
 
 A device's capabilities say what it can do, and its device types say what it is, in Matter's names. `oikade list devices` shows them in its `DEVICE TYPES` column, and `--json` as `deviceTypes`.
 
-In your code, each type is a struct with the capabilities a device of it always has, which `oikade.Device` takes, and its zero value, such as `oikade.OnOffLight{}`, is the type, which `Is` and `oikade.Kinds` take. Only a device that's on or off can be more than one thing, so that's the one you choose:
+In your code, each type is a struct with the capabilities a device of it always has, which `oikade.Device` takes, and its zero value, such as `oikade.OnOffLight{}`, is the type, which `oikade.Kinds` takes. Only a device that's on or off can be more than one thing, so that's the one you choose:
 
 | Type | |
 |---|---|
@@ -199,11 +187,11 @@ In your code, each type is a struct with the capabilities a device of it always 
 
 Which one a device is comes from the first of these that says:
 
-1. **Your home's code:** the type its `oikade.Device` line gives it, or its `Is`. Stop declaring its type, and it goes back to what its plugin says.
+1. **Your home's code:** the type its `oikade.Device` line gives it. Delete its line, and it goes back to what its plugin says.
 2. **Its plugin, if the plugin knows.** A Zigbee2MQTT light is an `OnOffLight`, or a `DimmableLight` with a brightness, and any plugin may report one. A Zigbee2MQTT switch doesn't say, because a relay can't tell what it switches.
 3. **Its capabilities.** A device with `brightness` is a `DimmableLight`, and one without an `OnOffPlugInUnit`, because a bare relay could be driving anything.
 
-A dimmable type needs `brightness`, and an on/off type on a device that has it leaves dimming out of Matter. A reserved name takes any of the six, and once it's paired, a type its hardware can't be falls back as above.
+A dimmable type needs `brightness`, and an on/off type on a device that has it leaves dimming out of Matter. Hardware that hasn't reported takes any of the six, and once it does, a type it can't be falls back as above.
 
 Every other type follows from the capabilities, so in an `oikade.Device` line it says which capabilities the hardware must have:
 
@@ -291,7 +279,7 @@ A deploy renames it in place, and the host keeps the name through a restart, so 
 
 Every device on record with something Matter can show is on the bridge, at its own endpoint, as soon as it's paired, as its [device types](#what-a-device-is). That's unless your home [hides its plugin's devices](#hiding-a-plugins-devices-from-matter).
 
-- **Its label is its name.** A rename changes that in place: the endpoint and unique ID stay, so a controller keeps its room and scenes.
+- **Its label is its [`oikade.Label`](#declaring-devices-in-code),** or else its app's name, or else its hardware's ID. A new label changes in place: the endpoint and unique ID stay, so a controller keeps its room and scenes.
 - **A new device type** rebuilds the device on the same endpoint, with the same unique ID.
 - **Endpoint IDs are never reused or reordered,** and forgotten devices keep theirs.
 - **Forgetting a device** takes it off. A device whose plugin hasn't reported yet stays on, unreachable, so controllers don't see it vanish.
@@ -310,15 +298,17 @@ A controller's write goes through [arbitration](automations.md#arbitration) in t
 Some platforms put their devices in the Home app themselves, as a TaHoma hub does its shutters. Oikade still drives them through its plugin, but on its bridge too they'd show in the Home app twice, in Siri and in every scene. Your home keeps them off Matter where it imports the plugin:
 
 ```go
+var PortailGarage = oikade.Device[oikade.WindowCovering]("tahoma/io:%2F%2F0812-4471-2093%2F7")
+
 home.Plugin("tahoma", overkiz.New(overkiz.Local{ /* … */ })).
 	HideFromMatter().            // the TaHoma app puts these in the Home app itself
-	ShowOnMatter("garage-door")  // except this one, which it doesn't
+	ShowOnMatter(PortailGarage)  // except this one, which it doesn't
 ```
 
 - **Your code still reads and sets them,** and a tap on the platform's own tile reaches Oikade as the device changing by itself, as its own remote's would.
 - **A device the plugin reports later** is hidden too.
 - **A deploy hides them once the version has settled,** so one that fails leaves the bridge as it was. The host keeps the setting before it applies it, so a restart keeps them off before your process connects.
-- **`oikade check` says which devices a deploy would take off,** and fails on a `ShowOnMatter` name that isn't one of that plugin's devices on record. `oikade deploy` says which it took off.
+- **`oikade check` says which devices a deploy would take off,** and fails on a `ShowOnMatter` device that isn't one of that plugin's devices on record. `oikade deploy` says which it took off.
 - **A controller loses a device taken off,** with its room and scenes there. A hidden device keeps its endpoint, so showing it again brings it back as the same device to Matter, though whether the Home app puts it back in its room isn't verified.
 
 `oikade list devices` shows a hidden device as `hidden from Matter`, and `--json` as `"matter": false`.

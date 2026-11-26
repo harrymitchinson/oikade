@@ -4,13 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"iter"
-	"maps"
 	"slices"
 	"strings"
 
 	"oikade.dev/internal/control"
 	"oikade.dev/internal/devicetype"
-	"oikade.dev/internal/host/api"
 	"oikade.dev/internal/host/wire"
 	"oikade.dev/internal/hub"
 	"oikade.dev/internal/ident"
@@ -40,6 +38,9 @@ func (i *inventory) loadDeclared() error {
 	if err := json.Unmarshal(raw, &last); err != nil {
 		return err
 	}
+	// A home's line saved before devices were their hardware names none, and the next hello declares
+	// the device again.
+	last.Inventory = slices.DeleteFunc(last.Inventory, func(d wire.DeviceDeclaration) bool { return d.Hardware == "" })
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	return i.applyDeclared(last.Inventory)
@@ -52,31 +53,9 @@ func (i *inventory) planDeclared(decls []wire.DeviceDeclaration) (registry.Decla
 	return i.planLocked(decls)
 }
 
-// planLocked refuses declarations the registry can't take. What the host keeps for a device is by
-// its hardware, so a rename or a declared name taking over hardware moves nothing, but a reserved
-// name that goes, or takes hardware, would leave its claims behind, so that's refused while
-// something holds it. Call with mu held.
+// planLocked refuses declarations the registry can't take. Call with mu held.
 func (i *inventory) planLocked(decls []wire.DeviceDeclaration) (registry.Declared, error) {
-	plan, err := i.registry.Plan(wire.Declarations(decls))
-	if err != nil {
-		return plan, err
-	}
-	for _, name := range plan.Removed {
-		if holders, _ := i.claimed(ident.ID{Name: registry.KeyOf("", "", name)}); len(holders) > 0 {
-			return plan, fmt.Errorf("%s holds %s, so the name can't stop being declared: deploy a version that doesn't "+
-				"claim it first", strings.Join(holders, ", "), name)
-		}
-	}
-	for _, d := range wire.Declarations(decls) {
-		if was, ok := i.registry.Get(d.Name); !ok || d.ID == "" || was.ID != "" {
-			continue
-		}
-		if holders, _ := i.claimed(ident.ID{Name: registry.KeyOf("", "", d.Name)}); len(holders) > 0 {
-			return plan, fmt.Errorf("%s holds %s, which is reserved, so it can't take hardware: deploy a version that "+
-				"doesn't claim it first", strings.Join(holders, ", "), d.Name)
-		}
-	}
-	return plan, nil
+	return i.registry.Plan(wire.Declarations(decls))
 }
 
 // takeDeclared takes up the declarations of a process that's connecting: it saves them, then
@@ -103,14 +82,11 @@ func (i *inventory) applyDeclared(decls []wire.DeviceDeclaration) error {
 	if err != nil {
 		return err
 	}
-	i.sync()
-	renamed := maps.Clone(done.Renamed)
-	maps.Copy(renamed, done.Absorbed)
-	for _, from := range slices.Sorted(maps.Keys(renamed)) {
-		if d, ok := i.registry.Get(renamed[from]); ok {
-			i.record(api.Event{Type: api.EventRename, Device: d.Key(), Previous: from, Message: d.Name})
-		}
+	i.declared = map[string]bool{}
+	for _, d := range decls {
+		i.declared[d.Hardware] = true
 	}
+	i.sync()
 	for _, k := range done.Touched {
 		i.announce(ident.ID{Name: k})
 	}

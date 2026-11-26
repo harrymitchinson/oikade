@@ -1,6 +1,7 @@
 package host
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -405,7 +406,7 @@ func (p *plugins) safetyHeld(list registry.Snapshot) []string {
 	var out []string
 	for _, d := range list.Devices {
 		if _, ok := api.PluginOf(d); ok && !d.Removed && p.heldKey(devKey(d)) {
-			out = append(out, d.Name)
+			out = append(out, d.Key())
 		}
 	}
 	return out
@@ -543,7 +544,9 @@ func (p *plugins) declared(h *hosted) []contract.DeclaredDevice {
 	var out []contract.DeclaredDevice
 	for _, d := range p.known.registry.List().Devices {
 		if d.Driver == driverName && !d.Removed && d.ID != "" {
-			out = append(out, contract.DeclaredDevice{ID: d.ID, Name: d.Name, DisplayName: d.Name, Room: d.Room})
+			name := cmp.Or(ident.Slug(ident.Device, d.AppName), ident.Slug(ident.Device, d.ID), string(ident.Device))
+			out = append(out, contract.DeclaredDevice{ID: d.ID, Name: name, DisplayName: cmp.Or(d.Label, d.AppName, name),
+				Room: d.Room})
 		}
 	}
 	return out
