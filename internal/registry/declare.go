@@ -18,9 +18,10 @@ import (
 type Declaration struct {
 	Name string `json:"name"`
 	// Driver and ID are the hardware's, as a Device has them.
-	Driver     string          `json:"driver,omitempty"`
-	ID         string          `json:"id,omitempty"`
-	Room       string          `json:"room,omitempty"`
+	Driver string `json:"driver,omitempty"`
+	ID     string `json:"id,omitempty"`
+	// Room is nil for a device in its app's room, and empty for one in none.
+	Room       *string         `json:"room,omitempty"`
 	DeviceType devicetype.Type `json:"deviceType,omitempty"`
 }
 
@@ -83,8 +84,8 @@ func CheckDeclarations(decls []Declaration) error {
 		if err := checkName(d.Name); err != nil {
 			errs = append(errs, err)
 		}
-		if d.Room != "" {
-			if err := ident.CheckName(ident.Room, d.Room); err != nil {
+		if d.Room != nil && *d.Room != "" {
+			if err := ident.CheckName(ident.Room, *d.Room); err != nil {
 				errs = append(errs, fmt.Errorf("%s: %w", d.Name, err))
 			}
 		}
@@ -134,7 +135,11 @@ func declare(s *Snapshot, decls []Declaration) (Declared, error) {
 	}
 	for k, d := range decls {
 		e := &s.Devices[targets[k]]
-		e.Name, e.Room, e.DeviceType, e.Declared, e.Removed = d.Name, d.Room, d.DeviceType, true, false
+		e.Name, e.DeviceType, e.Declared, e.Removed = d.Name, d.DeviceType, true, false
+		e.Room, e.RoomDeclared = roomOf(e.AppRoom), d.Room != nil
+		if d.Room != nil {
+			e.Room = *d.Room
+		}
 		if err := fits(*e, d.DeviceType); err != nil {
 			return Declared{}, err
 		}
@@ -149,7 +154,7 @@ func declare(s *Snapshot, decls []Declaration) (Declared, error) {
 		if _, ok := taken[i]; ok || !e.Declared || e.Removed {
 			continue
 		}
-		e.Declared, e.Room, e.DeviceType = false, roomOf(e.AppRoom), ""
+		e.Declared, e.Room, e.RoomDeclared, e.DeviceType = false, roomOf(e.AppRoom), false, ""
 		if e.ID == "" {
 			e.Removed = true
 			out.Removed = append(out.Removed, e.Name)
@@ -320,8 +325,11 @@ func changes(before, after Snapshot, decls []Declaration) []string {
 }
 
 func roomLine(d Device) string {
-	if d.Room == "" {
+	switch {
+	case d.Room == "":
 		return fmt.Sprintf("Took %s out of its room", d.Name)
+	case !d.RoomDeclared:
+		return fmt.Sprintf("Moved %s to %s, its app's room", d.Name, d.Room)
 	}
 	return fmt.Sprintf("Moved %s to %s", d.Name, d.Room)
 }
@@ -363,7 +371,7 @@ func Undeclared(d Device) (string, bool) {
 		return "", false
 	}
 	line := fmt.Sprintf("home.Device(%q).Hardware(%q, %q)", d.Name, plugin, d.ID)
-	if d.Room != "" {
+	if d.Room != roomOf(d.AppRoom) {
 		line += fmt.Sprintf(".Room(%q)", d.Room)
 	}
 	if d.DeviceType != "" {

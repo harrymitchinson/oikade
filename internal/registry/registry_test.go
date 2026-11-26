@@ -59,7 +59,7 @@ func TestAPairedDeviceEntersOnceAndKeepsItsName(t *testing.T) {
 	if d.Name != "hall-lamp" || d.Room != "living-room" || d.AppRoom != "Living Room" || d.Endpoint != FirstEndpoint {
 		t.Errorf("got %+v", d)
 	}
-	declareOK(t, r, Declaration{Name: "lamp", Driver: "sim", ID: "0x1", Room: "attic"})
+	declareOK(t, r, Declaration{Name: "lamp", Driver: "sim", ID: "0x1", Room: new("attic")})
 	again, _, err := r.Report(Report{ID: "0x1", Driver: "sim", Name: "Renamed In The App", Room: "Elsewhere", Capabilities: []string{"on", "brightness"}})
 	if err != nil {
 		t.Fatal(err)
@@ -199,7 +199,7 @@ func TestRenderIsDeterministicAndValidGo(t *testing.T) {
 	if _, _, err := r.Report(Report{ID: "p", Driver: "sim", Name: "Side\nconst Evil = 1\n", Room: "Front\nconst Evil = 1\n"}); err != nil {
 		t.Fatal(err)
 	}
-	declareOK(t, r, Declaration{Name: "porch", Room: "front"})
+	declareOK(t, r, Declaration{Name: "porch", Room: new("front")})
 	first, err := Render(r.List(), "home")
 	if err != nil {
 		t.Fatal(err)
@@ -413,8 +413,8 @@ func TestWhatADeviceIsMovesWithItsHardware(t *testing.T) {
 	if _, _, err := r.Report(Report{ID: "0x2", Driver: "sim", Name: "Sensor 7", Manufacturer: "Aqara", Model: "WSDCGQ11LM"}); err != nil {
 		t.Fatal(err)
 	}
-	declareOK(t, r, Declaration{Name: "hall-sensor", Room: "hall"})
-	declareOK(t, r, Declaration{Name: "hall-sensor", Driver: "sim", ID: "0x2", Room: "hall"})
+	declareOK(t, r, Declaration{Name: "hall-sensor", Room: new("hall")})
+	declareOK(t, r, Declaration{Name: "hall-sensor", Driver: "sim", ID: "0x2", Room: new("hall")})
 	if d := get(t, r, "hall-sensor"); d.Manufacturer != "Aqara" || d.Model != "WSDCGQ11LM" {
 		t.Errorf("the name took the hardware without what it is: %+v", d)
 	}
@@ -423,7 +423,7 @@ func TestWhatADeviceIsMovesWithItsHardware(t *testing.T) {
 			t.Errorf("the retired entry kept what its hardware is: %+v", d)
 		}
 	}
-	declareOK(t, r, Declaration{Name: "hall-sensor", Driver: "sim", ID: "0x3", Room: "hall"})
+	declareOK(t, r, Declaration{Name: "hall-sensor", Driver: "sim", ID: "0x3", Room: new("hall")})
 	if d := get(t, r, "hall-sensor"); d.Manufacturer != "" || d.Model != "" {
 		t.Errorf("hardware not on record kept the last one's manufacturer and model: %+v", d)
 	}

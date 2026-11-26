@@ -23,7 +23,7 @@ func TestTheTypesFileGivesDevicesAndTheHomeTheirRoomsAndTypes(t *testing.T) {
 	if err := os.WriteFile(path, file, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, err := ReadTypes(path, []wire.DeviceDeclaration{{Name: "porch-light", Room: "porch", DeviceType: devicetype.DimmableLight}})
+	got, err := ReadTypes(path, []wire.DeviceDeclaration{{Name: "porch-light", Room: new("porch"), DeviceType: devicetype.DimmableLight}})
 	if err != nil {
 		t.Fatal(err)
 	}

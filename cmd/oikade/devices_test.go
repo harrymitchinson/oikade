@@ -214,11 +214,12 @@ func declare(home *oikade.Home, name string) {
 		t.Fatal(err)
 	}
 	want := []wire.DeviceDeclaration{
-		{Name: "study-blind", Plugin: "overkiz", ID: "io://1", Room: "study", DeviceType: "WindowCovering"},
+		{Name: "study-blind", Plugin: "overkiz", ID: "io://1", Room: new("study"), DeviceType: "WindowCovering"},
 		{Name: "shed-fan"},
 	}
-	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
-		t.Errorf("got %+v, want %+v", got, want)
+	g, _ := json.Marshal(got)
+	if w, _ := json.Marshal(want); string(g) != string(w) {
+		t.Errorf("got %s, want %s", g, w)
 	}
 }
 

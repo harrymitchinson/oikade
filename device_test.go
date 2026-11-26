@@ -1,6 +1,7 @@
 package oikade
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -16,17 +17,22 @@ func TestADeclaredDeviceGoesToTheHost(t *testing.T) {
 		h.Plugin("zigbee", zigbee)
 		h.Device("porch-light").Hardware("zigbee", "0x00178801049a2b3c").Room("porch").Is(OnOffLight)
 		h.Device("greenhouse-fan").Room("greenhouse")
+		h.Device("attic-fan").Room("")
+		h.Device("shed-fan")
 	})
 	if _, _, err := h.compile(); err != nil {
 		t.Fatal(err)
 	}
 	want := []wire.DeviceDeclaration{
-		{Name: "porch-light", Plugin: "zigbee", ID: "0x00178801049a2b3c", Room: "porch", DeviceType: "OnOffLight"},
-		{Name: "greenhouse-fan", Room: "greenhouse"},
+		{Name: "porch-light", Plugin: "zigbee", ID: "0x00178801049a2b3c", Room: new("porch"), DeviceType: "OnOffLight"},
+		{Name: "greenhouse-fan", Room: new("greenhouse")},
+		{Name: "attic-fan", Room: new("")},
+		{Name: "shed-fan"},
 	}
 	got := h.manifest().Inventory
-	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
-		t.Errorf("got %+v, want %+v", got, want)
+	g, _ := json.Marshal(got)
+	if w, _ := json.Marshal(want); string(g) != string(w) {
+		t.Errorf("got %s, want %s", g, w)
 	}
 	if r := wire.Declarations(got); r[0].Driver != "plugin/zigbee" || r[1].Driver != "" {
 		t.Errorf("the registry gets %+v", r)

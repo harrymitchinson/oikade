@@ -46,7 +46,7 @@ The table keeps to the terminal's width, and is whole when piped. The hardware, 
 
 - **What the plugin says it is:** its `manufacturer`, `model`, `serialNumber`, `firmwareVersion` and `hardwareVersion`. Each is kept while the plugin says nothing of it, so a device that's offline still has them, and the Home app shows them on the bridged device too.
 - **Where it came from:** its app's name and room as `appName` and `appRoom`, and its hardware's ID as `id` and ref as `hardware`.
-- **Whether your home declares it,** as `declared`. `oikade status --json` has the line that would declare it as `declare`.
+- **Whether your home declares it,** as `declared`, and its room, as `roomDeclared`. `oikade status --json` has the line that would declare it as `declare`.
 
 ## Devices in your code
 
@@ -122,7 +122,7 @@ home.Device("porch-light").Hardware("zigbee", "0x00178801049a2b3c").Room("porch"
 home.Device("greenhouse-fan").Room("greenhouse") // no hardware yet: the name is reserved
 ```
 
-`Hardware` takes the name your home imports the device's plugin by, with `home.Plugin`, and the ID `oikade list devices --json` shows. `Is` takes one of the [six on/off types](#what-a-device-is). Declaring is optional: a device you don't declare works under its app's name.
+`Hardware` takes the name your home imports the device's plugin by, with `home.Plugin`, and the ID `oikade list devices --json` shows. Without `Room`, a declared device stays in its app's room, and `Room("")` puts it in none. `Is` takes one of the [six on/off types](#what-a-device-is). Declaring is optional: a device you don't declare works under its app's name.
 
 ### What a deploy does with them
 

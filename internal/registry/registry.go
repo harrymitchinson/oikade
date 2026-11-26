@@ -46,8 +46,11 @@ type Device struct {
 	// Name is what code and the command line call it: what the home declares, or else copied from
 	// the device's app once, and never following it.
 	Name string `json:"name"`
-	// Declared says the home's code declares the device, so its name, room and type are the code's.
+	// Declared says the home's code declares the device, so its name and type are the code's.
 	Declared bool `json:"declared"`
+	// RoomDeclared says its room is the code's too, which may be none. A declared device without
+	// one is in its app's room.
+	RoomDeclared bool `json:"roomDeclared"`
 	// AppName and AppRoom are what its app called it and where, read once as Name and Room are,
 	// which a device the home stops declaring goes back to.
 	AppName string `json:"appName,omitempty"`
@@ -202,6 +205,7 @@ func (r *Registry) Report(report Report) (device Device, changed bool, err error
 	i := hardware(r.state, report.Driver, report.ID)
 	same := i >= 0 && !r.state.Devices[i].Removed && slices.Equal(r.state.Devices[i].Capabilities, report.Capabilities) &&
 		r.state.Devices[i].DriverDeviceType == report.DeviceType && !newAppName(r.state.Devices[i], report) &&
+		!newAppRoom(r.state.Devices[i], report) &&
 		!newProduct(r.state.Devices[i], report) &&
 		(report.Control == nil || bytes.Equal(r.state.Devices[i].Control, report.Control))
 	var known Device
@@ -231,8 +235,15 @@ func (r *Registry) Report(report Report) (device Device, changed bool, err error
 			d.Removed, d.Name = false, uniqueName(*s, d.Name)
 		}
 		d.Capabilities, d.DriverDeviceType = slices.Clone(report.Capabilities), report.DeviceType
-		if newAppName(*d, report) {
+		appRoom := d.AppRoom
+		switch {
+		case newAppName(*d, report):
 			d.AppName, d.AppRoom = clean(report.Name), clean(report.Room)
+		case newAppRoom(*d, report):
+			d.AppRoom = clean(report.Room)
+		}
+		if d.AppRoom != appRoom && d.Declared && !d.RoomDeclared {
+			d.Room = roomOf(d.AppRoom)
 		}
 		if report.Control != nil {
 			d.Control = bytes.Clone(report.Control)
@@ -247,6 +258,12 @@ func (r *Registry) Report(report Report) (device Device, changed bool, err error
 // newAppName says a report is the first to name the device in its app.
 func newAppName(d Device, report Report) bool {
 	return d.AppName == "" && clean(report.Name) != ""
+}
+
+// newAppRoom says a report puts a device its app hasn't named yet in another room.
+func newAppRoom(d Device, report Report) bool {
+	room := clean(report.Room)
+	return d.AppName == "" && room != "" && room != d.AppRoom
 }
 
 // newProduct says a report says anew what the device is.

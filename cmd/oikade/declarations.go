@@ -68,7 +68,7 @@ func declarationOf(call *ast.CallExpr) (wire.DeviceDeclaration, bool) {
 		case sel.Sel.Name == "Hardware" && len(args) == 2:
 			d.Plugin, d.ID = args[0], args[1]
 		case sel.Sel.Name == "Room" && len(args) == 1:
-			d.Room = args[0]
+			d.Room = &args[0]
 		case sel.Sel.Name == "Is" && len(call.Args) == 1:
 			t, ok := call.Args[0].(*ast.SelectorExpr)
 			if !ok {

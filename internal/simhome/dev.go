@@ -18,7 +18,8 @@ import (
 )
 
 // ReadTypes reads the devices from the file oikade types wrote, with the rooms and types inventory
-// declares. A device it doesn't declare is in no room, and is what its capabilities say.
+// declares. A device it doesn't declare a room for is in none, with no app to give it one, and a
+// device it doesn't declare is what its capabilities say.
 func ReadTypes(path string, inventory []wire.DeviceDeclaration) ([]Device, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -34,7 +35,10 @@ func ReadTypes(path string, inventory []wire.DeviceDeclaration) ([]Device, error
 	}
 	out := make([]Device, 0, len(handles))
 	for _, name := range slices.Sorted(maps.Keys(handles)) {
-		d := Device{Name: name, Capabilities: handles[name], Room: declared[name].Room}
+		d := Device{Name: name, Capabilities: handles[name]}
+		if room := declared[name].Room; room != nil {
+			d.Room = *room
+		}
 		d.DeviceTypes = devicetype.Of(declared[name].DeviceType, "", d.Capabilities)
 		out = append(out, d)
 	}

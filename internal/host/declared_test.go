@@ -43,7 +43,7 @@ func declaredHome(t *testing.T, dir string) (*inventory, *engine.Stored[engine.C
 	return known, controls
 }
 
-var readingLamp = []wire.DeviceDeclaration{{Name: "reading-lamp", Plugin: "x", ID: "l1", Room: "study"}}
+var readingLamp = []wire.DeviceDeclaration{{Name: "reading-lamp", Plugin: "x", ID: "l1", Room: new("study")}}
 
 func TestDeclaredDevicesAreSavedFirstAndSurviveARestart(t *testing.T) {
 	dir := t.TempDir()
@@ -207,8 +207,8 @@ func TestADeployWarnsOfARoomItsDeclarationsEmpty(t *testing.T) {
 	// loft, but the desk lamp is still in the study.
 	next := wire.Manifest{
 		Inventory: []wire.DeviceDeclaration{
-			{Name: "radiator", Plugin: "x", ID: "h", Room: "hall", DeviceType: devicetype.OnOffLight},
-			{Name: "sensor", Plugin: "x", ID: "s", Room: "loft"},
+			{Name: "radiator", Plugin: "x", ID: "h", Room: new("hall"), DeviceType: devicetype.OnOffLight},
+			{Name: "sensor", Plugin: "x", ID: "s", Room: new("loft")},
 		},
 		Rules: []wire.RuleInfo{{Name: "radiator on hall-plugs"}, {Name: "desk-lamp on occupied"}, {Name: "attic-fan"}},
 	}
@@ -219,7 +219,7 @@ func TestADeployWarnsOfARoomItsDeclarationsEmpty(t *testing.T) {
 	}
 
 	// Declaring the devices as they are warns of nothing.
-	same := wire.Manifest{Inventory: []wire.DeviceDeclaration{{Name: "heater", Plugin: "x", ID: "h", Room: "hall"}}, Rules: next.Rules}
+	same := wire.Manifest{Inventory: []wire.DeviceDeclaration{{Name: "heater", Plugin: "x", ID: "h", Room: new("hall")}}, Rules: next.Rules}
 	if got := d.declaredWarning(same, wire.Manifest{}, nil); got != "" {
 		t.Errorf("declaring the heater where it is warns %q", got)
 	}
@@ -238,7 +238,7 @@ func TestADeployWarnsOfADeviceThatKeepsItsOwnDecisionInItsNewRoom(t *testing.T) 
 		}
 	}
 	into := func(room string, settings []wire.DeviceControl) wire.Manifest {
-		return wire.Manifest{Inventory: []wire.DeviceDeclaration{{Name: "pendant", Plugin: "x", ID: "p", Room: room}}, Control: settings}
+		return wire.Manifest{Inventory: []wire.DeviceDeclaration{{Name: "pendant", Plugin: "x", ID: "p", Room: &room}}, Control: settings}
 	}
 	own := decides("Rule/pendant on dinner")
 	want := "device/pendant/on keeps its own decision rather than kitchen's, unless the home hands it over with Then"
