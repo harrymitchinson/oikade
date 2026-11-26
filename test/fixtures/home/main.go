@@ -53,6 +53,9 @@ const (
 	once   = "once"
 )
 
+// hardware is a plugin's device as a handle has it, its hardware, as oikade types writes it.
+func hardware(name, id string) string { return name + "/" + id }
+
 // variant makes this home a different version, set when the tests link it. Empty is the first one.
 var variant string
 
@@ -314,8 +317,11 @@ func home() *oikade.Home {
 	}
 	h := oikade.NewHome(options)
 	// The valve under the name the home declares for it, which tests rename, or move onto the spare
-	// relay, with a Safety claim on it.
-	valve := valve
+	// relay, with a Safety claim on it. Its handle has its hardware, which a rename leaves as it is.
+	valve, valveHandle := valve, valve
+	if plugins {
+		valveHandle = hardware("relays", valve)
+	}
 	switch variant {
 	case "plugins-mains":
 		valve = "mains-valve"
@@ -324,9 +330,11 @@ func home() *oikade.Home {
 		h.Device(valve).Hardware("relays", "valve")
 	case "plugins-swapped":
 		h.Device(valve).Hardware("relays", "spare-relay")
+		valveHandle = hardware("relays", "spare-relay")
 	case "plugins-landing":
 		h.Device("quiet").Hardware("quiet", "quiet.needs-setup").Room("landing")
 	}
+	quiet := hardware("quiet", "quiet.needs-setup")
 
 	h.Flow("routine", routine).When(open("flow-go"))
 	h.Flow("editable", editable).When(open("edit-go"))
@@ -353,7 +361,7 @@ func home() *oikade.Home {
 		h.Flow(valve+" on "+leakShutoff, setting()).When(open("reset"))
 	}
 	if plugins {
-		h.Flow("quiet-heard", setting(on("quiet-heard").To(true))).When(on("quiet"))
+		h.Flow("quiet-heard", setting(on("quiet-heard").To(true))).When(on(quiet))
 	}
 
 	// A change here gets an answer, so a test knows when the process has caught up. It's a case,
@@ -363,7 +371,7 @@ func home() *oikade.Home {
 		h.Decide(on("fan")).Case("fan", true, humidity.Above(70)).Default(false)
 	}
 	if variant != "noleak" {
-		h.Decide(on(valve)).
+		h.Decide(on(valveHandle)).
 			Case(leakShutoff, false, open("leak-sensor")).LatchUntil(open("reset")).
 			OverrideFor(time.Hour).
 			Flows().
@@ -424,9 +432,9 @@ func home() *oikade.Home {
 	// The failing flow's Safety claim: its decision ranks it above the override line.
 	h.Decide(on("claimed-safety")).Flows(failer).OverrideFor(time.Hour).Flows().Default(true)
 	if plugins {
-		h.Decide(on(once)).OverrideFor(time.Hour).Case("once", true, open("once-sensor")).Default(false)
+		h.Decide(on(hardware("relays", once))).OverrideFor(time.Hour).Case("once", true, open("once-sensor")).Default(false)
 		// Names a plugin's device, which a test moves to another room.
-		h.Decide(on("quiet-held")).Case("quiet-held", true, on("quiet")).Default(false)
+		h.Decide(on("quiet-held")).Case("quiet-held", true, on(quiet)).Default(false)
 	}
 
 	// The porch's plugs are switched off at Safety on a leak, and a test declares the relay there

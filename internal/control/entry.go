@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"time"
+
+	"oikade.dev/internal/ident"
 )
 
 // The names an Entry uses.
@@ -110,15 +112,37 @@ func CaseOf(source, device, capability string) (string, bool) {
 	return strings.CutPrefix(source, SourceRule+CaseKey(device, capability, ""))
 }
 
-// RenamedKey is a case's key, or an average's, "<device> <capability> <rest>", once its device has
-// been renamed, by renamed's old names to new. Any other key is as it is.
-func RenamedKey(key string, renamed map[string]string) string {
-	if strings.Count(key, " ") != 2 {
-		return key
-	}
-	device, rest, _ := strings.Cut(key, " ")
-	if to, ok := renamed[device]; ok {
-		return to + " " + rest
+// Names says what the device a key is is called, for what a person reads: a log line, a metric's
+// label, a command's answer. The host and your process know a device by its key, its hardware, so a
+// name is only ever looked up where it's shown. Nil, or a key it doesn't know, shows the key.
+type Names func(key string) (string, bool)
+
+// Device is the name of the device key is, or the key.
+func (n Names) Device(key string) string {
+	if n != nil && key != "" {
+		if name, ok := n(key); ok {
+			return name
+		}
 	}
 	return key
+}
+
+// Rule is a rule's key with its device named, "<device> <capability> <case>" for a device's case.
+// A group's case and a flow's key name no device, so they're as they are.
+func (n Names) Rule(key string) string {
+	if parts := strings.Split(key, " "); len(parts) == 3 {
+		return CaseKey(n.Device(parts[0]), parts[1], parts[2])
+	}
+	return key
+}
+
+// RuleRef is a rule's ref, with its device named.
+func (n Names) RuleRef(key string) ident.Ref { return RuleRef(n.Rule(key)) }
+
+// SourceRef is a claim's source's ref, with a case's device named.
+func (n Names) SourceRef(source string) ident.Ref {
+	if key, ok := strings.CutPrefix(source, SourceRule); ok {
+		return n.RuleRef(key)
+	}
+	return SourceRef(source)
 }

@@ -11,9 +11,10 @@ import (
 	"oikade.dev/internal/ident"
 )
 
-// Device is what each device oikade types writes embeds: its name, which makes it a member a group
-// can take.
+// Device is what each device oikade types writes embeds, which makes it a member a group can take.
 type Device struct {
+	// Name is the device's key, its hardware, such as hue/0x00178801091863f2, which a rename doesn't
+	// change. A simulated device's is its ID, and a reserved one's its name.
 	Name string
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -979,5 +980,28 @@ func TestASetpointTurnedUpAStepIsAnOverride(t *testing.T) {
 	r.change("study-radiator", capability.Setpoint, 20.5)
 	if w := winner(r.status("study-radiator", capability.Setpoint)); w != "Device Override" {
 		t.Errorf("winner %q after a turn to 20.5, want the device's", w)
+	}
+}
+
+// A control gauge names its device, so a rename's replaces the one before rather than standing
+// beside it.
+func TestARenamedDevicesControlGaugeReplacesTheOld(t *testing.T) {
+	r := railRig(t, holdRule(t, "rail", railHold))
+	rail := ident.ID{Name: "towel-rail"}
+	named := func(name string) {
+		metas := map[ident.ID]hub.Meta{}
+		for dev := range holdDevices {
+			metas[ident.ID{Name: dev}] = hub.Meta{Instance: z2m}
+		}
+		metas[rail] = hub.Meta{DisplayName: name, Instance: z2m, Control: []control.Entry{railEntry}}
+		r.store.SetDevices(z2m, metas)
+	}
+	named("bathroom-rail")
+	r.settle()
+	named("ensuite-rail")
+	r.settle()
+	got := strings.Join(r.e.metrics.controlLevel.Names(), " ")
+	if !strings.Contains(got, `device="ensuite-rail"`) || strings.Contains(got, "bathroom-rail") {
+		t.Errorf("the control gauges are %s", got)
 	}
 }

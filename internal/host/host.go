@@ -131,6 +131,10 @@ func (h *Host) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Before anything reads what's saved for a device.
+	if err := keyByHardware(data, devicesOnRecord.List(), h.Log); err != nil {
+		return err
+	}
 
 	// The engine outlives ctx: your process may claim until it has stopped, so that comes first.
 	engineCtx, stopEngine := context.WithCancel(context.WithoutCancel(ctx))
@@ -177,7 +181,7 @@ func (h *Host) Run(ctx context.Context) error {
 		return fmt.Errorf("reading the home's device settings: %w", err)
 	}
 	srv.settings, srv.confirmedSettings = known.takeHome, known.setHome
-	srv.declare, srv.planDeclared, known.renamed = known.takeDeclared, known.planDeclared, srv.renameRules
+	srv.declare, srv.planDeclared, srv.names = known.takeDeclared, known.planDeclared, registryNames(devicesOnRecord)
 	srv.leavingSafety, srv.declaring = known.leavingSafety, known.declaring
 	sim := &simulator{store: devices, known: known, log: h.Log.With("logger", "simulator")}
 	socket := filepath.Join(h.DataDir, SocketName)

@@ -547,7 +547,8 @@ func TestAVersionThatDropsAPluginSaysWhatItLeftBehind(t *testing.T) {
 		!strings.Contains(stderr, "oikade forget --plugin relays") {
 		t.Fatalf("check: %v: %q", err, stderr)
 	}
-	stderr, err := r.deploy("nofan")
+	// It drops the relays' valve, and the leak case on it with them.
+	stderr, err := r.deploy("nofan", "--allow-safety")
 	if err != nil {
 		t.Fatalf("%v: %s\nThe log:\n%s", err, stderr, r.dump())
 	}

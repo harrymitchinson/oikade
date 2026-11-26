@@ -176,10 +176,10 @@ Both take a filter in the query, and the host does the filtering, so a caller do
 
 | A `ref` | Its events |
 |---|---|
-| `device/porch-light` | Everything about the device and its capabilities, under each name it had: the log's `rename` events are followed back. A name is a device's only from the rename that gave it to the one that took it away, as another device may have had it before, or have it since. A tail carries on with a device that's renamed as it follows. A name nothing has now is the device that last had it, up to the rename that took it away |
+| `device/porch-light` | Everything about the device and its capabilities, under each name it had, as the log keeps a device by its hardware, and under the name it has now for events from before it did. A tail carries on with a device that's renamed as it follows. A name nothing has now is the device that last had it |
 | `device/porch-light/on` | The capability's, and what happened to the device as a whole: it went offline, or was forgotten or renamed |
 | `room/hall`, `room/hall/on` | The same, for each device in the room now, not those that were in it then |
-| `case/porch-light/on/dusk`, `flow/morning` | The rule's runs, pauses and outside calls, and the writes it made (`by`). A case's are found under each name its device had |
+| `case/porch-light/on/dusk`, `flow/morning` | The rule's runs, pauses and outside calls, and the writes it made (`by`). A case's are its device's, under each name it had |
 | `signal/anyone-home` | The signal's changes |
 | `plugin/overkiz` | The plugin's own problems |
 | `matter` | The bridge's events, and each controller's writes, refused or not |

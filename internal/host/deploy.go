@@ -283,7 +283,7 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool,
 	// it will run.
 	manifest, err := runCheck(ctx, d.versions.path(id), d.vars, in.vars)
 	if err != nil {
-		return reject(api.Response{Error: err.Error()})
+		return reject(api.Response{Error: namedText(err.Error(), d.srv.registry())})
 	}
 	if missing := missingVars(manifest.Vars, in.vars); len(missing) > 0 {
 		return reject(api.Response{Error: missingError(missing, in.whose), MissingVars: missing})
@@ -313,14 +313,19 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool,
 		}
 	}
 	// Before anything stops, so that declarations the host can't apply leave the old version running.
-	// A rename takes a device's cases with it, so the Safety ones aren't gone.
+	// A case is keyed by its device's hardware, so a rename leaves the Safety ones where they are.
 	var declared registry.Declared
 	if d.srv.planDeclared != nil {
 		if declared, err = d.srv.planDeclared(manifest.Inventory); err != nil {
 			return reject(api.Response{Error: "the home's device declarations: " + err.Error()})
 		}
 	}
-	findings := safetyFindings(old, manifest, declared.Renamed, d.srv.engine.RuleClaims(), d.srv.safetyHeld)
+	if old.Protocol != wire.Version {
+		// It can't run on this host, so its rules protect nothing: what's left of them is in the
+		// claims the host holds, which safetyFindings reads.
+		old.Rules = nil
+	}
+	findings := safetyFindings(old, manifest, d.srv.engine.RuleClaims(), d.srv.safetyHeld, declaredNames(manifest.Inventory, d.srv.names))
 	if d.srv.leavingSafety != nil {
 		// The rules running now, and the ones that will.
 		findings = append(findings, d.srv.leavingSafety(manifest.Inventory, old.Rules, manifest.Rules)...)
@@ -334,7 +339,7 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool,
 
 	d.log.Info("Checked automations version", "version", id)
 	// While the running process is, as only it knows what its holds have read.
-	warning := d.declaredWarning(manifest, old, declared.Renamed)
+	warning := d.declaredWarning(manifest, old)
 	last := d.running
 	spared, err := d.srv.leftovers()
 	if err != nil {
@@ -352,7 +357,7 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool,
 	var late []string
 	vet := func() error {
 		if !allow {
-			late = safetyFindings(old, manifest, declared.Renamed, d.srv.engine.RuleClaims(), d.srv.safetyHeld)
+			late = safetyFindings(old, manifest, d.srv.engine.RuleClaims(), d.srv.safetyHeld, d.srv.names)
 			if len(late) > 0 {
 				return errLateClaim
 			}
@@ -391,7 +396,7 @@ func (d *deployer) takeOver(ctx context.Context, id string, allow bool,
 // a hold of the running process reads there, if the next version keeps the hold, and which devices
 // they put in a room whose decision they don't take. It's empty if there are none, or if nothing can
 // say.
-func (d *deployer) declaredWarning(next, old wire.Manifest, renamed map[string]string) string {
+func (d *deployer) declaredWarning(next, old wire.Manifest) string {
 	if d.srv.declaring == nil {
 		return ""
 	}
@@ -405,12 +410,9 @@ func (d *deployer) declaredWarning(next, old wire.Manifest, renamed map[string]s
 	for _, r := range next.Rules {
 		rules[r.Name] = true
 	}
-	rename := func(rule string) (string, bool) {
-		to := control.RenamedKey(rule, renamed)
-		return to, rules[to]
-	}
 	warnings := kept
-	if w := emptiedWarning(d.srv.emptyReads(change.before, change.after, rename)); w != "" {
+	keep := func(rule string) bool { return rules[rule] }
+	if w := emptiedWarning(d.srv.emptyReads(change.before, change.after, keep, declaredNames(next.Inventory, d.srv.names))); w != "" {
 		warnings = append([]string{w}, warnings...)
 	}
 	return strings.Join(warnings, "; ")
@@ -579,55 +581,43 @@ func (d *deployer) state() (v version, ok, busy bool) {
 }
 
 // safetyFindings lists what a new version would lose. A Safety rule's claims end with it, which could
-// reopen a valve, and a latch dies with its name, so a rule renamed is one removed. held catches a
+// reopen a valve, and a latch dies with its key, so a rule that's another key is one removed: a case
+// of other hardware is. A rename isn't, as a case is keyed by its device's hardware. held catches a
 // Safety claim the old version's declaration doesn't show, such as one an older binary's rule made,
-// since a home declares every rule that can make one.
-func safetyFindings(old, next wire.Manifest, renamed map[string]string, held map[string]control.Level,
-	safetyHeld func(device, capability string) bool,
+// since a home declares every rule that can make one. names name what the findings say.
+func safetyFindings(old, next wire.Manifest, held map[string]control.Level,
+	safetyHeld func(device, capability string) bool, names control.Names,
 ) []string {
 	has := func(name string) bool {
 		return slices.ContainsFunc(next.Rules, func(r wire.RuleInfo) bool { return r.Name == name })
 	}
-	// A case of a device the new version renames is the new name's. Only a device's own: a group's
-	// can be keyed by a name a device has too.
-	oldOwn, nextOwn := wire.OwnCases(old.Control), wire.OwnCases(next.Control)
-	stays := func(name string) bool {
-		if to := control.RenamedKey(name, renamed); to != name && slices.Contains(oldOwn, name) &&
-			slices.Contains(nextOwn, to) {
-			name = to
-		}
-		return has(name)
-	}
 	var findings []string
 	named := map[string]bool{}
 	for _, r := range old.Rules {
-		if !r.Safety || stays(r.Name) {
+		if !r.Safety || has(r.Name) {
 			continue
 		}
 		named[r.Name] = true
-		finding := fmt.Sprintf("Safety %s %q is gone", r.Kind, r.Name)
+		finding := fmt.Sprintf("Safety %s %q is gone", r.Kind, names.Rule(r.Name))
 		if r.Latch {
 			finding += ", and its latch would be lost if it was renamed"
 		}
 		findings = append(findings, finding)
 	}
 	for rule, level := range held {
-		if level >= control.Safety && !named[rule] && !stays(rule) {
-			findings = append(findings, fmt.Sprintf("rule %q is gone and holds a Safety claim, which would end", rule))
+		if level >= control.Safety && !named[rule] && !has(rule) {
+			findings = append(findings, fmt.Sprintf("rule %q is gone and holds a Safety claim, which would end", names.Rule(rule)))
 		}
 	}
 	// A device stops being arbitrated with its Control, and that ends every claim on it.
 	// A room's Control covers whichever devices are there, and its Safety cases are found above.
 	for _, c := range old.Control {
-		device := c.Device
-		if to, ok := renamed[device]; ok {
-			device = to
-		}
 		kept := slices.ContainsFunc(next.Control, func(n wire.DeviceControl) bool {
-			return n.Device == device && n.Room == c.Room && n.Entry.Capability == c.Entry.Capability
+			return n.Device == c.Device && n.Room == c.Room && n.Entry.Capability == c.Entry.Capability
 		})
 		if !kept && c.Device != "" && safetyHeld(c.Device, c.Entry.Capability) {
-			findings = append(findings, fmt.Sprintf("%s on %s has no Control any more, which would end a Safety claim on it", c.Entry.Capability, c.Device))
+			findings = append(findings, fmt.Sprintf("%s on %s has no Control any more, which would end a Safety claim on it",
+				c.Entry.Capability, names.Device(c.Device)))
 		}
 	}
 	slices.Sort(findings)

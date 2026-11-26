@@ -146,7 +146,7 @@ A replay never reaches a device. Your code runs in a simulated home, as in `oika
 
 - **A flow's `Do` isn't called.** It gets the answer the deployed version got, or none if that call isn't on record, and the report says so.
 - **What it can't know comes as a note:** a pause, a deploy, or your automations being down. It also runs a rule the deployed version had paused.
-- **Some things it can't see at all.** A device that went quiet counts as alive, a host that died outright leaves no note, and a device renamed during the log looks like two devices.
+- **Some things it can't see at all.** A device that went quiet counts as alive, and a host that died outright leaves no note.
 - **Anything your code prints** goes to standard error, with its errors.
 
 The log's length is the host's: [How far back](working-with-a-home.md#how-far-back) says how to change it.

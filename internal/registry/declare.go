@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 
@@ -27,11 +26,11 @@ type Declaration struct {
 
 // Declared is what declaring did, or would do.
 type Declared struct {
-	// Renamed are the live devices whose names change, from their old names to their new ones. Their
-	// claims go with them.
+	// Renamed are the live devices whose names change, from their old names to their new ones. What
+	// the host keeps for a device is by its hardware, so nothing moves.
 	Renamed map[string]string
 	// Absorbed are hardware whose own entry a declared name takes over, from the hardware's name to
-	// the declared one: its live values come across, and the name keeps its claims.
+	// the declared one. Its claims and values are its hardware's, so they stay.
 	Absorbed map[string]string
 	// Changes say what changed, a line each, in the order of the declarations, then of the devices
 	// no longer declared.
@@ -40,10 +39,7 @@ type Declared struct {
 	Unseen []string
 	// Removed are reserved names no longer declared, which go.
 	Removed []string
-	// Fresh are names whose hardware changed with nothing on record to bring its values, so their
-	// live state starts again.
-	Fresh []string
-	// Touched are the live devices whose name, room, type or hardware changed, by their names now.
+	// Touched are the live devices whose name, room, type or hardware changed, by their keys now.
 	Touched []string
 }
 
@@ -186,15 +182,12 @@ func compare(before, after Snapshot, out *Declared) {
 			out.Renamed[b.Name] = a.Name
 		}
 		sameHardware := b.ID == a.ID && b.Driver == a.Driver
-		if !b.Removed && b.ID != "" && !sameHardware && !slices.Contains(slices.Collect(maps.Values(out.Absorbed)), a.Name) {
-			out.Fresh = append(out.Fresh, a.Name)
-		}
 		if b.Removed || b.Name != a.Name || b.Room != a.Room || b.DeviceType != a.DeviceType || !sameHardware {
-			out.Touched = append(out.Touched, a.Name)
+			out.Touched = append(out.Touched, a.Key())
 		}
 	}
 	for _, a := range after.Devices[len(before.Devices):] {
-		out.Touched = append(out.Touched, a.Name)
+		out.Touched = append(out.Touched, a.Key())
 	}
 }
 

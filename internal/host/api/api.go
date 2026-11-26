@@ -589,7 +589,7 @@ const (
 	// EventForget is a device forgotten, so its history says why it stops.
 	EventForget = "forget"
 	// EventRename is a device renamed by a deploy: Device is its name from then on, and Previous the
-	// one before.
+	// one before. The log keeps its key in Device and the name in Message.
 	EventRename = "rename"
 	// EventSignal is a signal changing, as the host saved it: Ref is the signal's, Value what it is
 	// now, and Previous what it was.
@@ -619,7 +619,8 @@ type Event struct {
 	Type string    `json:"type"`
 	// Device, Capability and Value are a change's, a write's or a refused write's, and Previous a
 	// change's. Value and Previous are also a signal's. Device is also the device that went offline
-	// or came back, was forgotten, or was renamed, with Previous its name before.
+	// or came back, was forgotten, or was renamed, with Previous its name before. The log keeps a
+	// device by its key, its hardware, and the API names it, in Device, Ref, Rule and By alike.
 	Device     string `json:"device,omitempty"`
 	Capability string `json:"capability,omitempty"`
 	Value      any    `json:"value,omitempty"`

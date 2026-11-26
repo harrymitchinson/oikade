@@ -1,16 +1,14 @@
 package host
 
 import (
-	"context"
-	"errors"
 	"fmt"
-	"net/http"
 	"slices"
 	"time"
 
 	"oikade.dev/internal/control"
 	"oikade.dev/internal/host/api"
 	"oikade.dev/internal/ident"
+	"oikade.dev/internal/registry"
 )
 
 // eventMatcher says which events an api.EventFilter lets through.
@@ -28,106 +26,42 @@ type eventMatcher struct {
 	matter bool
 }
 
-// deviceMatch is a device named, or one capability of it.
+// deviceMatch is a device named, by its key, or one capability of it. Events from before the log
+// kept a device's key have it by name.
 type deviceMatch struct {
-	names deviceNames
+	key, name string
 	// capability, if set, leaves out the device's other capabilities. What happened to the device as a
 	// whole stays: it went offline, or was forgotten or renamed.
 	capability string
 }
 
-// deviceNames are the names a device has had, each for the time it had it.
-type deviceNames []namedFor
-
-// namedFor is a name a device had from one deploy's rename until another's. A zero time is no
-// limit: it was paired under the name, or has it still. Another device may have the name outside.
-type namedFor struct {
-	name        string
-	from, until time.Time
-}
-
-func (n deviceNames) has(name string, at time.Time) bool {
-	return slices.ContainsFunc(n, func(s namedFor) bool {
-		return s.name == name && (s.from.IsZero() || !at.Before(s.from)) && (s.until.IsZero() || !at.After(s.until))
-	})
-}
-
-// namesOf follows a device back through the log's renames, oldest first, to the names it had
-// before, from the name it has now, or, for one that isn't onRecord, the name it last had.
-func namesOf(name string, onRecord bool, renames []api.Event) deviceNames {
-	var names deviceNames
-	var until time.Time
-	for _, r := range slices.Backward(renames) {
-		before, ok := r.Previous.(string)
-		switch {
-		case !ok || !until.IsZero() && r.Time.After(until):
-		case r.Device == name:
-			// How it got the name: before this it had another.
-			names = append(names, namedFor{name: name, from: r.Time, until: until})
-			name, until = before, r.Time
-		case before == name && until.IsZero() && !onRecord && len(names) == 0:
-			// Nothing has the name now, so the device asked for is the one that last left it.
-			until = r.Time
-		case before == name:
-			// Another device left the name then, so this one has had it only since.
-			return append(names, namedFor{name: name, from: r.Time, until: until})
-		}
-	}
-	return append(names, namedFor{name: name, until: until})
-}
-
-// renamed takes a rename that happens as a tail follows: a device the filter names carries on under
-// its new name, and the name it left is its no longer.
-func (m *eventMatcher) renamed(e api.Event) {
-	before, ok := e.Previous.(string)
-	if !ok || e.Type != api.EventRename {
-		return
-	}
-	for i, d := range m.devices {
-		for j, n := range d.names {
-			if n.name == before && n.until.IsZero() && (n.from.IsZero() || !e.Time.Before(n.from)) {
-				d.names[j].until = e.Time
-				m.devices[i].names = append(d.names, namedFor{name: e.Device, from: e.Time})
-				break
-			}
-		}
-	}
-}
-
 // home is what a matcher needs of the home as it is now.
 type home struct {
-	rooms    func(room string) []ident.ID
-	onRecord func(name string) bool
-	// renames gives the log's rename events, oldest first. It's only asked if a ref names a device.
-	renames func() ([]api.Event, error)
+	rooms func(room string) []ident.ID
+	// device is the key of the device a person names, a live one or else the last one removed that
+	// had the name, or false for none. A name that's no device's matches events kept under that name,
+	// from before events kept a device's key.
+	device func(name string) (ident.ID, bool)
+	// rule is the key of a rule a person names by a key with a device's name in it.
+	rule func(key string) string
+	// names names the devices in a room, for their events from before the log kept keys.
+	names control.Names
 }
 
-// errLogUnread is a matcher that couldn't be made because the log couldn't be read, which is the
-// host's failure and not the filter's.
-var errLogUnread = errors.New("reading the event log")
-
-// newEventMatcher makes a filter's matcher, or says which ref can't narrow events.
+// newEventMatcher makes a filter's matcher, or says which ref can't narrow events. An event names a
+// device by its key, its hardware, so a device's ref finds its past under every name it had, and
+// under the name it has now from before events kept keys.
 func newEventMatcher(f api.EventFilter, h home) (*eventMatcher, error) {
 	m := &eventMatcher{
 		since: f.Since, until: f.Until, narrowed: len(f.Refs) > 0,
 		rules: map[string]bool{}, writers: map[string]bool{}, refs: map[string]bool{},
 	}
-	var renamed []api.Event
-	var asked bool
-	names := func(device string) (deviceNames, error) {
-		if !asked {
-			var err error
-			if renamed, err = h.renames(); err != nil {
-				return nil, fmt.Errorf("%w: %w", errLogUnread, err)
-			}
-			asked = true
+	device := func(name, capability string) {
+		dev, ok := h.device(name)
+		if !ok {
+			dev = ident.ID{Name: name}
 		}
-		return namesOf(device, h.onRecord(device), renamed), nil
-	}
-	device := func(name, capability string) error {
-		had, err := names(name)
-		m.devices = append(m.devices, deviceMatch{names: had, capability: capability})
-		return err
+		m.devices = append(m.devices, deviceMatch{key: dev.Name, name: name, capability: capability})
 	}
 	for _, ref := range f.Refs {
 		kind, parts, err := ident.ParseRef(ref)
@@ -136,32 +70,24 @@ func newEventMatcher(f api.EventFilter, h home) (*eventMatcher, error) {
 		}
 		switch {
 		case kind == ident.Device && len(parts) > 0:
-			err = device(parts[0], capabilityOf(parts))
+			device(parts[0], capabilityOf(parts))
 		case kind == ident.Room:
 			for _, dev := range h.rooms(parts[0]) {
-				if err = device(dev.Name, capabilityOf(parts)); err != nil {
-					break
-				}
+				m.devices = append(m.devices, deviceMatch{key: dev.Name, name: h.names.Device(dev.Name), capability: capabilityOf(parts)})
 			}
 		case kind == ident.Flow:
 			m.rule(parts[0])
 		case kind == ident.Case:
-			// A case is keyed by its device's name, so it had another key under each name before.
-			var had deviceNames
-			had, err = names(parts[0])
-			for _, n := range had {
-				m.rule(control.CaseKey(n.name, parts[1], parts[2]))
-			}
+			named := control.CaseKey(parts[0], parts[1], parts[2])
+			m.rule(h.rule(named))
+			m.rule(named)
 		case kind == ident.Plugin, kind == ident.Signal:
 			m.refs[ident.NewRef(kind, parts...).String()] = true
 		case kind == ident.Matter:
 			m.matter = true
 		default:
-			err = fmt.Errorf("%s has no events: they're a device's, a capability's, a room's, a case's, a flow's, a "+
+			return nil, fmt.Errorf("%s has no events: they're a device's, a capability's, a room's, a case's, a flow's, a "+
 				"signal's or a plugin's, or %s's", ref, ident.Matter)
-		}
-		if err != nil {
-			return nil, err
 		}
 	}
 	return m, nil
@@ -207,28 +133,35 @@ func (m *eventMatcher) about(e api.Event) bool {
 var matterRef = ident.NewRef(ident.Matter).String()
 
 func (d deviceMatch) covers(e api.Event) bool {
-	named := d.names.has(e.Device, e.Time)
-	if before, ok := e.Previous.(string); ok && e.Type == api.EventRename {
-		// The name it left is its too: a device asked for by that name is shown where it went.
-		named = named || d.names.has(before, e.Time)
-	}
-	return named && (d.capability == "" || e.Capability == "" || e.Capability == d.capability)
+	return (e.Device == d.key || e.Device == d.name) && (d.capability == "" || e.Capability == "" || e.Capability == d.capability)
 }
 
-// matcher makes the matcher of a call's filter, from the home as it is and the log's renames.
-func (s *apiServer) matcher(ctx context.Context, f api.EventFilter) (*eventMatcher, error) {
+// matcher makes the matcher of a call's filter, from the home as it is.
+func (s *apiServer) matcher(f api.EventFilter) (*eventMatcher, error) {
+	r := s.registry()
 	return newEventMatcher(f, home{
-		rooms:    s.srv.devices.Room,
-		onRecord: func(name string) bool { _, ok := s.srv.devices.Get(key(name)); return ok },
-		renames:  func() ([]api.Event, error) { return s.srv.events.renames(ctx) },
+		rooms:  s.srv.devices.Room,
+		device: func(name string) (ident.ID, bool) { return keyOfName(r, name) },
+		rule:   func(key string) string { return ruleKeyOf(r, key) },
+		names:  registryNames(r),
 	})
 }
 
-// filterStatus is the status a filter that couldn't be used is answered with: refused, unless what
-// failed was the host reading its log.
-func filterStatus(err error) int {
-	if errors.Is(err, errLogUnread) {
-		return http.StatusInternalServerError
+// named writes events as a person reads them, with their devices named as the registry has them
+// now, or a second ago.
+type named struct {
+	lineWriter
+	registry *registry.Registry
+	namer    *namer
+	made     time.Time
+}
+
+func (n *named) write(v any) bool {
+	if e, ok := v.(api.Event); ok {
+		if now := time.Now(); n.namer == nil || now.Sub(n.made) > time.Second {
+			n.namer, n.made = newNamer(n.registry), now
+		}
+		v = n.namer.event(e)
 	}
-	return http.StatusUnprocessableEntity
+	return n.lineWriter.write(v)
 }

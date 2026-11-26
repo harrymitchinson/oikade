@@ -161,36 +161,26 @@ func TestSetDevicesReportsOnlyRealControlChanges(t *testing.T) {
 	}
 }
 
-func TestRenameMovesLiveStateAsOneChange(t *testing.T) {
-	s := NewStore(logging.Discard())
-	instance := driver.InstanceKey{Driver: "test", Name: "a"}
-	a, b := ident.ID{Name: "a"}, ident.ID{Name: "b"}
-	s.SetDevices(instance, map[ident.ID]Meta{a: {Instance: instance}, b: {Instance: instance}})
-	s.Changed(driver.Update{Device: a, Capability: "on", Value: true})
-	s.Changed(driver.Update{Device: b, Capability: "on", Value: false})
+// A device is its key, its hardware, so a rename is only its Meta: its live state stays, and the
+// log names it as it's called now.
+func TestARenameKeepsLiveStateAndLogsTheNewName(t *testing.T) {
+	log := testkit.Logs(t)
+	s := NewStore(log.Logger)
+	instance := driver.InstanceKey{Driver: driver.Plugin, Name: "hue"}
+	lamp := ident.ID{Name: "hue/0x00178801091863f2"}
+	s.SetDevices(instance, map[ident.ID]Meta{lamp: {DisplayName: "desk-lamp", Instance: instance}})
+	s.Changed(driver.Update{Device: lamp, Capability: "on", Value: true})
 
-	s.Rename(map[ident.ID]Move{
-		a: {To: b, Meta: Meta{Room: "for-b", Instance: instance}},
-		b: {To: a, Meta: Meta{Room: "for-a", Instance: instance}},
-	})
-	if snap, ok := s.Get(b); !ok || snap.Values["on"] != true || snap.Room != "for-b" {
-		t.Errorf("b: %+v, %v", snap, ok)
+	s.SetDevices(instance, map[ident.ID]Meta{lamp: {DisplayName: "reading-lamp", Room: "study", Instance: instance}})
+	if snap, ok := s.Get(lamp); !ok || snap.Values["on"] != true || snap.DisplayName != "reading-lamp" {
+		t.Errorf("after the rename: %+v, %v", snap, ok)
 	}
-	if snap, ok := s.Get(a); !ok || snap.Values["on"] != false || snap.Room != "for-a" {
-		t.Errorf("a: %+v, %v", snap, ok)
+	s.Changed(driver.Update{Device: lamp, Capability: "on", Value: false})
+	if !log.Has(`msg="Changed capability"`, "device=reading-lamp") {
+		t.Errorf("no line naming the lamp:\n%s", strings.Join(log.Lines(), "\n"))
 	}
-
-	c := ident.ID{Name: "c"}
-	s.Rename(map[ident.ID]Move{a: {To: c, Meta: Meta{Instance: instance}}})
-	if _, ok := s.Get(a); ok {
-		t.Error("the old name stayed")
-	}
-	if _, ok := s.Get(c); !ok {
-		t.Error("the new name is missing")
-	}
-	s.Rename(map[ident.ID]Move{a: {To: b, Meta: Meta{Room: "nothing", Instance: instance}}})
-	if snap, _ := s.Get(b); snap.Room == "nothing" {
-		t.Error("nothing replaced a device")
+	if name, ok := s.Names()(lamp.Name); !ok || name != "reading-lamp" {
+		t.Errorf("Names = %q, %v", name, ok)
 	}
 }
 

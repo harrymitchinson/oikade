@@ -177,7 +177,7 @@ func (p *plugins) onRecord(h *hosted) (map[string]ident.ID, map[string]bool) {
 		case d.Removed:
 			removed[d.ID] = true
 		default:
-			devices[d.ID] = key(d.Name)
+			devices[d.ID] = devKey(d)
 		}
 	}
 	return devices, removed
@@ -388,8 +388,18 @@ func (p *plugins) unimported(imported []string) []api.Unimported {
 	return api.UnimportedOf(p.known.registry.List(), imported, p.host.Outside, p.held)
 }
 
+// held says a Safety claim holds the device of that name.
 func (p *plugins) held(device string) bool {
-	_, safety := p.known.claimed(device)
+	dev, ok := keyOfName(p.known.registry, device)
+	if !ok {
+		return false
+	}
+	_, safety := p.known.claimed(dev)
+	return safety
+}
+
+func (p *plugins) heldKey(dev ident.ID) bool {
+	_, safety := p.known.claimed(dev)
 	return safety
 }
 
@@ -398,7 +408,7 @@ func (p *plugins) held(device string) bool {
 func (p *plugins) safetyHeld(list registry.Snapshot) []string {
 	var out []string
 	for _, d := range list.Devices {
-		if _, ok := api.PluginOf(d); ok && !d.Removed && p.held(d.Name) {
+		if _, ok := api.PluginOf(d); ok && !d.Removed && p.heldKey(devKey(d)) {
 			out = append(out, d.Name)
 		}
 	}

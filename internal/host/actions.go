@@ -67,43 +67,45 @@ func (s *apiServer) status() api.Response {
 	for _, u := range unimported {
 		notImported[u.Device] = true
 	}
+	names := s.srv.names
 	for dev, snap := range s.srv.devices.List() {
+		name := names.Device(dev.Name)
 		d := api.Device{
-			Name: dev.Name, Ref: ident.DeviceRef(dev.Name).String(), Room: snap.Room, Online: snap.Online, Capabilities: []api.Capability{},
-			DeviceTypes: slices.Clone(snap.DeviceTypes), PluginNotImported: notImported[dev.Name], Problem: snap.Info.Error,
+			Name: name, Ref: ident.DeviceRef(name).String(), Room: snap.Room, Online: snap.Online, Capabilities: []api.Capability{},
+			DeviceTypes: slices.Clone(snap.DeviceTypes), PluginNotImported: notImported[name], Problem: snap.Info.Error,
 		}
 		if !snap.OfflineSince.IsZero() && snap.Online != nil && !*snap.Online {
 			since := snap.OfflineSince
 			d.OfflineSince = &since
 		}
 		if s.devices != nil {
-			if r, ok := s.devices.registry.Get(dev.Name); ok {
+			if r, ok := s.devices.registry.ByKey(dev.Name); ok {
 				d.Declare, _ = registry.Undeclared(r)
-				if name, ok := api.PluginOf(r); ok {
-					d.Plugin = name
-					if plugins[name] == nil {
-						plugins[name] = &api.Plugin{Name: name}
+				if plugin, ok := api.PluginOf(r); ok {
+					d.Plugin = plugin
+					if plugins[plugin] == nil {
+						plugins[plugin] = &api.Plugin{Name: plugin}
 					}
-					plugins[name].Devices = append(plugins[name].Devices, dev.Name)
+					plugins[plugin].Devices = append(plugins[plugin].Devices, name)
 				}
 			}
 		}
 		held := s.srv.engine.ControlOf(dev)
-		names := slices.Clone(snap.Info.Capabilities)
-		for name := range snap.Values {
-			names = append(names, name)
+		capNames := slices.Clone(snap.Info.Capabilities)
+		for capName := range snap.Values {
+			capNames = append(capNames, capName)
 		}
 		for _, c := range held {
-			names = append(names, c.Capability)
+			capNames = append(capNames, c.Capability)
 		}
-		slices.Sort(names)
-		for _, name := range slices.Compact(names) {
-			c := api.Capability{Name: name, Ref: ident.CapabilityRef(dev.Name, name).String()}
-			if v, ok := snap.Values[name]; ok {
+		slices.Sort(capNames)
+		for _, capName := range slices.Compact(capNames) {
+			c := api.Capability{Name: capName, Ref: ident.CapabilityRef(name, capName).String()}
+			if v, ok := snap.Values[capName]; ok {
 				c.Value = v
 			}
-			if i := slices.IndexFunc(held, func(o control.Status) bool { return o.Capability == name }); i >= 0 {
-				withControl(d.Name, &c, held[i])
+			if i := slices.IndexFunc(held, func(o control.Status) bool { return o.Capability == capName }); i >= 0 {
+				withControl(dev.Name, &c, held[i], names)
 			}
 			d.Capabilities = append(d.Capabilities, c)
 		}
@@ -141,21 +143,21 @@ func (s *apiServer) status() api.Response {
 	s.srv.mu.Unlock()
 	for _, r := range rules {
 		rule := api.Rule{
-			Name: r.Name, Ref: control.RuleRef(r.Name).String(), Kind: r.Kind, Safety: r.Safety,
+			Name: names.Rule(r.Name), Ref: names.RuleRef(r.Name).String(), Kind: r.Kind, Safety: r.Safety,
 			Paused: slices.Contains(paused, r.Name),
-			Device: r.Device, Capability: r.Capability, Case: r.Case,
+			Device: names.Device(r.Device), Capability: r.Capability, Case: r.Case,
 		}
 		if r.Kind == wire.KindCase && !rule.Paused {
-			s.withHold(&rule, stopped[r.Name])
+			s.withHold(&rule, r.Name, namedText(stopped[r.Name], s.registry()))
 			if !*rule.Active {
-				rule.WhyNot = whyNot[r.Name]
+				rule.WhyNot = namedText(whyNot[r.Name], s.registry())
 			}
 		}
 		st.Rules = append(st.Rules, rule)
 	}
-	for _, name := range paused {
-		if !slices.ContainsFunc(st.Rules, func(r api.Rule) bool { return r.Name == name }) {
-			st.Rules = append(st.Rules, api.Rule{Name: name, Ref: control.RuleRef(name).String(), Paused: true})
+	for _, rule := range paused {
+		if !slices.ContainsFunc(rules, func(r wire.RuleInfo) bool { return r.Name == rule }) {
+			st.Rules = append(st.Rules, api.Rule{Name: names.Rule(rule), Ref: names.RuleRef(rule).String(), Paused: true})
 		}
 	}
 	slices.SortFunc(st.Rules, func(a, b api.Rule) int { return strings.Compare(a.Name, b.Name) })
@@ -184,14 +186,14 @@ func (s *apiServer) signalsStatus() []api.Signal {
 
 // signalStatus is a signal's state, as the host last saved it, and what it last said of itself.
 func (s *apiServer) signalStatus(name string, said signalSaid) api.Signal {
-	sig := api.Signal{Name: name, Ref: ident.NewRef(ident.Signal, name).String(), Why: said.why}
+	sig := api.Signal{Name: name, Ref: ident.NewRef(ident.Signal, name).String(), Why: namedText(said.why, s.registry())}
 	if saved, ok := s.srv.signals.Get(key(name)); ok {
 		value := saved.Value
 		sig.Value = &value
 		sig.Since, sig.OnAt, sig.OffAt = timeOrNil(saved.Since), timeOrNil(saved.OnAt), timeOrNil(saved.OffAt)
 	}
 	for _, d := range said.dead {
-		sig.Dead = append(sig.Dead, ident.DeviceRef(d).String())
+		sig.Dead = append(sig.Dead, ident.DeviceRef(s.srv.names.Device(d)).String())
 	}
 	return sig
 }
@@ -203,9 +205,10 @@ func timeOrNil(t time.Time) *time.Time {
 	return &t
 }
 
-// withHold adds a hold's state, as it last saved it, and why it stopped, if it did.
-func (s *apiServer) withHold(r *api.Rule, stopped string) {
-	saved, _ := s.srv.holds.Get(key(r.Name))
+// withHold adds a hold's state, as it last saved it under its rule's key, and why it stopped, if it
+// did.
+func (s *apiServer) withHold(r *api.Rule, rule, stopped string) {
+	saved, _ := s.srv.holds.Get(key(rule))
 	active := saved.Active
 	r.Active, r.Since, r.OnAt, r.OffAt = &active, saved.Since, saved.OnAt, saved.OffAt
 	r.Latched, r.Stopped = saved.Latched, stopped
@@ -217,8 +220,9 @@ func (s *apiServer) withHold(r *api.Rule, stopped string) {
 	}
 }
 
-// withControl adds who holds a device's capability, naming each of its decision's cases.
-func withControl(device string, c *api.Capability, held control.Status) {
+// withControl adds who holds a device's capability, by the device's key, naming each of its
+// decision's cases and their devices.
+func withControl(device string, c *api.Capability, held control.Status, names control.Names) {
 	c.Level = held.Level
 	if held.Limit != "" {
 		c.Limit = held.Limit
@@ -237,7 +241,7 @@ func withControl(device string, c *api.Capability, held control.Status) {
 		if o.Reverted {
 			continue
 		}
-		claim := api.Claim{Source: control.SourceRef(o.Source).String(), Level: o.Level, Value: rawValue(o.Value), Winner: o.Winner, Latched: o.Latched}
+		claim := api.Claim{Source: names.SourceRef(o.Source).String(), Level: o.Level, Value: rawValue(o.Value), Winner: o.Winner, Latched: o.Latched}
 		if name, ok := control.CaseOf(o.Source, device, held.Capability); ok {
 			claim.Case = name
 			if o.Winner {
@@ -262,9 +266,9 @@ func rawValue(raw []byte) any {
 // its settings decide how long that lasts. A Safety claim would only write it back, so that's
 // refused here, where the command can say so.
 func (s *apiServer) set(ctx context.Context, req api.Request) api.Response {
-	dev := key(req.Device)
-	snap, ok := s.srv.devices.Get(dev)
-	if !ok {
+	dev, ok := s.deviceNamed(req.Device)
+	snap, live := s.srv.devices.Get(dev)
+	if !ok || !live {
 		return api.Response{Error: noDevice(req.Device).Error()}
 	}
 	if !slices.Contains(snap.Info.Capabilities, req.Capability) {
@@ -281,13 +285,13 @@ func (s *apiServer) set(ctx context.Context, req api.Request) api.Response {
 	if holder, _ := heldAtSafety(s.srv.engine, s.srv.devices, dev, req.Capability, value); holder != "" {
 		what := ident.CapabilityRef(req.Device, req.Capability)
 		now := s.capabilityNow(dev, req.Capability)
-		if _, ok := control.CaseOf(holder, req.Device, req.Capability); ok {
+		if _, ok := control.CaseOf(holder, dev.Name, req.Capability); ok {
 			return api.Response{
-				Error:   fmt.Sprintf("%s: %s holds it, a safety line", what, control.SourceRef(holder)),
+				Error:   fmt.Sprintf("%s: %s holds it, a safety line", what, s.srv.names.SourceRef(holder)),
 				Outcome: now,
 			}
 		}
-		return api.Response{Error: fmt.Sprintf("%s holds %s at Safety", control.SourceRef(holder), what), Outcome: now}
+		return api.Response{Error: fmt.Sprintf("%s holds %s at Safety", s.srv.names.SourceRef(holder), what), Outcome: now}
 	}
 	// Before the write, so that the device's answer can't come first.
 	events, stop := s.srv.feed.subscribe()
@@ -328,10 +332,11 @@ func (s *apiServer) capabilityNow(dev ident.ID, name string) *api.Capability {
 	if !ok {
 		return nil
 	}
-	c := &api.Capability{Name: name, Ref: ident.CapabilityRef(dev.Name, name).String(), Value: snap.Values[name]}
+	names := s.srv.names
+	c := &api.Capability{Name: name, Ref: ident.CapabilityRef(names.Device(dev.Name), name).String(), Value: snap.Values[name]}
 	for _, held := range s.srv.engine.ControlOf(dev) {
 		if held.Capability == name {
-			withControl(dev.Name, c, held)
+			withControl(dev.Name, c, held, names)
 		}
 	}
 	return c
@@ -412,7 +417,7 @@ type claimedSetter struct {
 // Set implements driver.Setter.
 func (s claimedSetter) Set(ctx context.Context, dev ident.ID, name string, value any) error {
 	if c, ok := s.engine.UnreadableClaim(dev); ok {
-		return fmt.Errorf("%s holds %s", control.SourceRef(c.Source), dev.Name)
+		return fmt.Errorf("%s holds %s", control.SourceRef(c.Source), dev)
 	}
 	return s.setter.Set(ctx, dev, name, value)
 }
@@ -494,7 +499,7 @@ func (s *apiServer) pause(ctx context.Context, req api.Request) api.Response {
 func (s *apiServer) ruleKey(ref string, rules func() []wire.RuleInfo) (string, error) {
 	rule, err := control.RuleKey(ref)
 	if err == nil {
-		return rule, nil
+		return ruleKeyOf(s.registry(), rule), nil
 	}
 	if !strings.Contains(ref, "/") {
 		// Not every kind of ref there is: a rule's is one of two.
@@ -521,10 +526,11 @@ func (s *apiServer) claimsOf(rule string) (ended, kept []string) {
 				if c.Source != source || c.Reverted {
 					continue
 				}
+				ref := ident.CapabilityRef(s.srv.names.Device(dev.Name), held.Capability).String()
 				if c.Level == control.NameSafety {
-					kept = append(kept, ident.CapabilityRef(dev.Name, held.Capability).String())
+					kept = append(kept, ref)
 				} else {
-					ended = append(ended, ident.CapabilityRef(dev.Name, held.Capability).String())
+					ended = append(ended, ref)
 				}
 			}
 		}
@@ -549,6 +555,24 @@ func (s *apiServer) resume(ctx context.Context, req api.Request) api.Response {
 		return api.Response{Error: err.Error()}
 	}
 	return api.Response{}
+}
+
+// deviceNamed is the key of the live device of that name, as a person names it.
+func (s *apiServer) deviceNamed(name string) (ident.ID, bool) {
+	r := s.registry()
+	if r == nil {
+		return ident.ID{Name: name}, true
+	}
+	d, ok := r.Get(name)
+	return devKey(d), ok
+}
+
+// registry is the host's record of devices, or nil without one.
+func (s *apiServer) registry() *registry.Registry {
+	if s.devices == nil {
+		return nil
+	}
+	return s.devices.registry
 }
 
 // noDevice is a device the host has no record of, as every answer says it.
@@ -581,7 +605,7 @@ func (s *server) setPaused(ctx context.Context, rule string, paused bool) error 
 		return fmt.Errorf("saving the pause: %w", err)
 	}
 	s.broadcast(m)
-	s.log.Info("Changed rule pause", "rule", control.RuleRef(rule), "paused", paused)
+	s.log.Info("Changed rule pause", "rule", s.names.RuleRef(rule), "paused", paused)
 	s.emit(api.Event{Time: time.Now(), Type: api.EventPause, Rule: rule, Message: what})
 	if paused {
 		if err := s.engine.ReleaseRule(ctx, key(rule)); err != nil {

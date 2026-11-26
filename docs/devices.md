@@ -129,18 +129,18 @@ home.Device("greenhouse-fan").Room("greenhouse") // no hardware yet: the name is
 A deploy applies the declarations, matched by hardware, and lists what it changed: `Renamed lamp to porch-light`, `Moved porch-light to porch`. The host keeps the declarations before applying them, so a host that stops in between applies them when it starts.
 
 - **A declared name keeps its Matter endpoint,** so the Home app keeps its room and scenes.
-- **A rename takes the device's claims with it,** matched by its hardware. A Safety hold keeping `water-valve` closed holds it as `mains-valve` through the handover, with no `--allow-safety`. Its cases' claims, latches, pauses and averages move to the new name too, and the deploy doesn't count them as Safety rules gone.
+- **A rename moves nothing.** The host keeps a device's claims, latches, pauses and averages by its hardware, not its name, so a Safety hold keeping `water-valve` closed holds it as `mains-valve`, with no `--allow-safety`, and the handles `oikade types` writes don't change.
 - **Stop declaring a device,** and the next deploy gives it back its app's name, or removes a reserved name.
 
 ### Swapping hardware
 
-Change a declaration's ID to swap a failed device for new hardware. The name, room, claims and endpoint stay, so the Home app keeps its rooms and automations, and the new hardware's own entry goes. Hardware a declared name takes over keeps nothing of its own, so that's refused while something claims it.
+Change a declaration's ID to swap a failed device for new hardware, and run `oikade types`. The name, room and endpoint stay, so the Home app keeps its rooms and automations, and the new hardware's own entry goes. Claims don't: the host keeps them by hardware, so the new hardware's cases are new ones, and a Safety case on the old hardware is one gone, which the deploy refuses without `--allow-safety`. Hardware a declared name takes over keeps its own claims, as a rename does.
 
 ### Reserving a name
 
 A declaration with no hardware, or hardware that hasn't reported, reserves its name until it does, and `oikade check` and the deploy say so. So you can write code for something that isn't paired yet, which does nothing until the hardware arrives.
 
-A reserved device has no capabilities yet, so `oikade types` gives it only its `Name`. Until it reports, name a capability yourself, such as `oikade.Bool{Device: GreenhouseFan.Name, Capability: oikade.On}`, and run `oikade types` once it has. Give it its `Hardware` and deploy, and the name moves onto it. A reserved name that stops being declared is refused while something claims it.
+A reserved device has no capabilities yet, so `oikade types` gives it only its `Name`. Until it reports, name a capability yourself, such as `oikade.Bool{Device: GreenhouseFan.Name, Capability: oikade.On}`, and run `oikade types` once it has. Give it its `Hardware` and deploy, and the name moves onto it, then run `oikade types` again, as its handles have the hardware from then on. A reserved name that stops being declared, or takes hardware, is refused while something claims it, because its claims are the name's and not the hardware's.
 
 ### What's refused
 

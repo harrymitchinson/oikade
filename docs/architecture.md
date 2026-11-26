@@ -194,7 +194,7 @@ Design: OIK-171. The code is `internal/host/api`, and the routes are in [host-ap
 
 ## The device registry
 
-`internal/registry` is the host's list of devices, which `internal/host/devices.go` keeps the hub in step with. Each driver instance gets the registry's devices: the hub's key is the registry's name, and a driver finds that from its hardware's ID.
+`internal/registry` is the host's list of devices, which `internal/host/devices.go` keeps the hub in step with. Each driver instance gets the registry's devices: the hub's key is the device's key (`registry.Device.Key`), its hardware, and a driver finds that from its hardware's ID.
 
 ### Endpoints
 
@@ -202,11 +202,13 @@ Design: OIK-171. The code is `internal/host/api`, and the routes are in [host-ap
 - **An endpoint belongs to one entry for good.** `Next` only rises, forgotten devices stay on record, and a name moved onto new hardware keeps its entry's endpoint and retires the replacement's.
 - **A device stays until you forget it.** Your process isn't told a device went: it's told about new and changed ones, and a deploy gives it a fresh list.
 
-### Claims follow names
+### Claims follow hardware
 
-Claims are keyed by a device's name.
+A device is its key, its hardware (OIK-395): a plugin's device is `<plugin>/<id>`, its ID escaped as a ref's segment (`hue/0x00178801091863f2`, `overkiz/io:%2F%2F1234%2F5`), a simulated device its ID, and a reserved name itself. The hub, the engine's arbiters, claims, holds, fires, pauses, averages, flow journals, the event log and the host protocol all key a device by it, and so do the handles `oikade types` writes.
 
-- **A declared rename moves them** (`Engine.MoveDevices`), before the hub renames, with the old name given no arbiters meanwhile. The device's own cases' claims, holds, fires, pauses and averages move to the new name's keys: only those the new version's `Control` has on the device (`wire.OwnCases`), since a group's cases can be keyed by a name a device has too. A failure puts everything back.
+- **A rename moves nothing.** Only the registry has a device's name. What a person reads names it where it's printed or read: the host's API, logs and metric labels through `internal/host/names.go`, which looks a key up in the registry, or a removed device's last name, and the CLI's refs back. Your process names devices from its `welcome` (`hub.Meta.DisplayName`).
+- **Swapped hardware is a new device** to what's kept: its cases are new rules, the old hardware's are ended by the deploy that confirms, and a Safety one among them is a finding.
+- **A store kept by names starts again.** Before the host reads anything a device has (`keyByHardware`), a store whose `layout` doesn't say `hardware` loses what it kept under the name of a device now known by its hardware, which nothing would find: its claims, its cases' holds, latches, fires and pauses, its averages, the holds that write it, and the flow runs whose journal names it. The host logs how many, and a latch that held lets go. A simulated or reserved device, whose key is its name, keeps its state, and so does a flow that names no such device.
 - **Forgetting a device ends its claims** (`Engine.ForgetDevice`), rather than leaving them for the next device of that name. Claims it has only on disk count too (`Engine.SavedClaims`).
 - **A claims record that can't be read is a Safety claim on the whole device** (`Engine.UnreadableClaim`). It stays, no arbiter starts empty to save over it, `claimedSetter` refuses every write to the device, and removing the device with `--allow-safety` clears it.
 
@@ -221,7 +223,7 @@ Claims are keyed by a device's name.
 
 `oikade types` renders the registry to Go (`internal/registry/types.go`), as the home's declarations would make it (`registry.Declaring`). It reads the declarations from the manifest of the home it builds, or from its source when it doesn't build, as when it names a handle only the new file has.
 
-The file has a value per device, with its name and an `oikade.Bool`, `oikade.Number` or `oikade.Choice` for each capability, named by the capability registry's `Go` name, so the compiler checks what a home names. Nothing else is in it: `oikade dev` and `oikadetest` read the handles back from its Go (`registry.Handles`), with rooms and types from the home's declarations.
+The file has a value per device, named in its comment, with an `oikade.Device` and an `oikade.Bool`, `oikade.Number` or `oikade.Choice` for each capability, named by the capability registry's `Go` name, so the compiler checks what a home names. Each has the device by its key. Nothing else is in it: `oikade dev` and `oikadetest` read the handles back from its Go (`registry.Handles`), by key, with rooms and types from the home's declarations, so they show keys where the host would show names.
 
 ## Plugins
 
@@ -354,7 +356,7 @@ Design: OIK-64 (the rule model), OIK-60 (room targets) and OIK-298 (decisions). 
 
 ### Decisions and holds
 
-- **A decision** compiles in `oikade` (`decide.go`) to the host's `control.Entry` for the capability, and an engine hold for each case and budget line, keyed `<device> <capability> <case>`.
+- **A decision** compiles in `oikade` (`decide.go`) to the host's `control.Entry` for the capability, and an engine hold for each case and budget line, keyed `<device> <capability> <case>`, with the device's key.
 - **A case above the override line,** or every case with `NoOverride`, is a Safety hold. A case's `LatchUntil` is the hold's `Until`, which ends its latch. A budget line's conditions are its hold's `When`.
 - **A `Follow` line** is a hold with `Follow`, which works out its value on every look. It's active while the reading is known, rounds to `Step` or the capability's `Spec.Step`, and claims again only when the value is three quarters of a step from `HoldState.Target`, the last one written, which the host saves.
 - **A group's decision** compiles to one hold per case over its members, and to a setting for each member, with a member's own lines ahead of the group's when it hands over with `Then`.
@@ -470,7 +472,7 @@ It's history, not state: nothing depends on it, so it trades the rest of the sto
 - **An idle host doesn't sync the disk.** With nothing queued and nothing over the bound there's no commit.
 - **The bound folds into a baseline.** A commit drops the oldest events over the bound, folding their last values into a baseline in the same transaction, because a device that hasn't changed since still has them.
 - **Reads take pages,** each its own short transaction, because a long one would hold up writes that grow the file, journal entries among them.
-- **A filtered read reads the log through.** The log has no index by time or device, so `eventMatcher` (`internal/host/eventfilter.go`) sends what passes, after one pass for the `rename` events if a ref names a device.
+- **A filtered read reads the log through.** The log has no index by time or device, so `eventMatcher` (`internal/host/eventfilter.go`) sends what passes. An event has its device by key, so a device's ref finds its events under every name it had, and the API names them as it sends them (`namedEvent`).
 - **A tail that starts with the log's past has each event once.** An event goes to the log's queue and to the feed under one lock (`server.emit`), and such a tail subscribes to the feed at the moment a flush takes the queue (`eventLog.flushedAt`). So the log up to that flush's last record and the feed after it are every event, and neither waits for the disk with that lock held.
 
 #### What it's sized on

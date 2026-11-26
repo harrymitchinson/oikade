@@ -1,7 +1,6 @@
 package host
 
 import (
-	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -48,11 +47,11 @@ var readingLamp = []wire.DeviceDeclaration{{Name: "reading-lamp", Plugin: "x", I
 func TestDeclaredDevicesAreSavedFirstAndSurviveARestart(t *testing.T) {
 	dir := t.TempDir()
 	known, _ := declaredHome(t, dir)
-	if err := known.takeDeclared(readingLamp, nil); err != nil {
+	if err := known.takeDeclared(readingLamp); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := known.store.Get(key("reading-lamp")); !ok {
-		t.Error("the hub doesn't have the new name")
+	if snap, ok := known.store.Get(key("x/l1")); !ok || snap.DisplayName != "reading-lamp" {
+		t.Errorf("the hub has %+v, %v, want the lamp by its hardware, called reading-lamp", snap, ok)
 	}
 	if _, err := known.registry.Declare([]registry.Declaration{{Name: "desk-lamp", Driver: "plugin/x", ID: "l1"}}); err != nil {
 		t.Fatal(err)
@@ -67,107 +66,47 @@ func TestDeclaredDevicesAreSavedFirstAndSurviveARestart(t *testing.T) {
 	}
 }
 
-func TestARenamedDeviceTakesItsClaims(t *testing.T) {
+// What the host keeps for a device is by its hardware, so a rename leaves its claims where they are,
+// and its rules' keys with them.
+func TestARenameMovesNoClaims(t *testing.T) {
 	known, controls := declaredHome(t, t.TempDir())
 	state := engine.ControlState{capability.On: control.State{Claims: []control.Claim{
-		{Source: "Rule/lamp on night", Level: control.Safety}, {Source: "Flow/evening", Level: control.Normal},
-		// A room's case keyed by the same name, which isn't the device's own.
-		{Source: "Rule/lamp on dusk", Level: control.Normal},
+		{Source: "Rule/x/l1 on night", Level: control.Safety}, {Source: "Rule/evening", Level: control.Normal},
 	}}}
-	if err := controls.Put(t.Context(), key("lamp"), state); err != nil {
+	if err := controls.Put(t.Context(), key("x/l1"), state); err != nil {
 		t.Fatal(err)
 	}
-	var renamed func(string) string
-	known.renamed = func(r func(string) string) error { renamed = r; return nil }
-	if err := known.takeDeclared(readingLamp, []string{"reading-lamp on night"}); err != nil {
+	if err := known.takeDeclared(readingLamp); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := controls.Get(key("lamp")); ok {
-		t.Error("the claims stayed under the old name")
+	got, ok := controls.Get(key("x/l1"))
+	if !ok || len(got[capability.On].Claims) != 2 || got[capability.On].Claims[0].Source != "Rule/x/l1 on night" {
+		t.Errorf("the lamp's claims are %+v, %v, want them as they were", got, ok)
 	}
-	got, _ := controls.Get(key("reading-lamp"))
-	sources := make([]string, 0, len(got[capability.On].Claims))
-	for _, c := range got[capability.On].Claims {
-		sources = append(sources, c.Source)
-	}
-	if want := []string{"Rule/reading-lamp on night", "Flow/evening", "Rule/lamp on dusk"}; !slices.Equal(sources, want) {
-		t.Errorf("got claims from %v, want %v", sources, want)
-	}
-	if got := renamed("lamp on night"); got != "reading-lamp on night" {
-		t.Errorf("the rules' state was told lamp on night is now %q", got)
+	if holders, safety := known.claimed(key("x/l1")); !slices.Equal(holders, []string{"case/reading-lamp/on/night", "flow/evening"}) || !safety {
+		t.Errorf("claimed says %v, %v, by the lamp's new name", holders, safety)
 	}
 }
 
-func TestARenameWhoseRuleStateCantMoveKeepsItsClaims(t *testing.T) {
-	known, controls := declaredHome(t, t.TempDir())
-	state := engine.ControlState{capability.On: control.State{Claims: []control.Claim{{Source: "Rule/lamp on night", Level: control.Safety}}}}
-	if err := controls.Put(t.Context(), key("lamp"), state); err != nil {
-		t.Fatal(err)
-	}
-	calls := 0
-	known.renamed = func(func(string) string) error {
-		calls++
-		if calls == 1 {
-			return errors.New("disk full")
-		}
-		return nil
-	}
-	if err := known.takeDeclared(readingLamp, nil); err == nil {
-		t.Fatal("took it")
-	}
-	if _, ok := known.registry.Get("lamp"); !ok {
-		t.Error("the registry renamed it")
-	}
-	got, _ := controls.Get(key("lamp"))
-	if len(got[capability.On].Claims) != 1 || got[capability.On].Claims[0].Source != "Rule/lamp on night" {
-		t.Errorf("lamp's claims are %+v, want them back as they were", got)
-	}
-	if _, ok := controls.Get(key("reading-lamp")); ok {
-		t.Error("claims were left under the new name")
-	}
-}
-
-func TestRuleStateFollowsARename(t *testing.T) {
-	data, err := store.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = data.Close() })
-	holds := &engine.Stored[engine.HoldState]{Values: data.Namespace(engine.HoldStatesNamespace), Log: logging.Discard()}
-	ctx := t.Context()
-	for _, name := range []string{"a on night", "b on night", "hall on motion"} {
-		if err := holds.Put(ctx, key(name), engine.HoldState{Active: name == "a on night"}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// a and b swap names.
-	swap := map[string]string{"a": "b", "b": "a"}
-	if err := renameKeys(holds, func(k string) string { return control.RenamedKey(k, swap) }); err != nil {
-		t.Fatal(err)
-	}
-	if st, _ := holds.Get(key("b on night")); !st.Active {
-		t.Error("a's hold didn't move to b")
-	}
-	if st, ok := holds.Get(key("a on night")); !ok || st.Active {
-		t.Errorf("b's hold didn't move to a: %+v, %v", st, ok)
-	}
-	if _, ok := holds.Get(key("hall on motion")); !ok {
-		t.Error("another device's hold went")
-	}
-}
-
+// A reserved name something claims stays declared, and has no hardware, and a declared device stays
+// on record.
 func TestAClaimedReservationStaysDeclaredAndADeclaredDeviceIsntRemoved(t *testing.T) {
 	known, controls := declaredHome(t, t.TempDir())
 	fan := []wire.DeviceDeclaration{{Name: "shed-fan"}, {Name: "lamp", Plugin: "x", ID: "l1"}}
-	if err := known.takeDeclared(fan, nil); err != nil {
+	if err := known.takeDeclared(fan); err != nil {
 		t.Fatal(err)
 	}
 	state := engine.ControlState{capability.On: control.State{Claims: []control.Claim{{Source: "Rule/frost", Level: control.Safety}}}}
 	if err := controls.Put(t.Context(), key("shed-fan"), state); err != nil {
 		t.Fatal(err)
 	}
-	if err := known.takeDeclared(fan[1:], nil); err == nil || !strings.Contains(err.Error(), "flow/frost holds shed-fan") {
+	if err := known.takeDeclared(fan[1:]); err == nil || !strings.Contains(err.Error(), "flow/frost holds shed-fan") {
 		t.Errorf("dropped a claimed reservation: %v", err)
+	}
+	// Its claims are under its name, which hardware would leave behind.
+	wired := []wire.DeviceDeclaration{{Name: "shed-fan", Plugin: "x", ID: "f1"}, fan[1]}
+	if err := known.takeDeclared(wired); err == nil || !strings.Contains(err.Error(), "flow/frost holds shed-fan, which is reserved") {
+		t.Errorf("gave a claimed reservation hardware: %v", err)
 	}
 	if resp, _ := known.forget(t.Context(), []string{"lamp"}, true, nil); !strings.Contains(resp.Error, "declared in your home's code: delete its declaration and deploy, then forget it") {
 		t.Errorf("removed a declared device: %+v", resp)
@@ -184,20 +123,20 @@ func pairedHome(t *testing.T, reads map[string][]engine.RoomRead, devices ...dri
 			t.Fatal(err)
 		}
 	}
-	srv := &server{session: &session{reads: reads}, declaring: known.declaring}
+	srv := &server{session: &session{reads: reads}, declaring: known.declaring, names: registryNames(known.registry)}
 	return &deployer{srv: srv, log: logging.Discard()}
 }
 
 // A deploy warns of a room its declarations leave with none of the devices a hold reads there, by
-// the name the hold has in the next version, and not of one another device still covers, one that
+// the name the next version gives its device, and not of one another device still covers, one that
 // was empty already, or a hold the next version drops.
 func TestADeployWarnsOfARoomItsDeclarationsEmpty(t *testing.T) {
 	plugs := []devicetype.Type{devicetype.OnOffPlugInUnit}
 	d := pairedHome(t, map[string][]engine.RoomRead{
-		"heater on hall-plugs":  {{Room: "hall", Types: plugs}},
-		"desk-lamp on occupied": {{Room: "study"}},
-		"dropped on hall":       {{Room: "hall"}},
-		"attic-fan":             {{Room: "attic"}},
+		"x/h on hall-plugs": {{Room: "hall", Types: plugs}},
+		"x/d on occupied":   {{Room: "study"}},
+		"dropped on hall":   {{Room: "hall"}},
+		"attic-fan":         {{Room: "attic"}},
 	},
 		driver.AppDevice{ID: "h", Name: "heater", Room: "hall", Capabilities: []string{capability.On}, DeviceType: devicetype.OnOffPlugInUnit},
 		driver.AppDevice{ID: "s", Name: "sensor", Room: "study", Capabilities: []string{capability.Occupied}},
@@ -210,9 +149,9 @@ func TestADeployWarnsOfARoomItsDeclarationsEmpty(t *testing.T) {
 			{Name: "radiator", Plugin: "x", ID: "h", Room: new("hall"), DeviceType: devicetype.OnOffLight},
 			{Name: "sensor", Plugin: "x", ID: "s", Room: new("loft")},
 		},
-		Rules: []wire.RuleInfo{{Name: "radiator on hall-plugs"}, {Name: "desk-lamp on occupied"}, {Name: "attic-fan"}},
+		Rules: []wire.RuleInfo{{Name: "x/h on hall-plugs"}, {Name: "x/d on occupied"}, {Name: "attic-fan"}},
 	}
-	got := d.declaredWarning(next, wire.Manifest{}, map[string]string{"heater": "radiator"})
+	got := d.declaredWarning(next, wire.Manifest{})
 	want := "hall has no devices now that case/radiator/on/hall-plugs read, so they keep their state until one is back in hall"
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)
@@ -220,7 +159,7 @@ func TestADeployWarnsOfARoomItsDeclarationsEmpty(t *testing.T) {
 
 	// Declaring the devices as they are warns of nothing.
 	same := wire.Manifest{Inventory: []wire.DeviceDeclaration{{Name: "heater", Plugin: "x", ID: "h", Room: new("hall")}}, Rules: next.Rules}
-	if got := d.declaredWarning(same, wire.Manifest{}, nil); got != "" {
+	if got := d.declaredWarning(same, wire.Manifest{}); got != "" {
 		t.Errorf("declaring the heater where it is warns %q", got)
 	}
 }
@@ -234,33 +173,33 @@ func TestADeployWarnsOfADeviceThatKeepsItsOwnDecisionInItsNewRoom(t *testing.T) 
 	decides := func(lines ...string) []wire.DeviceControl {
 		return []wire.DeviceControl{
 			{Room: "kitchen", Entry: control.Entry{Capability: capability.On, Lines: []string{"Rule/kitchen on dark"}}},
-			{Device: "pendant", Entry: control.Entry{Capability: capability.On, Lines: lines}},
+			{Device: "x/p", Entry: control.Entry{Capability: capability.On, Lines: lines}},
 		}
 	}
 	into := func(room string, settings []wire.DeviceControl) wire.Manifest {
 		return wire.Manifest{Inventory: []wire.DeviceDeclaration{{Name: "pendant", Plugin: "x", ID: "p", Room: &room}}, Control: settings}
 	}
-	own := decides("Rule/pendant on dinner")
+	own := decides("Rule/x/p on dinner")
 	want := "device/pendant/on keeps its own decision rather than kitchen's, unless the home hands it over with Then"
-	if got := d.declaredWarning(into("kitchen", own), wire.Manifest{}, nil); got != want {
+	if got := d.declaredWarning(into("kitchen", own), wire.Manifest{}); got != want {
 		t.Errorf("got %q, want %q", got, want)
 	}
-	if got := d.declaredWarning(into("kitchen", decides("Rule/pendant on dinner", "Rule/kitchen on dark")), wire.Manifest{}, nil); got != "" {
+	if got := d.declaredWarning(into("kitchen", decides("Rule/x/p on dinner", "Rule/kitchen on dark")), wire.Manifest{}); got != "" {
 		t.Errorf("a decision that hands over with Then warns %q", got)
 	}
-	if got := d.declaredWarning(into("hall", own), wire.Manifest{}, nil); got != "" {
+	if got := d.declaredWarning(into("hall", own), wire.Manifest{}); got != "" {
 		t.Errorf("staying in the hall warns %q", got)
 	}
 	// A room's decision with no case, such as flows and a default, hands over all of its lines.
 	flows := []wire.DeviceControl{
 		{Room: "kitchen", Entry: control.Entry{Capability: capability.On, Lines: []string{control.LineOverride, control.LineFlows}}},
-		{Device: "pendant", Entry: control.Entry{Capability: capability.On, Lines: []string{"Rule/pendant on dinner", control.LineFlows}}},
+		{Device: "x/p", Entry: control.Entry{Capability: capability.On, Lines: []string{"Rule/x/p on dinner", control.LineFlows}}},
 	}
-	if got := d.declaredWarning(into("kitchen", flows), wire.Manifest{}, nil); got != "" {
+	if got := d.declaredWarning(into("kitchen", flows), wire.Manifest{}); got != "" {
 		t.Errorf("a decision that has the room's lines warns %q", got)
 	}
-	flows[1].Entry.Lines = []string{"Rule/pendant on dinner"}
-	if got := d.declaredWarning(into("kitchen", flows), wire.Manifest{}, nil); got == "" {
+	flows[1].Entry.Lines = []string{"Rule/x/p on dinner"}
+	if got := d.declaredWarning(into("kitchen", flows), wire.Manifest{}); got == "" {
 		t.Error("a decision without the room's Flows line doesn't warn")
 	}
 }

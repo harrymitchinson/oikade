@@ -72,6 +72,12 @@ func DeviceRef(name string) Ref { return NewRef(Device, name) }
 // plugin's name and the ID it knows the device by, percent-encoded where it isn't safe in a ref.
 func HardwareRef(plugin, id string) Ref { return NewRef(Hardware, plugin, id) }
 
+// HardwareKey is how the host knows a plugin's device: its hardware's ref without the kind, such as
+// overkiz/io:%2F%2F1234%2F5.
+func HardwareKey(plugin, id string) string {
+	return strings.TrimPrefix(HardwareRef(plugin, id).String(), string(Hardware)+"/")
+}
+
 // CapabilityRef is a device's capability's ref, such as device/desk-plug/on.
 func CapabilityRef(device, capability string) Ref { return NewRef(Device, device, capability) }
 

@@ -1,12 +1,14 @@
 package host
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
 
 	"oikade.dev/internal/control"
 	"oikade.dev/internal/devicetype"
+	"oikade.dev/internal/engine"
 	"oikade.dev/internal/registry"
 )
 
@@ -54,11 +56,16 @@ func TestADeployAppliesTheHomesDeviceDeclarations(t *testing.T) {
 	}
 }
 
-func TestARenameInADeployKeepsASafetyClaimHolding(t *testing.T) {
+// A device is its hardware, so renaming it moves nothing: its claims and a held latch stay where they
+// are, under its hardware's key, and both survive a restart of the host.
+func TestARenameKeepsClaimsAndAHeldLatchWithNothingMoved(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)
 	r.change("leak-sensor", opened, true)
 	r.untilValue("valve", false)
+	// The leak is gone, and the latch holds the valve shut until a reset.
+	r.change("leak-sensor", opened, false)
+	r.sync()
 	r.until("the leak shutoff", func() bool {
 		return strings.Contains(string(r.stdout(nil, "status", "valve")), "leak-shutoff wants false")
 	})
@@ -71,15 +78,37 @@ func TestARenameInADeployKeepsASafetyClaimHolding(t *testing.T) {
 	if !strings.Contains(stderr, "Renamed valve to mains-valve") {
 		t.Errorf("got:\n%s", stderr)
 	}
-	if status := string(r.stdout(nil, "status", "mains-valve")); !strings.Contains(status, "leak-shutoff wants false") {
-		t.Errorf("the claim didn't come with it:\n%s", status)
+	for _, launch := range []func(){func() {}, func() { r.launchedPlugins() }} {
+		launch()
+		if status := string(r.stdout(nil, "status", "mains-valve")); !strings.Contains(status, "leak-shutoff wants false") {
+			t.Errorf("the latch didn't hold:\n%s", status)
+		}
+		// The fixture's plugin opens its valve whenever it starts, as a deploy restarts it, and the
+		// latched Safety claim closes it again.
+		r.untilValue("mains-valve", false)
+		r.stop()
+		r.expectLatched()
 	}
-	// The fixture's plugin opens its valve whenever it starts, as a deploy restarts it, and the
-	// Safety claim, under the new name, closes it again.
-	r.untilValue("mains-valve", false)
-	r.stop()
-	if got := r.ruleClaims("mains-valve"); !holdsClaim(got, "Rule/mains-valve on leak-shutoff", control.Safety) {
-		t.Errorf("saved claims %+v, want the case's at Safety under the new name", got)
+}
+
+// expectLatched checks that a stopped host keeps the relays' valve shut by its leak case, latched,
+// at Safety, under the valve's hardware.
+func (r *rig) expectLatched() {
+	r.t.Helper()
+	const rule = "relays/valve on leak-shutoff"
+	claims := r.ruleClaims("relays/valve")
+	s := r.openStore()
+	defer func() { _ = s.Close() }()
+	raw, ok, err := s.Namespace(engine.HoldStatesNamespace).Get(rule)
+	if err != nil || !ok {
+		r.t.Fatalf("no hold state for %s: %v", rule, err)
+	}
+	var hold engine.HoldState
+	if err := json.Unmarshal(raw, &hold); err != nil {
+		r.t.Fatal(err)
+	}
+	if !hold.Latched || !holdsClaim(claims, control.SourceRule+rule, control.Safety) {
+		r.t.Fatalf("the case isn't latched with its Safety claim: %+v, %+v. The log:\n%s", hold, claims, r.dump())
 	}
 }
 
@@ -108,7 +137,9 @@ func TestADeviceNotInYourCodeSaysHowToDeclareIt(t *testing.T) {
 	}
 }
 
-func TestADeclaredSwapOfHardwareKeepsTheNameEndpointAndClaims(t *testing.T) {
+// Swapped hardware is a new device to what the host keeps: the Safety case on the old hardware goes,
+// which a deploy says, and the spare's own claims it afresh. The name keeps its endpoint.
+func TestADeclaredSwapOfHardwareStartsItsClaimsAgain(t *testing.T) {
 	t.Parallel()
 	r := startPlugins(t)
 	r.until("the spare relay", func() bool {
@@ -121,18 +152,25 @@ func TestADeclaredSwapOfHardwareKeepsTheNameEndpointAndClaims(t *testing.T) {
 
 	// The valve failed: its declaration's ID moves onto the spare.
 	stderr, err := r.deploy("plugins-swapped")
-	if err != nil {
-		t.Fatalf("%v: %s\nThe log:\n%s", err, stderr, r.dump())
+	if err == nil || !strings.Contains(stderr, `Safety case "relays/valve on leak-shutoff" is gone`) {
+		t.Fatalf("a swap that ends the old hardware's Safety case went ahead: %v: %s", err, stderr)
 	}
-	r.awaitDeployed()
+	r.mustDeploy("plugins-swapped", "--allow-safety")
 	after := deviceOf(t, r.devices(), "valve")
 	if after.ID != "spare-relay" || after.Endpoint != before.Endpoint {
 		t.Errorf("got %+v, was %+v", after, before)
 	}
 	r.untilValue("valve", false)
 	r.stop()
-	if got := r.ruleClaims("valve"); !holdsClaim(got, "Rule/valve on leak-shutoff", control.Safety) {
-		t.Errorf("saved claims %+v, want the Safety claim still on the name", got)
+	got := r.ruleClaims("relays/spare-relay")
+	if !holdsClaim(got, "Rule/relays/spare-relay on leak-shutoff", control.Safety) {
+		t.Errorf("saved claims %+v, want the spare's case at Safety", got)
+	}
+	s := r.openStore()
+	defer func() { _ = s.Close() }()
+	raw, _, _ := s.Namespace(engine.ControlStatesNamespace).Get("relays/valve")
+	if strings.Contains(string(raw), "leak-shutoff") {
+		t.Errorf("the old hardware kept the case's claim: %s", raw)
 	}
 }
 
@@ -153,5 +191,63 @@ func TestADeclaredTypeThatTakesADeviceOutOfASafetyRoomWaitsForAllowSafety(t *tes
 	r.mustDeploy("plugins-porch-light", "--allow-safety")
 	if d := deviceOf(t, r.devices(), "relay"); d.DeviceType != devicetype.OnOffLight {
 		t.Errorf("with --allow-safety, the relay is a %q", d.DeviceType)
+	}
+}
+
+// A host whose store kept claims and latches under devices' names, as hosts did before a device was
+// its hardware, starts them again and says so: nothing finds them by hardware.
+func TestAStoreKeptByNameStartsItsClaimsAndLatchesAgain(t *testing.T) {
+	t.Parallel()
+	r := preparePlugins(t)
+	s := r.openStore()
+	// As the last host left it, with the valve on record.
+	devices, err := registry.Open(s.Namespace(registry.Namespace))
+	if err != nil {
+		t.Fatal(err)
+	}
+	valve := registry.Report{ID: "valve", Driver: "plugin/relays", Name: "valve", Capabilities: []string{"on"}}
+	if _, _, err := devices.Report(valve); err != nil {
+		t.Fatal(err)
+	}
+	put := func(namespace, key string, v any) {
+		raw, err := json.Marshal(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Namespace(namespace).Put(key, raw); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put(engine.ControlStatesNamespace, "valve", engine.ControlState{"on": control.State{Claims: []control.Claim{
+		{Source: "Rule/valve on leak-shutoff", Level: control.Safety},
+	}}})
+	put(engine.HoldStatesNamespace, "valve on leak-shutoff", engine.HoldState{Active: true, Latched: true})
+	_ = s.Close()
+
+	r.launchedPlugins()
+	const startedAgain = "Started claims, latches and flow runs again, as the store kept them by device name"
+	if got := r.count(startedAgain, "states", 2.0); got != 1 {
+		t.Errorf("logged that the two started again %d times. The log:\n%s", got, r.dump())
+	}
+	// Nothing holds the valve shut, so it stays open, as its plugin starts it.
+	r.untilValue("valve", true)
+	if status := string(r.stdout(nil, "status", "valve")); strings.Contains(status, "leak-shutoff") {
+		t.Errorf("the old latch holds:\n%s", status)
+	}
+	r.stop()
+	s = r.openStore()
+	defer func() { _ = s.Close() }()
+	if raw, ok, _ := s.Namespace(engine.ControlStatesNamespace).Get("valve"); ok {
+		t.Errorf("the claims stayed: %s", raw)
+	}
+	if raw, ok, _ := s.Namespace(engine.HoldStatesNamespace).Get("valve on leak-shutoff"); ok {
+		t.Errorf("the latch stayed: %s", raw)
+	}
+	_ = s.Close()
+
+	// Once is enough: what it keeps from now on is by hardware.
+	r.launchedPlugins()
+	if got := r.count(startedAgain); got != 1 {
+		t.Errorf("logged it %d times over two starts", got)
 	}
 }

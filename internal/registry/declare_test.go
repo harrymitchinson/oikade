@@ -205,7 +205,7 @@ func TestDeclaringARemovedDeviceSaysItsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := declareOK(t, r, Declaration{Name: "lamp", Driver: "sim", ID: "0x1"})
-	if !slices.Equal(got.Changes, []string{"Brought back lamp, which was removed"}) || !slices.Contains(got.Touched, "lamp") {
+	if !slices.Equal(got.Changes, []string{"Brought back lamp, which was removed"}) || !slices.Contains(got.Touched, "0x1") {
 		t.Errorf("got %+v", got)
 	}
 }
@@ -216,9 +216,8 @@ func TestWhatADeclarationTouchesIsSaid(t *testing.T) {
 	report(t, r, "0x3", "Other")
 	declareOK(t, r, Declaration{Name: "hall-sensor", Driver: "sim", ID: "0x1"}, Declaration{Name: "shed-fan"})
 	got := declareOK(t, r, Declaration{Name: "hall-sensor", Driver: "sim", ID: "0x9"})
-	if !slices.Equal(got.Fresh, []string{"hall-sensor"}) || !slices.Equal(got.Removed, []string{"shed-fan"}) ||
-		!slices.Equal(got.Touched, []string{"hall-sensor"}) {
-		t.Errorf("got %+v, want hall-sensor fresh and touched, shed-fan removed, other untouched", got)
+	if !slices.Equal(got.Removed, []string{"shed-fan"}) || !slices.Equal(got.Touched, []string{"0x9"}) {
+		t.Errorf("got %+v, want hall-sensor touched by its new hardware's key, shed-fan removed, other untouched", got)
 	}
 }
 
