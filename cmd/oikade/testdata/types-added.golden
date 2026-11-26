@@ -1,0 +1,31 @@
+package main
+
+import "oikade.dev"
+
+// Your home's rooms and devices. oikade types adds each device you pair that isn't here yet, and
+// never changes a line that is: rename, move and retype them here.
+
+var (
+	Cuisine = oikade.Room("cuisine")
+	Salon   = oikade.Room("salon")
+)
+
+var (
+	CuisineDetecteur = oikade.Device[struct {
+		oikade.OccupancySensor
+		Battery     oikade.Number
+		Temperature oikade.Number
+	}]("hue/0x1", Cuisine)
+	Plafond = oikade.Device[oikade.DimmableLight]("hue/0x2", Cuisine) // moved
+	Prise = oikade.Device[oikade.OnOffPlugInUnit]("ewelink/1002a9b9e2")
+	Salon96196d18    = oikade.Device[oikade.RoomAirConditioner]("toshibaac/ac1", Salon)
+)
+
+// Not paired yet.
+
+var Entree = oikade.Room("entree")
+
+var (
+	EntreeDetecteur = oikade.Device[oikade.OccupancySensor]("hue/0x3", Entree)
+	Lampe           = oikade.Device[oikade.OnOffLight]("hue/0x4", Cuisine)
+)

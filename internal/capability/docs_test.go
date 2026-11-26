@@ -17,7 +17,7 @@ func table() string {
 	b.WriteString("<!-- Generated from internal/capability by its tests: go test ./internal/capability -update -->\n\n")
 	b.WriteString("# Capabilities\n\n")
 	b.WriteString("Every capability Oikade knows, named as a person would say them rather than as a protocol does. ")
-	b.WriteString("A home names them through `oikade`'s constants and the handles `oikade types` writes, and a ")
+	b.WriteString("A home names them through `oikade`'s constants and its devices' handles, and a ")
 	b.WriteString("plugin through `contract/v1`'s. Any other name is unknown. ")
 	b.WriteString("[Devices](devices.md#capabilities) says what each one means, and how the Matter bridge shows it.\n\n")
 	b.WriteString("A `name` capability's value is one of its names. The number in brackets after each is what claims ")

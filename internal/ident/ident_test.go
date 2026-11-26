@@ -24,6 +24,25 @@ func TestValidName(t *testing.T) {
 	}
 }
 
+func TestGoNameIsInPlainLetters(t *testing.T) {
+	for _, c := range []struct {
+		kind     Kind
+		in, want string
+	}{
+		{Device, "Salon - Lampe d'appoint", "SalonLampeDAppoint"},
+		{Device, "terrasse-sud-salle-a-manger", "TerrasseSudSalleAManger"},
+		{Device, "1002a9b9e2", "Device1002a9b9e2"},
+		{Device, "device-0x9", "Device0x9"},
+		{Room, "Entrée", "Entree"},
+		{Room, "2nd floor", "Room2ndFloor"},
+		{Room, "", "Room"},
+	} {
+		if got := GoName(c.kind, c.in); got != c.want {
+			t.Errorf("GoName(%s, %q) = %q, want %q", c.kind, c.in, got, c.want)
+		}
+	}
+}
+
 func TestSlugMakesAValidName(t *testing.T) {
 	for _, c := range []struct {
 		kind     Kind

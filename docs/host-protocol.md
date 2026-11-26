@@ -20,7 +20,7 @@ A process has 5 seconds to send its `hello`:
 {"type":"hello","version":9,"role":"automations","rules":["ewelink/1000a1b2c3 on humid","morning"]}
 ```
 
-A device is its key throughout, its hardware, as `oikade types` writes it in a handle: `<plugin>/<id>`, such as `ewelink/1000a1b2c3`, a simulated device's ID, or a reserved name. So a rename changes nothing here but the `name` a `welcome` gives (OIK-395).
+A device is its key throughout, its hardware, as an `oikade.Device` line in a home has it: `<plugin>/<id>`, such as `ewelink/1000a1b2c3`, a simulated device's ID, or a reserved name. So a rename changes nothing here but the `name` a `welcome` gives (OIK-395).
 
 `version` comes first, so that it can change. It rises with any change to what a message means, because a host outlives a deploy and can meet a binary built against something else. The host refuses any other version, and says so in its log.
 

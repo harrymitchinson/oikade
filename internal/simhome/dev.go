@@ -3,12 +3,8 @@ package simhome
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"io"
-	"io/fs"
-	"maps"
-	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -16,48 +12,38 @@ import (
 
 	"oikade.dev/internal/devicetype"
 	"oikade.dev/internal/host/wire"
-	"oikade.dev/internal/registry"
 )
 
-// ReadTypes reads the devices from the file oikade types wrote, by their keys, with the rooms and
-// types inventory declares, and the devices it declares with oikade.Device, which that file has no
-// handles for. A device it doesn't declare a room for is in none, with no app to give it one, and a
-// device it doesn't declare is what its capabilities say. With every device declared so, there need
-// be no file.
-func ReadTypes(path string, inventory []wire.DeviceDeclaration) ([]Device, error) {
-	decls := wire.Declarations(inventory)
-	raw, err := os.ReadFile(path)
-	if err != nil && (!errors.Is(err, fs.ErrNotExist) || !slices.ContainsFunc(decls, func(d registry.Declaration) bool {
-		return d.Hardware != ""
-	})) {
-		return nil, err
-	}
-	handles := map[string][]string{}
-	if raw != nil {
-		if handles, err = registry.Handles(raw); err != nil {
-			return nil, fmt.Errorf("reading %s: %w", path, err)
+// Declared are the devices inventory declares with oikade.Device, as their lines give them, by
+// their keys. A device in no room is in none, with no app to give it one. Hardware it declares with
+// Home.Device has no capabilities to simulate, so it's an error, which says what to run.
+func Declared(inventory []wire.DeviceDeclaration) ([]Device, error) {
+	var out []Device
+	var old []string
+	for _, d := range wire.Declarations(inventory) {
+		if d.Hardware == "" {
+			if d.ID != "" {
+				old = append(old, d.Name)
+			}
+			continue
 		}
-	}
-	declared := make(map[string]registry.Declaration, len(decls))
-	for _, d := range decls {
-		declared[d.Key()] = d
-		if _, ok := handles[d.Key()]; !ok && d.Hardware != "" {
-			handles[d.Key()] = d.Capabilities
+		dev := Device{Name: d.Hardware, Capabilities: d.Capabilities}
+		if d.Room != nil {
+			dev.Room = *d.Room
 		}
-	}
-	out := make([]Device, 0, len(handles))
-	for _, key := range slices.Sorted(maps.Keys(handles)) {
-		d := Device{Name: key, Capabilities: handles[key]}
-		if room := declared[key].Room; room != nil {
-			d.Room = *room
-		}
-		typ := declared[key].DeviceType
+		typ := d.DeviceType
 		if !devicetype.Choosable(typ) {
 			typ = ""
 		}
-		d.DeviceTypes = devicetype.Of(typ, "", d.Capabilities)
-		out = append(out, d)
+		dev.DeviceTypes = devicetype.Of(typ, "", d.Capabilities)
+		out = append(out, dev)
 	}
+	if len(old) > 0 {
+		return nil, fmt.Errorf("your home declares the hardware of %s with home.Device, which has no capabilities to "+
+			"simulate: run oikade types, which gives each an oikade.Device line, and delete the home.Device lines",
+			strings.Join(old, ", "))
+	}
+	slices.SortFunc(out, func(a, b Device) int { return strings.Compare(a.Name, b.Name) })
 	return out, nil
 }
 

@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"oikade.dev/internal/cli"
+	"oikade.dev/internal/devicetype"
 	"oikade.dev/internal/host/api"
 	"oikade.dev/internal/host/wire"
 	"oikade.dev/internal/registry"
@@ -298,11 +299,10 @@ func runTest(ctx context.Context, args []string) error {
 	return nil
 }
 
-// runDev runs a home against a simulated one, built from the committed types file.
+// runDev runs a home against a simulated one, of the devices it declares.
 func runDev(ctx context.Context, args []string) error {
 	fs := newFlags("dev")
 	module := fs.String("module", ".", "Your home's module.")
-	types := fs.String("types", "devices.go", "The file oikade types wrote, in your module.")
 	envFile := fs.String("env-file", "", "Your values, from this file rather than the .env beside your go.mod.")
 	if extra := cli.ParseFlags(fs, args); len(extra) > 0 {
 		return cli.UsageErrorf("oikade dev takes no %q", extra[0])
@@ -312,10 +312,6 @@ func runDev(ctx context.Context, args []string) error {
 		return err
 	}
 	defer done()
-	file, err := filepath.Abs(filepath.Join(*module, *types))
-	if err != nil {
-		return err
-	}
 	// Your code gets your values, as it does on the host, so what it builds from them, such as a
 	// plugin's config, is as it will be there. Its check says which it uses that nothing gives: one
 	// that can't run here, or be read, says nothing, and dev runs the home itself.
@@ -332,7 +328,7 @@ func runDev(ctx context.Context, args []string) error {
 		return err
 	}
 	defer remove()
-	cmd := exec.CommandContext(ctx, path, wire.RoleDev, file)
+	cmd := exec.CommandContext(ctx, path, wire.RoleDev)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	cmd.Env = append(os.Environ(), env...)
 	return cmd.Run()
@@ -479,12 +475,12 @@ func moduleFromSource(dir, name, source string) error {
 
 // homeFiles are a new home's files, by path.
 func homeFiles() (map[string][]byte, error) {
-	devices, err := registry.Render(registry.Snapshot{Next: 4, Devices: []registry.Device{
-		{Name: "porch-light", Room: "porch", Capabilities: []string{"on"}, Endpoint: 2},
-		{Name: "porch-sensor", Room: "porch", Capabilities: []string{"occupied"}, Endpoint: 3},
-	}}, "main")
+	devices, _, err := addDevices(nil, "main", nil, []newDevice{
+		{name: "porch-light", key: "porch-light", room: "porch", typ: devicetype.OnOffLight},
+		{name: "porch-sensor", key: "porch-sensor", room: "porch", typ: devicetype.OccupancySensor},
+	})
 	if err != nil {
-		return nil, errors.New("rendering the example devices: " + err.Error())
+		return nil, errors.New("writing the example devices: " + err.Error())
 	}
 	install := publishedVersion()
 	return map[string][]byte{
@@ -505,16 +501,10 @@ import (
 	"oikade.dev"
 )
 
-// home is your automations. PorchLight and PorchSensor come from devices.go, which oikade types
-// writes from your real devices, with a field for each thing each one can do: replace these two with
-// yours.
+// home is your automations. PorchLight and PorchSensor are in devices.go, with a field for each
+// thing each one can do: replace these two with yours, which oikade types adds there.
 func home() *oikade.Home {
 	home := oikade.NewHome(oikade.Options{})
-	// A device keeps the name its app gives it until you declare it here, with its hardware, its
-	// room and what it is to the Home app. oikade list devices prints the line to declare each
-	// one that isn't yet:
-	//
-	//	home.Device("hall-lamp").Hardware("zigbee2mqtt", "0x00158d0001a2b3c4").Room("hall").Is(oikade.OnOffLight{})
 	home.Decide(PorchLight.On).
 		Case("motion", true, PorchSensor.Occupied).Linger(5 * time.Minute).
 		Default(false)

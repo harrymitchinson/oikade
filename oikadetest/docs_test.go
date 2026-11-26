@@ -11,7 +11,6 @@ import (
 // examples that run: each one's body is in example_test.go, line for line.
 func TestTheDocsTestsAreExamples(t *testing.T) {
 	examples := statements(read(t, "example_test.go"))
-	examples = strings.ReplaceAll(examples, `oikadetest.Options{Types: "devices_test.go"}`, "oikadetest.Options{}")
 	for name, doc := range map[string]string{
 		"the package doc":        commented(read(t, "oikadetest.go")),
 		"the README":             read(t, "../README.md"),

@@ -110,7 +110,9 @@ func goBuild(t *testing.T, dir, code string) error {
 	return run(dir, []string{"GOFLAGS=-mod=mod", "GOPROXY=off"}, "build", "-o", filepath.Join(dir, "home"), ".")
 }
 
-func TestTypesAreDeterministicAndARemovedDeviceStopsCompiling(t *testing.T) {
+// Your devices file is yours: oikade types adds to it, and a device the host forgets keeps its line,
+// which a deploy would bring back.
+func TestTypesNeverChangesALineThatsThere(t *testing.T) {
 	t.Parallel()
 	r := start(t)
 	dir := t.TempDir()
@@ -120,9 +122,6 @@ func TestTypesAreDeterministicAndARemovedDeviceStopsCompiling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again := r.stdout(nil, "types", "--out", "-"); string(again) != string(first) {
-		t.Errorf("two runs differ:\n%s\n%s", first, again)
-	}
 	const code = "package main\n\nfunc main() { println(Fan.On.Device, Valve.Key) }\n"
 	if err := goBuild(t, dir, code); err != nil {
 		t.Fatalf("code naming its devices didn't compile: %v\n%s", err, first)
@@ -130,8 +129,11 @@ func TestTypesAreDeterministicAndARemovedDeviceStopsCompiling(t *testing.T) {
 
 	r.stdout(nil, "forget", "fan")
 	r.stdout(nil, "types", "--out", out)
-	if err := goBuild(t, dir, code); err == nil {
-		t.Error("code naming a removed device compiled")
+	if again, _ := os.ReadFile(out); string(again) != string(first) {
+		t.Errorf("devices.go changed:\n%s\n%s", first, again)
+	}
+	if err := goBuild(t, dir, code); err != nil {
+		t.Errorf("code naming a forgotten device stopped compiling: %v", err)
 	}
 }
 

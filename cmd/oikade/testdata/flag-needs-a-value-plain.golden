@@ -3,5 +3,5 @@ exit 2
 --- stderr
 Error: --since needs a value
 Usage:
-  oikade replay [--module DIR] [--types FILE] [--since DURATION] [--json]
+  oikade replay [--module DIR] [--since DURATION] [--json]
 Hint: oikade replay --help says more

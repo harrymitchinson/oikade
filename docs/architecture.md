@@ -8,7 +8,7 @@ This page says how things work, not why they were chosen. A section names the pl
 
 | Owner | Holds |
 |---|---|
-| Git, as a Go module | Your automations: decisions, flows, arbitration settings, and a copy of the device list (`oikade types`) |
+| Git, as a Go module | Your automations: decisions, flows, arbitration settings, and your devices and rooms (`oikade types` adds new ones) |
 | The host's data directory | Devices, names, rooms and endpoints (the registry), claims, latches, flows' journals, deployed versions and their values, Matter's identity and fabrics, and what plugins' setups kept (secrets) |
 | Apps | Their own names. Drivers find a device by its ID, never by its name in the app, and the host copies a name once (OIK-130) |
 | Prometheus, Grafana and Loki | Values over time, changes and rule runs |
@@ -204,7 +204,7 @@ Design: OIK-171. The code is `internal/host/api`, and the routes are in [host-ap
 
 ### Claims follow hardware
 
-A device is its key, its hardware (OIK-395): a plugin's device is `<plugin>/<id>`, its ID escaped as a ref's segment (`hue/0x00178801091863f2`, `overkiz/io:%2F%2F1234%2F5`), a simulated device its ID, and a reserved name itself. The hub, the engine's arbiters, claims, holds, fires, pauses, averages, flow journals, the event log and the host protocol all key a device by it, and so do the handles `oikade types` writes.
+A device is its key, its hardware (OIK-395): a plugin's device is `<plugin>/<id>`, its ID escaped as a ref's segment (`hue/0x00178801091863f2`, `overkiz/io:%2F%2F1234%2F5`), a simulated device its ID, and a reserved name itself. The hub, the engine's arbiters, claims, holds, fires, pauses, averages, flow journals, the event log and the host protocol all key a device by it, and so does each device in a home's code, `oikade.Device`'s hardware.
 
 - **A rename moves nothing.** Only the registry has a device's name. What a person reads names it where it's printed or read: the host's API, logs and metric labels through `internal/host/names.go`, which looks a key up in the registry, or a removed device's last name, and the CLI's refs back. Your process names devices from its `welcome` (`hub.Meta.DisplayName`).
 - **Swapped hardware is a new device** to what's kept: its cases are new rules, the old hardware's are ended by the deploy that confirms, and a Safety one among them is a finding.
@@ -221,9 +221,9 @@ A device is its key, its hardware (OIK-395): a plugin's device is `<plugin>/<id>
 
 ### `oikade types`
 
-`oikade types` renders the registry to Go (`internal/registry/types.go`), as the home's declarations would make it (`registry.Declaring`). It reads the declarations from the manifest of the home it builds, or from its source when it doesn't build, as when it names a handle only the new file has.
+`oikade types` appends to the home's devices file (`cmd/oikade/devicesfile.go`) a line for each device on record that the home's code doesn't name, as the home's declarations would make it (`registry.Declaring`), and never changes what's there. The hardware named is what an `oikade.Device` call in the package names, read from its source, and what the manifest of the home it builds declares, or its source when it doesn't build. Names are the app's, made Go names (`ident.GoName`), and one that's taken ends with a hash of the hardware's ref.
 
-The file has a value per device, named in its comment, with an `oikade.Hardware` and an `oikade.Bool`, `oikade.Number` or `oikade.Choice` for each capability, named by the capability registry's `Go` name, so the compiler checks what a home names. Each has the device by its key. Nothing else is in it: `oikade dev` and `oikadetest` read the handles back from its Go (`registry.Handles`), by key, with rooms and types from the home's declarations, so they show keys where the host would show names.
+Each line's type is a device type's Go type, with the capabilities it always has (`devicetype.Has`), or a struct of one and an `oikade.Bool`, `oikade.Number` or `oikade.Choice` for each other capability, named by the capability registry's `Go` name, so the compiler checks what a home names. `oikade dev` and `oikadetest` simulate the lines the home's inventory carries (`simhome.Declared`), by key, so they show keys where the host would show names.
 
 ## Plugins
 

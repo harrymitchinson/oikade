@@ -1,0 +1,11 @@
+package home
+
+import "oikade.dev"
+
+// Mine.
+var x = 1
+
+var (
+	Lampee6f0f4f3 = oikade.Device[oikade.OnOffLight]("hue/0x4", Bureau)
+	Prise         = oikade.Device[oikade.OnOffPlugInUnit]("hue/0x5")
+)

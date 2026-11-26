@@ -8,7 +8,7 @@ exit 0
   test      Run your home's tests.
   dev       Run your home against simulated devices.
   replay    Compare what your code would have done with what the host did.
-  types     Write devices.go, with a Go handle for each of the host's devices.
+  types     Add the devices your code doesn't have yet to devices.go.
 
 [1mShip it[0m
   deploy    Check and build your home, and run it on the host.

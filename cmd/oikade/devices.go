@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"oikade.dev/internal/capability"
 	"oikade.dev/internal/cli"
 	"oikade.dev/internal/devicetype"
 	"oikade.dev/internal/host/api"
@@ -194,9 +195,10 @@ func listed(list registry.Snapshot, marks deviceMarks) []listedDevice {
 func runTypes(ctx context.Context, args []string) error {
 	fs := newFlags("types")
 	target := addTarget(fs)
-	out := fs.String("out", "devices.go", "The file to write, or - for standard output.")
-	pkg := fs.String("package", "main", "The file's Go package.")
-	module := fs.String("module", ".", "Your home's module, whose declarations name its devices.")
+	out := fs.String("out", "devices.go",
+		"Your devices file, in your module, which it adds to, or - to print devices.go as it would be.")
+	pkg := fs.String("package", "main", "A new file's Go package.")
+	module := fs.String("module", ".", "Your home's module, whose code names its devices.")
 	if extra := cli.Parse(fs, args); len(extra) > 0 {
 		return cli.UsageErrorf("oikade types takes no %q", extra[0])
 	}
@@ -204,18 +206,149 @@ func runTypes(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	path := *out
+	if path == "-" {
+		path = "devices.go"
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(*module, path)
+	}
+	file, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return cli.Errorf("couldn't read %s: %v", path, err)
+	}
+	if len(file) == 0 {
+		file = nil
+	}
+	replaced := generatedByOldTypes(file)
+	if replaced {
+		*pkg, file = packageOf(file, *pkg), nil
+	}
+	others, err := packageFiles(path)
+	if err != nil {
+		return cli.Errorf("couldn't read your home's package: %v", err)
+	}
 	list = declaredIn(ctx, os.Stderr, *module, list, func(ctx context.Context) (wire.Manifest, error) {
 		return homeManifest(ctx, *module)
 	})
-	file, err := registry.Render(list, *pkg)
+	devices, unknown := toAdd(list)
+	result, got, err := addDevices(file, *pkg, others, devices)
 	if err != nil {
-		return err
+		return cli.Errorf("couldn't add your devices to %s: %v", path, err).
+			WithHint("fix %s, and run oikade types again", path)
 	}
 	if *out == "-" {
-		_, err = os.Stdout.Write(file)
-		return err
+		_, err = os.Stdout.Write(result)
+	} else if file == nil || len(got.names) > 0 {
+		err = writeAtomically(path, result)
 	}
-	return os.WriteFile(*out, file, 0o644)
+	if err != nil {
+		return cli.Errorf("couldn't write %s: %v", path, err)
+	}
+	printAdded(std.err, path, *out == "-", replaced, list, got, unknown)
+	return nil
+}
+
+// toAdd are the devices on record that list, from declaredIn, has, which oikade types adds, and the
+// hardware it can't, as no device type fits it, or it hasn't reported.
+func toAdd(list registry.Snapshot) ([]newDevice, []registry.Device) {
+	var devices []newDevice
+	var unknown []registry.Device
+	for _, d := range list.Devices {
+		if d.Removed || d.ID == "" {
+			continue
+		}
+		i := slices.IndexFunc(d.DeviceTypes(), func(t devicetype.Type) bool {
+			return !slices.ContainsFunc(devicetype.Has(t), func(c string) bool { return !slices.Contains(d.Capabilities, c) })
+		})
+		if i < 0 {
+			unknown = append(unknown, d)
+			continue
+		}
+		typ := d.DeviceTypes()[i]
+		var more []string
+		for _, c := range d.Capabilities {
+			if _, ok := capability.Lookup(c); ok && !slices.Contains(devicetype.Has(typ), c) && !slices.Contains(more, c) {
+				more = append(more, c)
+			}
+		}
+		slices.SortFunc(more, func(a, b string) int {
+			sa, _ := capability.Lookup(a)
+			sb, _ := capability.Lookup(b)
+			return strings.Compare(sa.Go, sb.Go)
+		})
+		name := registry.Slug(d.AppName, d.ID)
+		if d.Declared {
+			name = d.Name
+		}
+		devices = append(devices, newDevice{name: name, key: d.Key(), room: d.Room, typ: typ, more: more})
+	}
+	return devices, unknown
+}
+
+// count is n things, as 1 device or 2 devices.
+func count(n int, thing string) string {
+	if n == 1 {
+		return "1 " + thing
+	}
+	return strconv.Itoa(n) + " " + thing + "s"
+}
+
+// printAdded says what oikade types added to path, or would have, when printing it.
+func printAdded(p *cli.Printer, path string, printing, replaced bool, list registry.Snapshot, got added,
+	unknown []registry.Device,
+) {
+	done, add, replace := p.Done, "Added", "Replaced"
+	if printing {
+		done, add, replace = func(format string, a ...any) { p.Printf(format+"\n", a...) }, "Would add", "Would replace"
+	}
+	if replaced {
+		done("%s %s, which an older oikade types wrote: its devices are lines of yours now", replace, path)
+	}
+	switch n := len(got.names); {
+	case n == 0 && len(unknown) > 0:
+		p.Println("Nothing to add to " + path)
+	case n == 0:
+		p.Println(path + " has every device on record. Pair one, and run oikade types again.")
+	default:
+		what := count(n, "device")
+		if len(got.rooms) > 0 {
+			what += " and " + count(len(got.rooms), "room")
+		}
+		names := ""
+		if n <= 5 {
+			names = ": " + andList(slices.Sorted(maps.Values(got.names)))
+		}
+		done("%s %s to %s%s", add, what, path, names)
+	}
+	if len(got.clashed) > 0 {
+		p.Hint("%s had a name that was taken, so it ends with a hash of its hardware: rename it in %s",
+			andList(got.clashed), path)
+	}
+	var both []string
+	for _, d := range list.Devices {
+		if name, ok := got.names[d.Key()]; ok && d.Declared {
+			both = append(both, fmt.Sprintf("home.Device(%q) for %s", d.Name, name))
+		}
+	}
+	if len(both) > 0 {
+		p.Hint("Delete %s from your code: %s declares %s now", andList(both), path, them(both))
+	}
+	var unseen, untyped []string
+	for _, d := range unknown {
+		if len(d.Capabilities) == 0 {
+			unseen = append(unseen, d.Key())
+		} else {
+			untyped = append(untyped, d.Key())
+		}
+	}
+	if len(unseen) > 0 {
+		p.Hint("Left out %s, which hasn't reported yet: run oikade types again once it has", andList(unseen))
+	}
+	if len(untyped) > 0 {
+		p.Hint("Left out %s, as no device type fits what it has: name a capability of %s yourself, as "+
+			"oikade.Number{Device: %q, Capability: oikade.Battery}", andList(untyped), them(untyped), untyped[0])
+	}
 }
 
 // declaredIn is the host's devices as your home's declarations would make them once it's deployed,
