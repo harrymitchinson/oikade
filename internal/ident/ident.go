@@ -92,7 +92,7 @@ var unsplit = map[rune]string{'œ': "oe", 'æ': "ae", 'ß': "ss", 'ø': "o", 'ł
 // run of anything else between them.
 func dashed(s string) string {
 	var b strings.Builder
-	for _, c := range norm.NFKD.String(strings.ToLower(s)) {
+	for _, c := range strings.ToLower(norm.NFKD.String(s)) {
 		switch {
 		case c >= 'a' && c <= 'z', c >= '0' && c <= '9':
 			b.WriteRune(c)

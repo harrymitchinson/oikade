@@ -44,6 +44,7 @@ func TestSlugMakesAValidName(t *testing.T) {
 		{Room, "Đakovo", "dakovo"},
 		{Room, "Ølstue", "olstue"},
 		{Room, "Ｂureau ﬁle m²", "bureau-file-m2"},
+		{Room, "ℌall", "hall"},
 		{Room, "Кухня", ""},
 		{Device, "Lampe 東京 salon", "lampe-salon"},
 		{Room, "Þing", "ing"},
