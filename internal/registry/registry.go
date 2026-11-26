@@ -149,9 +149,9 @@ func Open(values *store.Namespace) (*Registry, error) {
 }
 
 // Names are the names a registry saved before devices were their hardware, by which a host kept
-// what it saved for them, for the host to start that again. A name reserved for hardware that wasn't
-// paired was its own key, so it isn't one.
-func Names(values *store.Namespace) ([]string, error) {
+// what it saved for them, each with its hardware's key, or none for a name reserved without
+// hardware. The registry keeps them until it next saves.
+func Names(values *store.Namespace) (map[string]string, error) {
 	raw, ok, err := values.Get(stateKey)
 	if err != nil || !ok {
 		return nil, err
@@ -162,10 +162,14 @@ func Names(values *store.Namespace) ([]string, error) {
 	if err := json.Unmarshal(raw, &saved); err != nil {
 		return nil, fmt.Errorf("reading the device registry: %w", err)
 	}
-	var out []string
+	out := map[string]string{}
 	for _, d := range saved.Devices {
-		if d.Name != "" && d.ID != "" && d.Name != KeyOf(d.Driver, d.ID) {
-			out = append(out, d.Name)
+		switch {
+		case d.Name == "":
+		case d.ID == "":
+			out[d.Name] = ""
+		case d.Name != KeyOf(d.Driver, d.ID):
+			out[d.Name] = KeyOf(d.Driver, d.ID)
 		}
 	}
 	return out, nil

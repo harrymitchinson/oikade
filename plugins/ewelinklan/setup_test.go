@@ -231,7 +231,8 @@ func TestSetupFetchesEachDevicesLANKeyAndTheDeviceComesUp(t *testing.T) {
 		t.Errorf("kept %s", got)
 	}
 	if want := `1000aabbcc is "Greenhouse heater" in the eWeLink app: ` +
-		`oikade.Label("Greenhouse heater") on ewelink/1000aabbcc's line in your home's code shows it so in the Home app`; !strings.Contains(said(steps), want) {
+		`oikade.Label("Greenhouse heater") on hardware/ewelink/1000aabbcc's line in your home's code, which oikade types ` +
+		`adds, shows it so in the Home app`; !strings.Contains(said(steps), want) {
 		t.Errorf("said:\n%s", said(steps))
 	}
 	// The probe isn't on this network, so there's nothing to name.

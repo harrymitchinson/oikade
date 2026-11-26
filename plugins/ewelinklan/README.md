@@ -29,7 +29,7 @@ EWELINK_APP_SECRET=…
 ```console
 $ oikade setup ewelink-lan
 …
-1000aabbcc is "Greenhouse heater" in the eWeLink app: oikade.Label("Greenhouse heater") on ewelink-lan/1000aabbcc's line in your home's code shows it so in the Home app
+1000aabbcc is "Greenhouse heater" in the eWeLink app: oikade.Label("Greenhouse heater") on hardware/ewelink-lan/1000aabbcc's line in your home's code, which oikade types adds, shows it so in the Home app
 ewelink-lan is set up: 2 LAN keys kept, 0 already up to date
 ```
 

@@ -272,7 +272,7 @@ func TestABlindsCommandsAreLogged(t *testing.T) {
 		{"command=StopMotion", "target=40"},
 		{"command=StopMotion", "target=none"},
 	} {
-		if !log.Has(append([]string{`msg="Took Matter command"`, "device=blind"}, want...)...) {
+		if !log.Has(append([]string{`msg="Took Matter command"`, "device=device/blind"}, want...)...) {
 			t.Errorf("no line with %v", want)
 		}
 	}

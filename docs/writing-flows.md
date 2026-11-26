@@ -70,11 +70,11 @@ Everything that happens outside the flow, or varies between runs, is a step on i
 | `r.Is(cond)` | Whether a [condition](automations.md#conditions) is true now, such as `oikade.Daily(oikade.Sunset(0), oikade.Sunrise(0))` for whether it's dark. One that reads a value nobody has reported yet is false |
 | `r.WaitFor(cond, timeout)` | Waits until a condition is true and returns true, or returns false at the timeout. Zero means no limit |
 | `r.Set(Hallway.On.To(true))` | Writes a capability. On an arbitrated one it's a [claim](automations.md#claims-from-flows), which needs `.For(d)`, `.UntilReleased()` or `.UntilNext()`. `Hallway.On.To(true)` alone writes nothing, and fails `oikade check` |
-| `r.Release(rule)` | Ends a rule's claims, and a case's latch |
+| `r.Release(rule)` | Ends a rule's claims, and a case's latch: a flow's name, or a case's device's `Key`, capability and name, as `r.Release(Valve.Key + " on leak")` |
 | `r.Do(name, call)` | Makes an outside call, a `func(context.Context) (T, error)`, and records and returns its result, or the zero value and its error |
 | `r.Fail(err)` | Ends the run as failed, there and then, even if the flow recovers from it |
 
-A `Set` or a `Release` that fails, such as on a device that doesn't answer, is logged, and the run carries on and ends as failed. So a flow doesn't stop at a dead bulb, and `r.Fail` is for when it should stop.
+A `Set` or a `Release` that fails, such as on a device that doesn't answer or a rule your home doesn't have, is logged, and the run carries on and ends as failed. So a flow doesn't stop at a dead bulb, and `r.Fail` is for when it should stop.
 
 ## What a crash does
 

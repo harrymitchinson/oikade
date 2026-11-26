@@ -266,6 +266,8 @@ func TestTheRestLookTheSame(t *testing.T) {
 		{Type: api.EventMatter, Ref: "matter", Message: api.MatterWindowClosed},
 		{Type: api.EventMatter, Ref: "matter", Message: api.MatterControllerLeft, Value: 1.0},
 		{Type: api.EventForget, Ref: "hardware/zigbee2mqtt/0x00158d0001a2b3c4"},
+		// A type a host kept from before, which this oikade doesn't know.
+		{Type: "rename", Ref: "hardware/relays/valve", Message: "mains-valve"},
 		{Type: api.EventCall, Ref: "flow/morning", Message: "forecast", Value: true},
 		{Type: api.EventCall, Ref: "flow/morning", Message: "tariff", Value: map[string]any{"cheap": true, "until": "07:00"}},
 		{Type: api.EventCall, Ref: "flow/morning", Message: "notify", Result: "the push service timed out"},

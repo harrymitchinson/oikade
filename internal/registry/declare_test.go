@@ -51,7 +51,7 @@ func TestADeviceNoLongerDeclaredGoesBackToItsApps(t *testing.T) {
 	if d := get(t, r, "sim/0x1"); d.Room != "entree" || d.DeviceType != "" || d.Label != "" {
 		t.Errorf("got %+v", d)
 	}
-	want := []string{"Gave hardware/sim/0x1 back its app's room and its driver's type: it's no longer declared"}
+	want := []string{"Gave hardware/sim/0x1 back its app's room and its driver's type"}
 	if !slices.Equal(got.Changes, want) {
 		t.Errorf("got %q, want %q", got.Changes, want)
 	}
@@ -84,7 +84,7 @@ func TestOtherHardwareIsAnotherDevice(t *testing.T) {
 		t.Errorf("the new hardware has endpoint %d, and the old %d", swapped.Endpoint, old.Endpoint)
 	}
 	if !slices.Equal(got.Unseen, []string{"hue/0x2"}) || !slices.Contains(got.Changes,
-		"Declared hardware/hue/0x2, which hasn't reported yet") {
+		"Put hardware/hue/0x2 on record") {
 		t.Errorf("got %+v", got)
 	}
 }

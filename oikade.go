@@ -559,8 +559,8 @@ func (r *FlowRun) set(s Set) error {
 }
 
 // Release ends a rule's claims, and its latch if it's a case: "<device's key> <capability> <case>"
-// for a case, such as Valve.Key+" on leak", or a flow's name. One that fails is logged, and the run
-// ends as failed.
+// for a case, such as Valve.Key+" on leak", or a flow's name. One that fails, as one that names no
+// rule the home has does, is logged, and the run ends as failed.
 func (r *FlowRun) Release(rule string) {
 	replayed := r.run.Replaying()
 	r.failedStep("release", r.run.Apply(engine.Release(rule)), replayed)

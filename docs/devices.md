@@ -44,7 +44,7 @@ The table keeps to the terminal's width, and is whole when piped. The endpoint, 
 
 - **What the plugin says it is:** its `manufacturer`, `model`, `serialNumber`, `firmwareVersion` and `hardwareVersion`. Each is kept while the plugin says nothing of it, so a device that's offline still has them, and the Home app shows them on the bridged device too.
 - **Where it came from:** its app's name and room as `appName` and `appRoom`, its hardware's ID as `id`, and its hardware as your code names it as `hardware`, such as `hue/0x2`, whose ref is its `ref`.
-- **Its room, type and label,** as `room`, `deviceType` and `label`, which are your code's for a device it declares. `oikade status --json` has `"undeclared": true` for one it doesn't.
+- **Its room, type and label,** as `room`, `deviceType` and `label`, which are your code's for a device it declares, as `"declared": true` says. `oikade status --json` has `"undeclared": true` for one it doesn't.
 
 ## Devices in your code
 

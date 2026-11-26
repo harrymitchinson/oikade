@@ -20,6 +20,7 @@ import (
 	"oikade.dev/internal/cli"
 	"oikade.dev/internal/host/api"
 	"oikade.dev/internal/host/wire"
+	"oikade.dev/internal/ident"
 	"oikade.dev/internal/sourcecheck"
 )
 
@@ -281,11 +282,14 @@ func runRollback(ctx context.Context, args []string) error {
 	return report(std.out, resp, "Rolled back to version", vals.sent(), hint)
 }
 
-// printDeviceChanges says what a version's device declarations changed, hardware that hasn't
-// reported among them, and what the host warns of them.
+// printDeviceChanges says what a version's device declarations changed, which of their hardware
+// hasn't reported, and what the host warns of them.
 func printDeviceChanges(out io.Writer, resp api.Response) {
 	for _, c := range resp.DeviceChanges {
 		_, _ = fmt.Fprintln(out, c)
+	}
+	for _, key := range resp.Unseen {
+		_, _ = fmt.Fprintf(out, "%s hasn't reported yet, so its line waits for it\n", ident.DeviceRef(key))
 	}
 	if resp.Warning != "" {
 		_, _ = fmt.Fprintln(out, "Warning:", resp.Warning)

@@ -19,8 +19,7 @@ import (
 
 // endpoint is a Device on the bridge.
 type endpoint struct {
-	// key is where its writes go. It's read under the node's lock, where b.mu can't be taken, and
-	// changes when a device's name does.
+	// key is where its writes go. It's read under the node's lock, where b.mu can't be taken.
 	key       atomic.Pointer[ident.ID]
 	signature string
 	label     string
@@ -129,16 +128,15 @@ func (b *Bridge) Apply(log *slog.Logger, want map[uint16]Device) error {
 			if label := Label(cmp.Or(d.Label, d.Name)); label != e.label {
 				e.label = label
 				b.Matter.Node.Update(func() { e.info.SetLabel(label) })
-				log.Info("Renamed bridged device", "device", d.Name, "endpoint", id)
+				log.Info("Relabelled bridged device", "device", ident.DeviceRef(d.Key.Name), "label", label, "endpoint", id)
 			}
 			continue
 		}
 		b.Matter.RemoveDevice(id)
 		delete(b.endpoints, id)
-		log.Info("Removed bridged device", "device", e.label, "endpoint", id)
+		log.Info("Removed bridged device", "device", ident.DeviceRef(e.device().Name), "endpoint", id)
 	}
-	// Names can swap, so what each endpoint is called now is worked out in one go. Different
-	// hardware can have taken a name with no event at all, so each is brought up to date.
+	// Each endpoint is brought up to date with what's wanted of it, which can change with no event.
 	byDevice := map[ident.ID]*endpoint{}
 	for id, e := range b.endpoints {
 		d := want[id]
@@ -168,7 +166,8 @@ func (b *Bridge) Apply(log *slog.Logger, want map[uint16]Device) error {
 		d.After = b.after
 		// So the log says what a controller asked for, as well as what was written.
 		d.Command = func(command string, args ...any) {
-			log.Info("Took Matter command", append([]any{"device", e.label, "command", command}, args...)...)
+			log.Info("Took Matter command", append([]any{"device", ident.DeviceRef(e.device().Name), "command", command},
+				args...)...)
 		}
 		d.Send = func() { b.Writes.Send(e.device()) }
 		d.Gathering = func(name string) bool { return b.Writes.Gathering(e.device(), name) }
@@ -182,7 +181,8 @@ func (b *Bridge) Apply(log *slog.Logger, want map[uint16]Device) error {
 		b.endpoints[id], b.byDevice[d.Key] = e, e
 		// Start from the bus's state, then follow it.
 		b.refresh(e)
-		log.Info("Added bridged device", "device", d.Name, "endpoint", id, "types", len(e.mapped.Types))
+		log.Info("Added bridged device", "device", ident.DeviceRef(d.Key.Name), "label", e.label, "endpoint", id,
+			"types", len(e.mapped.Types))
 	}
 	return failed
 }

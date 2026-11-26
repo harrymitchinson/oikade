@@ -197,7 +197,7 @@ func changes(before, after Snapshot, decls []Declaration) []string {
 		b, existed := at(before, a.Endpoint)
 		switch {
 		case !existed:
-			out = append(out, fmt.Sprintf("Declared %s, which hasn't reported yet", ref))
+			out = append(out, fmt.Sprintf("Put %s on record", ref))
 		case b.Removed:
 			out = append(out, fmt.Sprintf("Brought back %s, which was forgotten", ref))
 		}
@@ -219,8 +219,7 @@ func changes(before, after Snapshot, decls []Declaration) []string {
 		a, _ := at(after, b.Endpoint)
 		if !b.Removed && !slices.ContainsFunc(decls, func(d Declaration) bool { return d.Hardware == a.Key() }) &&
 			(b.Room != a.Room || b.DeviceType != a.DeviceType || b.Label != a.Label) {
-			out = append(out, fmt.Sprintf("Gave %s back its app's room and its driver's type: it's no longer declared",
-				ident.DeviceRef(a.Key())))
+			out = append(out, fmt.Sprintf("Gave %s back its app's room and its driver's type", ident.DeviceRef(a.Key())))
 		}
 	}
 	return out

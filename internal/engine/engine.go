@@ -857,9 +857,13 @@ func (e *Engine) act(ctx context.Context, key ident.ID, a action) (ok bool, arbi
 	case ctx.Err() != nil:
 		return true, nil
 	case a.release != "":
-		e.release(ident.ID{Name: a.release})
+		loaded := e.release(ident.ID{Name: a.release})
 		_ = e.endClaims(ctx, ruleSource(a.release), allLevels)
-		return true, nil
+		if !loaded {
+			e.Log.Error("Failed to run Rule action", "err", fmt.Errorf(`no rule %q is loaded, and a case's is `+
+				`"<device's key> <capability> <case>"`, a.release), "rule", e.ruleRef(key))
+		}
+		return loaded, nil
 	case a.room != "":
 		ok, others, arbitrated := e.setRoom(ctx, key, a)
 		e.reportSkipped(key, others)

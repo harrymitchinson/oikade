@@ -136,8 +136,9 @@ func (b *bridge) Setup(ctx context.Context, _ *plugin.Plugin, s *plugin.Session)
 		if d.name == "" || !heard[d.id] || b.labelled[d.id] {
 			continue
 		}
-		line := fmt.Sprintf("%s is %q in the eWeLink app: oikade.Label(%q) on %s's line in your home's code shows "+
-			"it so in the Home app", d.id, d.name, d.name, ident.HardwareKey(b.name(), d.id))
+		line := fmt.Sprintf("%s is %q in the eWeLink app: oikade.Label(%q) on %s's line in your home's code, which "+
+			"oikade types adds, shows it so in the Home app", d.id, d.name, d.name,
+			ident.DeviceRef(ident.HardwareKey(b.name(), d.id)))
 		if err := s.Say(ctx, line); err != nil {
 			return "", err
 		}

@@ -26,11 +26,22 @@ const (
 var byRule = []string{engine.HoldStatesNamespace, engine.FireStatesNamespace, engine.AverageStatesNamespace, pausedNamespace}
 
 // keyByHardware starts again what a host saved under the name of a device it now keys by hardware,
-// which nothing would find: its claims, its cases' holds, latches, fires and pauses, the averages of
-// its readings, and the flow runs whose steps name it. A latch that held lets go. A flow that names
-// no such device keeps what it has, and so do the home's settings, as the next hello replaces them.
-// The store says so once it's done, so a host that stopped part way does it again.
+// or of one reserved without hardware, which is gone, as nothing would find it: its claims, its
+// cases' holds, latches, fires and pauses, the averages of its readings, and the flow runs whose
+// steps name it. A latch that held lets go. A flow that names no such device keeps what it has, and
+// so do the home's settings, as the next hello replaces them, but for the devices it shows on
+// Matter, which it keys by hardware. The store says so once it's done, so a host that stopped part
+// way does it again.
 func keyByHardware(data *store.Store, log *slog.Logger) error {
+	names, err := registry.Names(data.Namespace(registry.Namespace))
+	if err != nil {
+		return err
+	}
+	// A host that keyed the rest already still had names in its registry, and until a home built for
+	// this one connects, the devices shown by name would be off Matter.
+	if err := keyShownByHardware(data.Namespace(optionsNamespace), names); err != nil {
+		return err
+	}
 	layout := data.Namespace(layoutNamespace)
 	raw, ok, err := layout.Get(deviceKeys)
 	if err != nil {
@@ -39,12 +50,8 @@ func keyByHardware(data *store.Store, log *slog.Logger) error {
 	if ok && string(raw) == keyedByHardware {
 		return nil
 	}
-	names, err := registry.Names(data.Namespace(registry.Namespace))
-	if err != nil {
-		return err
-	}
 	named := map[string]bool{}
-	for _, name := range names {
+	for name := range names {
 		named[name] = true
 	}
 	var states, runs int

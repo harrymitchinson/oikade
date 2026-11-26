@@ -980,16 +980,21 @@ func (e *Engine) reportHold(key ident.ID, s *state, st HoldState, next, now time
 	e.report(key, sched)
 }
 
-// release clears a latched hold's latch. Call without e.mu held.
-func (e *Engine) release(key ident.ID) {
+// release clears a latched hold's latch, and reports whether the rule is loaded. Call without e.mu
+// held.
+func (e *Engine) release(key ident.ID) bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	s := e.rules[key]
-	if s == nil || s.hold == nil {
-		e.Log.Info("Released no hold; the Rule isn't loaded or has none", "rule", e.ruleRef(key))
-		return
+	if s == nil {
+		return false
+	}
+	if s.hold == nil {
+		e.Log.Info("Released no hold; the Rule has none", "rule", e.ruleRef(key))
+		return true
 	}
 	s.hold.released = true
 	s.next = fire{At: e.Clock.Now()}
 	e.signal()
+	return true
 }
