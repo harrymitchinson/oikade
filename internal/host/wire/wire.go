@@ -131,9 +131,10 @@ func Hidden(hidden []HiddenPlugin, plugin, device string) bool {
 type DeviceDeclaration struct {
 	Name string `json:"name"`
 	// Plugin is the name the home imports the hardware's plugin by.
-	Plugin     string          `json:"plugin,omitempty"`
-	ID         string          `json:"id,omitempty"`
-	Room       string          `json:"room,omitempty"`
+	Plugin string `json:"plugin,omitempty"`
+	ID     string `json:"id,omitempty"`
+	// Room is nil for a device in its app's room, and empty for one in none.
+	Room       *string         `json:"room,omitempty"`
 	DeviceType devicetype.Type `json:"deviceType,omitempty"`
 }
 

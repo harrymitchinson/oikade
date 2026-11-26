@@ -121,7 +121,7 @@ Sat 11:05 Wrote porch-light on = false
 | `restart` | Crashes your automations, and starts them again |
 | `help`, `quit` | |
 
-- **The devices** are the ones `devices.go` has handles for, in the rooms and of the types your home declares, so a device you don't declare is in no room. None has a value until you set it. `--types FILE` reads another file.
+- **The devices** are the ones `devices.go` has handles for, in the rooms and of the types your home declares, so a device you don't declare a room for is in none. None has a value until you set it. `--types FILE` reads another file.
 - **Your values** come from `.env` and the environment, or the file `--env-file` names, as on the host. `oikade dev` doesn't run plugins, so nothing logs in.
 - **Your automations' log** goes to standard error, beside the conversation on standard output, so `oikade dev 2>dev.log` keeps it apart.
 

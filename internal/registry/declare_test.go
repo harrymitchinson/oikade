@@ -20,7 +20,7 @@ func declareOK(t *testing.T, r *Registry, decls ...Declaration) Declared {
 func TestDeclaringADeviceNamesPlacesAndTypesItByItsHardware(t *testing.T) {
 	r, values := open(t)
 	before := report(t, r, "0x1", "Living room lamp")
-	got := declareOK(t, r, Declaration{Name: "reading-lamp", Driver: "sim", ID: "0x1", Room: "study", DeviceType: devicetype.OnOffLight})
+	got := declareOK(t, r, Declaration{Name: "reading-lamp", Driver: "sim", ID: "0x1", Room: new("study"), DeviceType: devicetype.OnOffLight})
 	d := get(t, r, "reading-lamp")
 	if !d.Declared || d.Room != "study" || d.DeviceType != devicetype.OnOffLight || d.Endpoint != before.Endpoint {
 		t.Errorf("got %+v, want it declared, in the study, a light, on its endpoint", d)
@@ -36,7 +36,7 @@ func TestDeclaringADeviceNamesPlacesAndTypesItByItsHardware(t *testing.T) {
 	if err != nil || !get(t, again, "reading-lamp").Declared {
 		t.Fatalf("declaration not saved: %v", err)
 	}
-	if same := declareOK(t, r, Declaration{Name: "reading-lamp", Driver: "sim", ID: "0x1", Room: "study", DeviceType: devicetype.OnOffLight}); len(same.Changes) != 0 || len(same.Renamed) != 0 {
+	if same := declareOK(t, r, Declaration{Name: "reading-lamp", Driver: "sim", ID: "0x1", Room: new("study"), DeviceType: devicetype.OnOffLight}); len(same.Changes) != 0 || len(same.Renamed) != 0 {
 		t.Errorf("declaring it again changed %+v", same)
 	}
 }
@@ -44,7 +44,7 @@ func TestDeclaringADeviceNamesPlacesAndTypesItByItsHardware(t *testing.T) {
 func TestADeviceNoLongerDeclaredGoesBackToItsAppsName(t *testing.T) {
 	r, _ := open(t)
 	report(t, r, "0x1", "Living room lamp")
-	declareOK(t, r, Declaration{Name: "reading-lamp", Driver: "sim", ID: "0x1", Room: "study"}, Declaration{Name: "shed-fan"})
+	declareOK(t, r, Declaration{Name: "reading-lamp", Driver: "sim", ID: "0x1", Room: new("study")}, Declaration{Name: "shed-fan"})
 	got := declareOK(t, r)
 	d := get(t, r, "living-room-lamp")
 	if d.Declared || d.Room != "" || got.Renamed["reading-lamp"] != "living-room-lamp" {
@@ -62,7 +62,7 @@ func TestADeviceNoLongerDeclaredGoesBackToItsAppsName(t *testing.T) {
 
 func TestADeclaredNameWaitsForItsHardware(t *testing.T) {
 	r, _ := open(t)
-	got := declareOK(t, r, Declaration{Name: "porch-light", Driver: "sim", ID: "0x9"}, Declaration{Name: "greenhouse-fan", Room: "greenhouse"})
+	got := declareOK(t, r, Declaration{Name: "porch-light", Driver: "sim", ID: "0x9"}, Declaration{Name: "greenhouse-fan", Room: new("greenhouse")})
 	if !slices.Equal(got.Unseen, []string{"porch-light"}) {
 		t.Errorf("unseen %v", got.Unseen)
 	}
@@ -76,13 +76,53 @@ func TestADeclaredNameWaitsForItsHardware(t *testing.T) {
 	}
 }
 
+func TestADeclarationWithoutARoomKeepsItsAppsRoom(t *testing.T) {
+	r, _ := open(t)
+	if _, _, err := r.Report(Report{ID: "0x1", Driver: "sim", Name: "Lamp", Room: "Living Room", Capabilities: []string{"on"}}); err != nil {
+		t.Fatal(err)
+	}
+	declareOK(t, r, Declaration{Name: "reading-lamp", Driver: "sim", ID: "0x1"})
+	if d := get(t, r, "reading-lamp"); d.Room != "living-room" {
+		t.Errorf("got room %q, want its app's, living-room", d.Room)
+	}
+	got := declareOK(t, r, Declaration{Name: "reading-lamp", Driver: "sim", ID: "0x1", Room: new("")})
+	if d := get(t, r, "reading-lamp"); d.Room != "" || !slices.Equal(got.Changes, []string{"Took reading-lamp out of its room"}) {
+		t.Errorf("Room(\"\") left it in %q, with changes %q", d.Room, got.Changes)
+	}
+	got = declareOK(t, r, Declaration{Name: "reading-lamp", Driver: "sim", ID: "0x1"})
+	if want := []string{"Moved reading-lamp to living-room, its app's room"}; !slices.Equal(got.Changes, want) {
+		t.Errorf("changes %q, want %q", got.Changes, want)
+	}
+}
+
+func TestDeclaredHardwareWithoutARoomTakesItsAppsWhenItReports(t *testing.T) {
+	r, values := open(t)
+	declareOK(t, r, Declaration{Name: "porch-light", Driver: "sim", ID: "0x8"}, Declaration{Name: "shed-light", Driver: "sim", ID: "0x9", Room: new("")})
+	// The registry is read back between, as a host that restarted would.
+	r, err := Open(values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"0x8", "0x9"} {
+		if _, _, err := r.Report(Report{ID: id, Driver: "sim", Name: "Light " + id, Room: "Porch", Capabilities: []string{"on"}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if d := get(t, r, "porch-light"); d.Room != "porch" {
+		t.Errorf("porch-light is in %q, want its app's room, porch", d.Room)
+	}
+	if d := get(t, r, "shed-light"); d.Room != "" {
+		t.Errorf("shed-light, declared in no room, is in %q", d.Room)
+	}
+}
+
 func TestADeclaredNameMovesOntoNewHardwareAndKeepsItsEndpoint(t *testing.T) {
 	r, _ := open(t)
 	report(t, r, "0x1", "Hall sensor")
-	declareOK(t, r, Declaration{Name: "hall-sensor", Driver: "sim", ID: "0x1", Room: "hall"})
+	declareOK(t, r, Declaration{Name: "hall-sensor", Driver: "sim", ID: "0x1", Room: new("hall")})
 	old := get(t, r, "hall-sensor")
 	report(t, r, "0x2", "Sensor 7")
-	got := declareOK(t, r, Declaration{Name: "hall-sensor", Driver: "sim", ID: "0x2", Room: "hall"})
+	got := declareOK(t, r, Declaration{Name: "hall-sensor", Driver: "sim", ID: "0x2", Room: new("hall")})
 	d := get(t, r, "hall-sensor")
 	if d.ID != "0x2" || d.Endpoint != old.Endpoint || d.Room != "hall" {
 		t.Errorf("got %+v, want 0x2 on endpoint %d", d, old.Endpoint)
@@ -182,7 +222,7 @@ func TestDeclaringChangesOnlyItsCopy(t *testing.T) {
 	r, _ := open(t)
 	report(t, r, "0x1", "Living room lamp")
 	before := r.List()
-	got, err := Declaring(before, []Declaration{{Name: "reading-lamp", Driver: "sim", ID: "0x1", Room: "study"}})
+	got, err := Declaring(before, []Declaration{{Name: "reading-lamp", Driver: "sim", ID: "0x1", Room: new("study")}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,6 +245,10 @@ func TestAnUndeclaredPluginDeviceHasALineToPaste(t *testing.T) {
 	placed := Device{Name: "lamp", ID: "0x1", Driver: "plugin/zigbee", Room: "hall", DeviceType: devicetype.OnOffLight}
 	if line, _ := Undeclared(placed); line != `home.Device("lamp").Hardware("zigbee", "0x1").Room("hall").Is(oikade.OnOffLight)` {
 		t.Errorf("got %q, want its room and type kept", line)
+	}
+	inAppsRoom := Device{Name: "lamp", ID: "0x1", Driver: "plugin/zigbee", Room: "living-room", AppRoom: "Living Room"}
+	if line, _ := Undeclared(inAppsRoom); line != `home.Device("lamp").Hardware("zigbee", "0x1")` {
+		t.Errorf("got %q, want no Room for a device in its app's room", line)
 	}
 	for _, d := range []Device{
 		{Name: "lamp", ID: "0x1", Driver: "plugin/zigbee", Declared: true},

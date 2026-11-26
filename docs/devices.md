@@ -122,7 +122,7 @@ home.Device("porch-light").Hardware("zigbee", "0x00178801049a2b3c").Room("porch"
 home.Device("greenhouse-fan").Room("greenhouse") // no hardware yet: the name is reserved
 ```
 
-`Hardware` takes the name your home imports the device's plugin by, with `home.Plugin`, and the ID `oikade list devices --json` shows. `Is` takes one of the [six on/off types](#what-a-device-is). Declaring is optional: a device you don't declare works under its app's name.
+`Hardware` takes the name your home imports the device's plugin by, with `home.Plugin`, and the ID `oikade list devices --json` shows. Without `Room`, a declared device stays in its app's room, and `Room("")` puts it in none. `Is` takes one of the [six on/off types](#what-a-device-is). Declaring is optional: a device you don't declare works under its app's name.
 
 ### What a deploy does with them
 

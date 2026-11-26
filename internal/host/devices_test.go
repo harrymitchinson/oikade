@@ -222,7 +222,7 @@ func TestARoomsSettingReachesTheDevicesThereNow(t *testing.T) {
 		t.Helper()
 		decls := make([]wire.DeviceDeclaration, 0, len(rooms))
 		for name, room := range rooms {
-			decls = append(decls, wire.DeviceDeclaration{Name: name, Plugin: "x", ID: name[:1], Room: room})
+			decls = append(decls, wire.DeviceDeclaration{Name: name, Plugin: "x", ID: name[:1], Room: &room})
 		}
 		if err := known.takeDeclared(decls, nil); err != nil {
 			t.Fatal(err)
@@ -427,7 +427,7 @@ func TestADeclaredTypeOutOfARoomsSafetyCaseNamesIt(t *testing.T) {
 		Room: "hall", Capability: capability.On, DeviceTypes: []devicetype.Type{devicetype.OnOffLight}, Except: []string{"lamp"},
 	}}}}
 	as := func(name, room string, t devicetype.Type) []wire.DeviceDeclaration {
-		return []wire.DeviceDeclaration{{Name: name, Plugin: "x", ID: name[:1], Room: room, DeviceType: t}}
+		return []wire.DeviceDeclaration{{Name: name, Plugin: "x", ID: name[:1], Room: &room, DeviceType: t}}
 	}
 	if out := known.leavingSafety(as("ceiling", "hall", devicetype.OnOffPlugInUnit), rules, rules); len(out) != 1 ||
 		!strings.Contains(out[0], "ceiling would leave the devices hall on smoke writes at Safety") {

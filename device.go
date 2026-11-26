@@ -19,8 +19,9 @@ import (
 //
 // Declaring is optional. A device you've paired and not declared works under its app's name.
 type Declaration struct {
-	name, plugin, id, room string
-	deviceType             DeviceType
+	name, plugin, id string
+	room             *string
+	deviceType       DeviceType
 }
 
 // Device declares a device by the name your code calls it.
@@ -40,9 +41,10 @@ func (d *Declaration) Hardware(plugin, id string) *Declaration {
 	return d
 }
 
-// Room puts it in a room. A declared device without one is in none, whatever its app says.
+// Room puts it in a room, and Room("") in none, whatever its app says. A declared device without
+// Room is in its app's room.
 func (d *Declaration) Room(room string) *Declaration {
-	d.room = room
+	d.room = &room
 	return d
 }
 

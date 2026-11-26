@@ -46,8 +46,11 @@ type Device struct {
 	// Name is what code and the command line call it: what the home declares, or else copied from
 	// the device's app once, and never following it.
 	Name string `json:"name"`
-	// Declared says the home's code declares the device, so its name, room and type are the code's.
+	// Declared says the home's code declares the device, so its name and type are the code's.
 	Declared bool `json:"declared"`
+	// RoomDeclared says its room is the code's too, which may be none. A declared device without
+	// one is in its app's room.
+	RoomDeclared bool `json:"roomDeclared,omitempty"`
 	// AppName and AppRoom are what its app called it and where, read once as Name and Room are,
 	// which a device the home stops declaring goes back to.
 	AppName string `json:"appName,omitempty"`
@@ -233,6 +236,9 @@ func (r *Registry) Report(report Report) (device Device, changed bool, err error
 		d.Capabilities, d.DriverDeviceType = slices.Clone(report.Capabilities), report.DeviceType
 		if newAppName(*d, report) {
 			d.AppName, d.AppRoom = clean(report.Name), clean(report.Room)
+			if d.Declared && !d.RoomDeclared {
+				d.Room = roomOf(d.AppRoom)
+			}
 		}
 		if report.Control != nil {
 			d.Control = bytes.Clone(report.Control)
