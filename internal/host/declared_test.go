@@ -88,6 +88,8 @@ func TestARenameMovesNoClaims(t *testing.T) {
 	}
 }
 
+// A reserved name something claims stays declared, and has no hardware, and a declared device stays
+// on record.
 func TestAClaimedReservationStaysDeclaredAndADeclaredDeviceIsntRemoved(t *testing.T) {
 	known, controls := declaredHome(t, t.TempDir())
 	fan := []wire.DeviceDeclaration{{Name: "shed-fan"}, {Name: "lamp", Plugin: "x", ID: "l1"}}
@@ -100,6 +102,11 @@ func TestAClaimedReservationStaysDeclaredAndADeclaredDeviceIsntRemoved(t *testin
 	}
 	if err := known.takeDeclared(fan[1:]); err == nil || !strings.Contains(err.Error(), "flow/frost holds shed-fan") {
 		t.Errorf("dropped a claimed reservation: %v", err)
+	}
+	// Its claims are under its name, which hardware would leave behind.
+	wired := []wire.DeviceDeclaration{{Name: "shed-fan", Plugin: "x", ID: "f1"}, fan[1]}
+	if err := known.takeDeclared(wired); err == nil || !strings.Contains(err.Error(), "flow/frost holds shed-fan, which is reserved") {
+		t.Errorf("gave a claimed reservation hardware: %v", err)
 	}
 	if resp, _ := known.forget(t.Context(), []string{"lamp"}, true, nil); !strings.Contains(resp.Error, "declared in your home's code: delete its declaration and deploy, then forget it") {
 		t.Errorf("removed a declared device: %+v", resp)

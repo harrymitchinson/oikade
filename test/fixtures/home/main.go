@@ -346,7 +346,7 @@ func home() *oikade.Home {
 		h.Flow(parkedName, parked).When(open("park-go"))
 	}
 	h.Flow("reset", func(r *oikade.FlowRun) {
-		r.Release(valveHandle + " on " + leakShutoff)
+		r.Release(valve + " on " + leakShutoff)
 		r.Release("siren on leak-alarm")
 	}).When(open("reset"))
 	h.Flow(claimMoment, setting(on("claimed").To(false).For(time.Hour))).When(open("claim-go"))

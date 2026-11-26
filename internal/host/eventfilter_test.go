@@ -65,6 +65,14 @@ func aHome() home {
 			}
 			return key
 		},
+		names: func(key string) (string, bool) {
+			for name, k := range keys {
+				if k == key {
+					return name, true
+				}
+			}
+			return "", false
+		},
 	}
 }
 
@@ -165,5 +173,32 @@ func TestADevicesRefIsItsHardware(t *testing.T) {
 	}
 	if want := []bool{true, false, true, false, true, false}; !slices.Equal(got, want) {
 		t.Errorf("let through %v, want %v", got, want)
+	}
+}
+
+// An event from before the log kept a device's key has its name, which its ref finds too.
+func TestADevicesRefFindsItsEventsFromBeforeKeys(t *testing.T) {
+	old := []api.Event{
+		{Type: api.EventChange, Device: "hall-lamp", Capability: "on", Value: true},
+		{Type: api.EventRule, Rule: "hall-lamp on dusk"},
+		{Type: api.EventWrite, Device: "hall-lamp", Capability: "on", By: "case/hall-lamp/on/dusk"},
+		{Type: api.EventChange, Device: "office-ac", Capability: "on", Value: true},
+	}
+	for ref, want := range map[string][]bool{
+		"device/hall-lamp":       {true, false, true, false},
+		"room/hall":              {true, false, true, false},
+		"case/hall-lamp/on/dusk": {false, true, true, false},
+	} {
+		m, err := newEventMatcher(api.EventFilter{Refs: []string{ref}}, aHome())
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := make([]bool, 0, len(old))
+		for _, e := range old {
+			got = append(got, m.pass(e))
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("%s let through %v, want %v", ref, got, want)
+		}
 	}
 }

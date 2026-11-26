@@ -132,7 +132,7 @@ func (h *Host) Run(ctx context.Context) error {
 		return err
 	}
 	// Before anything reads what's saved for a device.
-	if err := keyByHardware(data, h.Log); err != nil {
+	if err := keyByHardware(data, devicesOnRecord.List(), h.Log); err != nil {
 		return err
 	}
 

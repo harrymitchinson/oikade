@@ -558,8 +558,8 @@ func (r *FlowRun) set(s Set) error {
 }
 
 // Release ends the named rule's claims, and its latch if it's a case: "<device> <capability> <case>"
-// for a case, its device as its handle has it, or a flow's name. One that fails is logged, and the
-// run ends as failed.
+// for a case, by its device's name or as its handle has it, or a flow's name. One that fails is
+// logged, and the run ends as failed.
 func (r *FlowRun) Release(rule string) {
 	replayed := r.run.Replaying()
 	r.failedStep("release", r.run.Apply(engine.Release(rule)), replayed)

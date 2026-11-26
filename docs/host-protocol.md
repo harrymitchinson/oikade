@@ -39,7 +39,7 @@ A device is its key throughout, its hardware, as `oikade types` writes it in a h
 
 The host takes these up before the `welcome`, in this order, and refuses the `hello` if it can't:
 
-1. **`inventory`:** it saves it, then applies it to the registry. It can refuse, as with a reserved name something holds that the home stops declaring.
+1. **`inventory`:** it saves it, then applies it to the registry. It can refuse, as with a reserved name something holds that the home stops declaring or gives hardware.
 2. **`control`:** it adds and changes settings. One the home has dropped stays until a deploy of that version settles.
 3. **`matterName`:** it saves it, then renames the bridge in place.
 4. **`hiddenFromMatter`:** it saves it, then takes the devices off the bridge. A process whose version is still settling has no say here: the host takes the version's `hiddenFromMatter` from its manifest once it's confirmed, so a deploy that fails takes nothing off.

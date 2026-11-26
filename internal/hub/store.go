@@ -110,7 +110,7 @@ func (s *Store) SetDevices(instance driver.InstanceKey, devices map[ident.ID]Met
 			s.devices[key] = e
 			reassigned = append(reassigned, key)
 		}
-		if !slices.EqualFunc(e.Control, m.Control, control.Entry.Equal) {
+		if !slices.EqualFunc(e.Control, m.Control, control.Entry.Equal) || len(m.Control) > 0 && e.DisplayName != m.DisplayName {
 			controls = append(controls, key)
 		}
 		e.Meta = m
@@ -131,7 +131,8 @@ func (s *Store) SetDevices(instance driver.InstanceKey, devices map[ident.ID]Met
 }
 
 // ControlWatcher is an optional Listener interface. It hears when a device's control entries
-// change, including when it joins or leaves with some.
+// change, including when it joins or leaves with some, and when one with some is renamed, which its
+// gauges show.
 type ControlWatcher interface {
 	ControlChanged(dev ident.ID)
 }
@@ -270,9 +271,26 @@ func (s *Store) Names() control.Names {
 		return nil
 	}
 	return func(key string) (string, bool) {
-		snap, ok := s.Get(ident.ID{Name: key})
-		return snap.DisplayName, ok && snap.DisplayName != ""
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		e, ok := s.devices[ident.ID{Name: key}]
+		if !ok || e.DisplayName == "" {
+			return "", false
+		}
+		return e.DisplayName, true
 	}
+}
+
+// Named is the key of the device whose DisplayName is name, as a person names it.
+func (s *Store) Named(name string) (ident.ID, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for key, e := range s.devices {
+		if e.DisplayName == name {
+			return key, true
+		}
+	}
+	return ident.ID{}, false
 }
 
 // UndeclaredCounts returns the number of paired-but-undeclared devices per driver instance.

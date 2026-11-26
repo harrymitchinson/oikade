@@ -10,69 +10,87 @@ import (
 	"oikade.dev/internal/testkit"
 )
 
-// A store kept by devices' names starts its state and flow runs again, once: what's saved after that
-// is by hardware, and stays. A new one has nothing to start again.
-func TestAStoreKeptByNameStartsAgainOnce(t *testing.T) {
+// A store kept by devices' names starts again what it kept under the name of a device now known by
+// its hardware, once, and keeps the rest: a simulated device's, whose key is its name, and a flow's
+// that names no such device.
+func TestAStoreKeptByNameStartsAgainWhatsUnderAHardwaresName(t *testing.T) {
 	data, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = data.Close() })
-	// A store no host kept a device in is new, and keeps what's put in it.
-	if err := data.Namespace(engine.HoldStatesNamespace).Put("seeded", []byte(`{}`)); err != nil {
-		t.Fatal(err)
+	devices := registry.Snapshot{Devices: []registry.Device{
+		{Name: "valve", Driver: "plugin/relays", ID: "v1"},
+		{Name: "fan", Driver: "simulated/simulator", ID: "fan"},
+	}}
+	put := func(namespace, key, value string) {
+		t.Helper()
+		if err := data.Namespace(namespace).Put(key, []byte(value)); err != nil {
+			t.Fatal(err)
+		}
 	}
-	fresh, err := store.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
+	gone := map[string][]string{
+		engine.ControlStatesNamespace: {"valve"},
+		engine.HoldStatesNamespace:    {"valve on leak", "taps on leak"},
+		engine.AverageStatesNamespace: {"valve on 1h"},
+		pausedNamespace:               {"valve on leak"},
 	}
-	defer func() { _ = fresh.Close() }()
-	if err := fresh.Namespace(engine.FireStatesNamespace).Put("morning", []byte(`"2026-11-26T07:00:00Z"`)); err != nil {
-		t.Fatal(err)
+	kept := map[string][]string{
+		engine.ControlStatesNamespace: {"fan"},
+		engine.HoldStatesNamespace:    {"fan on humid"},
+		engine.FireStatesNamespace:    {"morning"},
+		pausedNamespace:               {"morning"},
 	}
-	if err := keyByHardware(fresh, logging.Discard()); err != nil {
-		t.Fatal(err)
+	for namespace, keys := range kept {
+		for _, k := range keys {
+			put(namespace, k, `{}`)
+		}
 	}
-	if _, ok, _ := fresh.Namespace(engine.FireStatesNamespace).Get("morning"); !ok {
-		t.Error("a new store lost what was put in it")
+	for namespace, keys := range gone {
+		for _, k := range keys {
+			put(namespace, k, `{}`)
+		}
+	}
+	// A group's case that writes the valve.
+	put(engine.HoldStatesNamespace, "taps on leak", `{"active":true,"latched":true,"target":{"devices":["valve","tap"]}}`)
+	journal := data.Journal()
+	for run, step := range map[string]string{"drain/1": `{"id":"look valve on"}`, "morning/1": `{"id":"wait"}`, "valves/1": `{"id":"valves"}`} {
+		if _, err := journal.Append(run, []byte(step)); err != nil {
+			t.Fatal(err)
+		}
 	}
 
-	reg, err := registry.Open(data.Namespace(registry.Namespace))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := reg.Report(registry.Report{ID: "v", Driver: "plugin/relays", Name: "valve"}); err != nil {
-		t.Fatal(err)
-	}
-	keep := func() {
-		t.Helper()
-		if err := data.Namespace(engine.HoldStatesNamespace).Put("valve on leak", []byte(`{"active":true,"latched":true}`)); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := data.Journal().Append("drain/1", []byte(`{}`)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	keep()
 	log := testkit.Logs(t)
-	if err := keyByHardware(data, log.Logger); err != nil {
+	if err := keyByHardware(data, devices, log.Logger); err != nil {
 		t.Fatal(err)
 	}
-	if !log.Has(`msg="Started claims, latches and flow runs again, as the store kept them by device name"`, "states=2", "runs=1") {
+	if !log.Has(`msg="Started claims, latches and flow runs again, as the store kept them by device name"`, "states=5", "runs=1") {
 		t.Errorf("logged:\n%v", log.Lines())
 	}
-	if _, ok, _ := data.Namespace(engine.HoldStatesNamespace).Get("valve on leak"); ok {
-		t.Error("the latch stayed")
+	for namespace, keys := range gone {
+		for _, k := range keys {
+			if _, ok, _ := data.Namespace(namespace).Get(k); ok {
+				t.Errorf("%s kept %s", namespace, k)
+			}
+		}
 	}
-	if runs, _ := data.Journal().Runs(); len(runs) != 0 {
-		t.Errorf("runs %v stayed", runs)
+	for namespace, keys := range kept {
+		for _, k := range keys {
+			if _, ok, _ := data.Namespace(namespace).Get(k); !ok {
+				t.Errorf("%s lost %s", namespace, k)
+			}
+		}
+	}
+	if runs, _ := journal.Runs(); len(runs) != 2 {
+		t.Errorf("runs %v, want morning's and valves'", runs)
 	}
 
-	keep()
-	if err := keyByHardware(data, log.Logger); err != nil {
+	// Once: what's under the valve's name from now on is another device's, a reserved one, say.
+	put(engine.ControlStatesNamespace, "valve", `{}`)
+	if err := keyByHardware(data, devices, logging.Discard()); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok, _ := data.Namespace(engine.HoldStatesNamespace).Get("valve on leak"); !ok {
+	if _, ok, _ := data.Namespace(engine.ControlStatesNamespace).Get("valve"); !ok {
 		t.Error("a second start dropped what was saved by hardware")
 	}
 }

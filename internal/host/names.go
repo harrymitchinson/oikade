@@ -44,14 +44,15 @@ func keyOfName(r *registry.Registry, name string) (ident.ID, bool) {
 }
 
 // ruleKeyOf is the key of a rule a person names by a key with a device's name in it: a case's
-// "<device> <capability> <case>". A name no device has is a group's or a room's, as it is.
+// "<device> <capability> <case>". A name no live device has is a group's or a room's, as it is, even
+// if a device forgotten had it.
 func ruleKeyOf(r *registry.Registry, key string) string {
 	parts := strings.Split(key, " ")
 	if r == nil || len(parts) != 3 {
 		return key
 	}
-	if dev, ok := keyOfName(r, parts[0]); ok {
-		return control.CaseKey(dev.Name, parts[1], parts[2])
+	if d, ok := r.Get(parts[0]); ok {
+		return control.CaseKey(d.Key(), parts[1], parts[2])
 	}
 	return key
 }
@@ -81,29 +82,35 @@ func namedRef(ref string, names control.Names) string {
 
 // namedEvent is an event as a person reads it: its device, rule and refs named. A rename says the
 // name it gave.
-func namedEvent(e api.Event, r *registry.Registry) api.Event {
-	if r == nil {
-		return e
-	}
-	names := registryNames(r)
-	e.Device, e.Rule = names.Device(e.Device), names.Rule(e.Rule)
-	e.Ref, e.By = namedRef(e.Ref, names), namedRef(e.By, names)
-	e.Result, e.Message = namedText(e.Result, r), namedText(e.Message, r)
-	if e.Type == api.EventRename && e.Message != "" {
-		e.Device, e.Ref = e.Message, ident.DeviceRef(e.Message).String()
-	}
-	return e
-}
+func namedEvent(e api.Event, r *registry.Registry) api.Event { return newNamer(r).event(e) }
 
 // namedText is text your process wrote, such as why a case is inactive, with the devices it names
-// by key named: a ref as it is, or as a why-not spells it, unescaped.
-func namedText(text string, r *registry.Registry) string {
-	if r == nil || !strings.ContainsAny(text, "/") {
-		return text
+// by key named.
+func namedText(text string, r *registry.Registry) string { return newNamer(r).text(text) }
+
+// namer names devices as the registry had them when it was made, for many events at a time.
+type namer struct {
+	// names are the devices' names by key, a removed one's the last it had.
+	names map[string]string
+	// refs names the live devices' keys in text: in a ref as it is, or as a why-not spells it,
+	// unescaped. Nil if every key is its name.
+	refs *strings.Replacer
+}
+
+// newNamer is the registry's namer, or nil, which names nothing, without one.
+func newNamer(r *registry.Registry) *namer {
+	if r == nil {
+		return nil
 	}
+	snap := r.List()
+	n := &namer{names: make(map[string]string, len(snap.Devices))}
+	live := map[string]bool{}
 	var pairs []string
-	for _, d := range r.List().Devices {
+	for _, d := range snap.Devices {
 		k := d.Key()
+		if !live[k] {
+			n.names[k], live[k] = d.Name, !d.Removed
+		}
 		if d.Removed || k == d.Name {
 			continue
 		}
@@ -113,10 +120,42 @@ func namedText(text string, r *registry.Registry) string {
 			pairs = append(pairs, prefix+escaped+"/", prefix+d.Name+"/", prefix+k+"/", prefix+d.Name+"/")
 		}
 	}
-	if len(pairs) == 0 {
+	if len(pairs) > 0 {
+		n.refs = strings.NewReplacer(pairs...)
+	}
+	return n
+}
+
+// Names are the namer's names, or nil from a nil namer.
+func (n *namer) Names() control.Names {
+	if n == nil {
+		return nil
+	}
+	return func(key string) (string, bool) {
+		name, ok := n.names[key]
+		return name, ok
+	}
+}
+
+func (n *namer) event(e api.Event) api.Event {
+	if n == nil {
+		return e
+	}
+	names := n.Names()
+	e.Device, e.Rule = names.Device(e.Device), names.Rule(e.Rule)
+	e.Ref, e.By = namedRef(e.Ref, names), namedRef(e.By, names)
+	e.Result, e.Message = n.text(e.Result), n.text(e.Message)
+	if e.Type == api.EventRename && e.Message != "" {
+		e.Device, e.Ref = e.Message, ident.DeviceRef(e.Message).String()
+	}
+	return e
+}
+
+func (n *namer) text(text string) string {
+	if n == nil || n.refs == nil || !strings.Contains(text, "/") {
 		return text
 	}
-	return strings.NewReplacer(pairs...).Replace(text)
+	return n.refs.Replace(text)
 }
 
 // declaredNames names devices as decls declare them, and the rest as names does, for what a deploy

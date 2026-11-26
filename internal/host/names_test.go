@@ -90,6 +90,13 @@ func TestANameFindsItsKey(t *testing.T) {
 	if got := ruleKeyOf(r, "lounge on dusk"); got != "lounge on dusk" {
 		t.Errorf("a group's case is %q", got)
 	}
+	// A group named as a device forgotten was is the group.
+	if err := r.Remove("terrace-blind"); err != nil {
+		t.Fatal(err)
+	}
+	if got := ruleKeyOf(r, "terrace-blind on dusk"); got != "terrace-blind on dusk" {
+		t.Errorf("a group named as a forgotten device has the case %q", got)
+	}
 	if _, ok := keyOfName(r, "nothing"); ok {
 		t.Error("found a device nothing is called")
 	}

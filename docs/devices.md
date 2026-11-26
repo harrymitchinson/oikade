@@ -140,7 +140,7 @@ Change a declaration's ID to swap a failed device for new hardware, and run `oik
 
 A declaration with no hardware, or hardware that hasn't reported, reserves its name until it does, and `oikade check` and the deploy say so. So you can write code for something that isn't paired yet, which does nothing until the hardware arrives.
 
-A reserved device has no capabilities yet, so `oikade types` gives it only its `Name`. Until it reports, name a capability yourself, such as `oikade.Bool{Device: GreenhouseFan.Name, Capability: oikade.On}`, and run `oikade types` once it has. Give it its `Hardware` and deploy, and the name moves onto it, then run `oikade types` again: its handles have the hardware from then on, and what the reserved name held, such as a claim, isn't the hardware's. A reserved name that stops being declared is refused while something claims it.
+A reserved device has no capabilities yet, so `oikade types` gives it only its `Name`. Until it reports, name a capability yourself, such as `oikade.Bool{Device: GreenhouseFan.Name, Capability: oikade.On}`, and run `oikade types` once it has. Give it its `Hardware` and deploy, and the name moves onto it, then run `oikade types` again, as its handles have the hardware from then on. A reserved name that stops being declared, or takes hardware, is refused while something claims it, because its claims are the name's and not the hardware's.
 
 ### What's refused
 

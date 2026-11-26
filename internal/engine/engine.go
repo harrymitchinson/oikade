@@ -156,6 +156,8 @@ type Engine struct {
 	// arbs are the arbitrated capabilities by device, and controlDue the devices to look at again.
 	arbs       map[ident.ID]map[string]*arb
 	controlDue map[ident.ID]bool
+	// controlLabels are the device names the control gauges have, so a rename's replace them.
+	controlLabels map[ident.ID]string
 	// saveDue are the devices whose arbiters saveControls saves next.
 	saveDue  map[ident.ID]bool
 	saveWake chan struct{}
@@ -223,6 +225,7 @@ func (e *Engine) Init() {
 	e.signals.next = e.Clock.Now()
 	e.arbs = map[ident.ID]map[string]*arb{}
 	e.controlDue = map[ident.ID]bool{}
+	e.controlLabels = map[ident.ID]string{}
 	e.saveDue = map[ident.ID]bool{}
 	e.saveWake = make(chan struct{}, 1)
 	e.bridgeWrites = map[ident.ID]map[string]bridgeWrite{}
@@ -857,8 +860,9 @@ func (e *Engine) act(ctx context.Context, key ident.ID, a action) (ok bool, arbi
 	case ctx.Err() != nil:
 		return true, nil
 	case a.release != "":
-		e.release(ident.ID{Name: a.release})
-		_ = e.endClaims(ctx, ruleSource(a.release), allLevels)
+		rule := e.ruleNamed(a.release)
+		e.release(ident.ID{Name: rule})
+		_ = e.endClaims(ctx, ruleSource(rule), allLevels)
 		return true, nil
 	case a.room != "":
 		ok, others, arbitrated := e.setRoom(ctx, key, a)

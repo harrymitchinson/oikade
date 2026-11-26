@@ -218,7 +218,7 @@ func (s *apiServer) handler(route api.Route) http.HandlerFunc {
 			}
 			out := newLines(w)
 			defer out.end()
-			s.srv.events.stream(ctx, named{out, s.registry()}, func(err error) {
+			s.srv.events.stream(ctx, &named{lineWriter: out, registry: s.registry()}, func(err error) {
 				respond(s.log, w, http.StatusInternalServerError, api.Response{Error: err.Error()})
 			}, pass)
 		}
@@ -343,7 +343,7 @@ func (s *apiServer) tail(w http.ResponseWriter, r *http.Request) {
 	defer stop()
 	lines := newLines(w)
 	defer lines.end()
-	out := named{lines, s.registry()}
+	out := &named{lineWriter: lines, registry: s.registry()}
 	write := func(e api.Event) bool { return out.write(e) && out.flush() }
 	if !filter.Since.IsZero() {
 		short, told := s.srv.events.history(ctx, out, upTo, m.pass)

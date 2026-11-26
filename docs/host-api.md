@@ -176,7 +176,7 @@ Both take a filter in the query, and the host does the filtering, so a caller do
 
 | A `ref` | Its events |
 |---|---|
-| `device/porch-light` | Everything about the device and its capabilities, under each name it had, as the log keeps a device by its hardware. A tail carries on with a device that's renamed as it follows. A name nothing has now is the device that last had it |
+| `device/porch-light` | Everything about the device and its capabilities, under each name it had, as the log keeps a device by its hardware, and under the name it has now for events from before it did. A tail carries on with a device that's renamed as it follows. A name nothing has now is the device that last had it |
 | `device/porch-light/on` | The capability's, and what happened to the device as a whole: it went offline, or was forgotten or renamed |
 | `room/hall`, `room/hall/on` | The same, for each device in the room now, not those that were in it then |
 | `case/porch-light/on/dusk`, `flow/morning` | The rule's runs, pauses and outside calls, and the writes it made (`by`). A case's are its device's, under each name it had |

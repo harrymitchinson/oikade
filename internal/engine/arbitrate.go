@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -298,10 +299,11 @@ func (e *Engine) dropArb(dev ident.ID, name string, forget bool) {
 		return
 	}
 	delete(e.arbs[dev], name)
+	e.metrics.controlLevel.Delete(cmp.Or(e.controlLabels[dev], e.name(dev)), name)
 	if len(e.arbs[dev]) == 0 {
 		delete(e.arbs, dev)
+		delete(e.controlLabels, dev)
 	}
-	e.metrics.controlLevel.Delete(e.name(dev), name)
 	if forget {
 		e.markSave(dev)
 	}
@@ -981,8 +983,17 @@ func (e *Engine) arbitrated(dev ident.ID, name string) bool {
 
 // reportControl sets the gauge of the device's arbitrated capabilities. Call with e.mu held.
 func (e *Engine) reportControl(dev ident.ID) {
+	label := e.name(dev)
+	if was, ok := e.controlLabels[dev]; ok && was != label {
+		for name := range e.arbs[dev] {
+			e.metrics.controlLevel.Delete(was, name)
+		}
+	}
+	if len(e.arbs[dev]) > 0 {
+		e.controlLabels[dev] = label
+	}
 	for name, ar := range e.arbs[dev] {
-		e.metrics.controlLevel.Set(float64(ar.d.Level), e.name(dev), name)
+		e.metrics.controlLevel.Set(float64(ar.d.Level), label, name)
 	}
 }
 

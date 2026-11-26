@@ -54,8 +54,8 @@ func (i *inventory) planDeclared(decls []wire.DeviceDeclaration) (registry.Decla
 
 // planLocked refuses declarations the registry can't take. What the host keeps for a device is by
 // its hardware, so a rename or a declared name taking over hardware moves nothing, but a reserved
-// name that goes would leave its claims behind, so that's refused while something holds it. Call
-// with mu held.
+// name that goes, or takes hardware, would leave its claims behind, so that's refused while
+// something holds it. Call with mu held.
 func (i *inventory) planLocked(decls []wire.DeviceDeclaration) (registry.Declared, error) {
 	plan, err := i.registry.Plan(wire.Declarations(decls))
 	if err != nil {
@@ -65,6 +65,15 @@ func (i *inventory) planLocked(decls []wire.DeviceDeclaration) (registry.Declare
 		if holders, _ := i.claimed(ident.ID{Name: registry.KeyOf("", "", name)}); len(holders) > 0 {
 			return plan, fmt.Errorf("%s holds %s, so the name can't stop being declared: deploy a version that doesn't "+
 				"claim it first", strings.Join(holders, ", "), name)
+		}
+	}
+	for _, d := range wire.Declarations(decls) {
+		if was, ok := i.registry.Get(d.Name); !ok || d.ID == "" || was.ID != "" {
+			continue
+		}
+		if holders, _ := i.claimed(ident.ID{Name: registry.KeyOf("", "", d.Name)}); len(holders) > 0 {
+			return plan, fmt.Errorf("%s holds %s, which is reserved, so it can't take hardware: deploy a version that "+
+				"doesn't claim it first", strings.Join(holders, ", "), d.Name)
 		}
 	}
 	return plan, nil

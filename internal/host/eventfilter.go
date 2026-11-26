@@ -26,9 +26,10 @@ type eventMatcher struct {
 	matter bool
 }
 
-// deviceMatch is a device named, by its key, or one capability of it.
+// deviceMatch is a device named, by its key, or one capability of it. Events from before the log
+// kept a device's key have it by name.
 type deviceMatch struct {
-	key string
+	key, name string
 	// capability, if set, leaves out the device's other capabilities. What happened to the device as a
 	// whole stays: it went offline, or was forgotten or renamed.
 	capability string
@@ -43,10 +44,13 @@ type home struct {
 	device func(name string) (ident.ID, bool)
 	// rule is the key of a rule a person names by a key with a device's name in it.
 	rule func(key string) string
+	// names names the devices in a room, for their events from before the log kept keys.
+	names control.Names
 }
 
 // newEventMatcher makes a filter's matcher, or says which ref can't narrow events. An event names a
-// device by its key, its hardware, so a device's ref finds its past under every name it had.
+// device by its key, its hardware, so a device's ref finds its past under every name it had, and
+// under the name it has now from before events kept keys.
 func newEventMatcher(f api.EventFilter, h home) (*eventMatcher, error) {
 	m := &eventMatcher{
 		since: f.Since, until: f.Until, narrowed: len(f.Refs) > 0,
@@ -57,7 +61,7 @@ func newEventMatcher(f api.EventFilter, h home) (*eventMatcher, error) {
 		if !ok {
 			dev = ident.ID{Name: name}
 		}
-		m.devices = append(m.devices, deviceMatch{key: dev.Name, capability: capability})
+		m.devices = append(m.devices, deviceMatch{key: dev.Name, name: name, capability: capability})
 	}
 	for _, ref := range f.Refs {
 		kind, parts, err := ident.ParseRef(ref)
@@ -69,12 +73,14 @@ func newEventMatcher(f api.EventFilter, h home) (*eventMatcher, error) {
 			device(parts[0], capabilityOf(parts))
 		case kind == ident.Room:
 			for _, dev := range h.rooms(parts[0]) {
-				m.devices = append(m.devices, deviceMatch{key: dev.Name, capability: capabilityOf(parts)})
+				m.devices = append(m.devices, deviceMatch{key: dev.Name, name: h.names.Device(dev.Name), capability: capabilityOf(parts)})
 			}
 		case kind == ident.Flow:
 			m.rule(parts[0])
 		case kind == ident.Case:
-			m.rule(h.rule(control.CaseKey(parts[0], parts[1], parts[2])))
+			named := control.CaseKey(parts[0], parts[1], parts[2])
+			m.rule(h.rule(named))
+			m.rule(named)
 		case kind == ident.Plugin, kind == ident.Signal:
 			m.refs[ident.NewRef(kind, parts...).String()] = true
 		case kind == ident.Matter:
@@ -127,7 +133,7 @@ func (m *eventMatcher) about(e api.Event) bool {
 var matterRef = ident.NewRef(ident.Matter).String()
 
 func (d deviceMatch) covers(e api.Event) bool {
-	return e.Device == d.key && (d.capability == "" || e.Capability == "" || e.Capability == d.capability)
+	return (e.Device == d.key || e.Device == d.name) && (d.capability == "" || e.Capability == "" || e.Capability == d.capability)
 }
 
 // matcher makes the matcher of a call's filter, from the home as it is.
@@ -137,18 +143,25 @@ func (s *apiServer) matcher(f api.EventFilter) (*eventMatcher, error) {
 		rooms:  s.srv.devices.Room,
 		device: func(name string) (ident.ID, bool) { return keyOfName(r, name) },
 		rule:   func(key string) string { return ruleKeyOf(r, key) },
+		names:  registryNames(r),
 	})
 }
 
-// named writes events as a person reads them, with their devices named.
+// named writes events as a person reads them, with their devices named as the registry has them
+// now, or a second ago.
 type named struct {
 	lineWriter
 	registry *registry.Registry
+	namer    *namer
+	made     time.Time
 }
 
-func (n named) write(v any) bool {
+func (n *named) write(v any) bool {
 	if e, ok := v.(api.Event); ok {
-		v = namedEvent(e, n.registry)
+		if now := time.Now(); n.namer == nil || now.Sub(n.made) > time.Second {
+			n.namer, n.made = newNamer(n.registry), now
+		}
+		v = n.namer.event(e)
 	}
 	return n.lineWriter.write(v)
 }
