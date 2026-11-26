@@ -193,6 +193,17 @@ func TestTypesNamesDevicesAsYourHomeDeclaresThem(t *testing.T) {
 	if got := declaredIn(t.Context(), &stderr, dir, list, byHardware); len(got.Devices) != 0 {
 		t.Errorf("got %+v", got.Devices)
 	}
+	// Even when the host would refuse the declarations.
+	refused := func(context.Context) (wire.Manifest, error) {
+		return wire.Manifest{Inventory: []wire.DeviceDeclaration{
+			{Hardware: "zigbee/0x2"}, {Name: "attic-fan", Plugin: "zigbee", ID: "0x2"},
+		}}, nil
+	}
+	stderr.Reset()
+	if got := declaredIn(t.Context(), &stderr, dir, list, refused); len(got.Devices) != 0 || len(list.Devices) != 1 ||
+		!strings.Contains(stderr.String(), "would refuse") {
+		t.Errorf("got %+v, and said %q", got.Devices, stderr.String())
+	}
 	// Outside a module there's nothing to build, and it says so.
 	stderr.Reset()
 	outside := declaredIn(t.Context(), &stderr, t.TempDir(), list, broken)

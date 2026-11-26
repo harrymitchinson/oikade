@@ -38,9 +38,11 @@ var onOffTypes = map[devicetype.Type]im.DeviceType{
 
 // Device is everything needed to map a device to a bridged endpoint.
 type Device struct {
-	Key          ident.ID
-	Endpoint     uint16
-	Name         string
+	Key      ident.ID
+	Endpoint uint16
+	Name     string
+	// Label is what controllers show for it, in place of Name.
+	Label        string
 	Capabilities []string
 	// Type is what a device that's on or off is, as devicetype.OnOffOf says. A dimmable type has
 	// Level Control, and an on/off one doesn't, even with a brightness. Empty is what its

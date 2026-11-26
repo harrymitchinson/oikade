@@ -204,6 +204,14 @@ func fieldCapabilities(v reflect.Value) []string {
 	}
 	var out []string
 	for field, f := range v.Fields() {
+		switch {
+		case field.Anonymous:
+			// Its exported fields are promoted, even when it isn't exported itself.
+			out = append(out, fieldCapabilities(f)...)
+			continue
+		case !field.IsExported():
+			continue
+		}
 		switch c := f.Interface().(type) {
 		case Bool:
 			out = append(out, string(c.Capability))
@@ -211,10 +219,6 @@ func fieldCapabilities(v reflect.Value) []string {
 			out = append(out, string(c.Capability))
 		case Choice:
 			out = append(out, string(c.Capability))
-		default:
-			if field.Anonymous {
-				out = append(out, fieldCapabilities(f)...)
-			}
 		}
 	}
 	return out

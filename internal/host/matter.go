@@ -1,7 +1,6 @@
 package host
 
 import (
-	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -342,7 +341,7 @@ func (m *matterBridge) want() map[uint16]matterbridge.Device {
 		dev := devKey(d)
 		snap, live := m.devices.Get(dev)
 		out[d.Endpoint] = matterbridge.Device{
-			Key: dev, Endpoint: d.Endpoint, Name: cmp.Or(d.Label, d.Name), Capabilities: d.Capabilities,
+			Key: dev, Endpoint: d.Endpoint, Name: d.Name, Label: d.Label, Capabilities: d.Capabilities,
 			Type: devicetype.OnOffOf(d.DeviceType, d.DriverDeviceType, d.Capabilities),
 			// A name can move, and an endpoint can't, so a controller keeps its device through either.
 			Unique:  matterbridge.UniqueID(m.id.UniqueID + "/" + strconv.Itoa(int(d.Endpoint))),

@@ -148,8 +148,15 @@ func TestDevicesAreChecked(t *testing.T) {
 			"its field Temperature is an oikade.Bool, and temperature is an oikade.Number"},
 		"two rooms":   {func(*Home) { Device[OnOffLight]("relays/a", Room("a"), Room("b")) }, "it's placed in a and b"},
 		"no room":     {func(*Home) { Device[OnOffLight]("relays/a", RoomGroup{}) }, "isn't one from oikade.Room"},
-		"empty label": {func(*Home) { Device[OnOffLight]("relays/a", Label("")) }, "its Label is empty"},
-		"a bad room":  {func(*Home) { Device[OnOffLight]("relays/a", Room("Le Salon")) }, `"Le Salon" isn't a room name`},
+		"empty label": {func(*Home) { Device[OnOffLight]("relays/a", Label(" ")) }, "its Label is empty"},
+		"a label on two lines": {
+			func(*Home) { Device[OnOffLight]("relays/a", Label("Clim\nsalon")) }, "has a control character",
+		},
+		"by pointer": {
+			func(*Home) { Device[struct{ *OnOffLight }]("relays/a") }, "it embeds OnOffLight by pointer or interface",
+		},
+		"a nil kind": {func(h *Home) { h.Room(Room("salon"), Kinds(nil)) }, "oikade.Kinds has a nil device type"},
+		"a bad room": {func(*Home) { Device[OnOffLight]("relays/a", Room("Le Salon")) }, `"Le Salon" isn't a room name`},
 		"not a struct": {func(*Home) { Device[DeviceType]("relays/a") },
 			"its type, oikade.DeviceType, isn't a device type"},
 	} {
@@ -160,6 +167,26 @@ func TestDevicesAreChecked(t *testing.T) {
 				t.Errorf("got %v, want an error with %q", err, tc.want)
 			}
 		})
+	}
+}
+
+type extras struct{ Temperature Number }
+
+func TestADeviceCanEmbedAStructThatIsntExported(t *testing.T) {
+	declaring(t)
+	lamp := Device[struct {
+		OnOffLight
+		extras
+	}]("relays/a")
+	if lamp.Temperature != (Number{Device: "relays/a", Capability: Temperature}) {
+		t.Errorf("got %+v", lamp)
+	}
+	h := decide(func(h *Home) { h.Plugin("relays", zigbee); h.Group("warm", lamp) })
+	if _, _, err := h.compile(); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.groups[0].members[0].capabilities; !slices.Equal(got, []string{"on", "temperature"}) {
+		t.Errorf("in a group, it has %v", got)
 	}
 }
 

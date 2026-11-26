@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"unicode"
 
 	"oikade.dev/internal/capability"
 	"oikade.dev/internal/devicetype"
@@ -159,16 +160,18 @@ type labelOption string
 
 func (l labelOption) applyTo(d *declaredDevice) {
 	switch {
-	case l == "":
+	case strings.TrimSpace(string(l)) == "":
 		d.errs = append(d.errs, errors.New("its Label is empty"))
+	case strings.ContainsFunc(string(l), unicode.IsControl):
+		d.errs = append(d.errs, fmt.Errorf("its Label %q has a control character", string(l)))
 	case d.label != "":
 		d.errs = append(d.errs, errors.New("it has two Labels"))
 	}
 	d.label = string(l)
 }
 
-// Device declares a device: the hardware it is, its Key, and what it is, T, a device type or a struct
-// of one and the device's other capabilities.
+// Device declares a device: the hardware it is, its Key, which a reserved name can't be, and what it
+// is, T, a device type or a struct of one and the device's other capabilities.
 //
 //	var (
 //		Cuisine        = oikade.Room("cuisine")
@@ -198,6 +201,10 @@ func Device[T DeviceType](hardware string, options ...DeviceOption) T {
 			v.Type()))
 		return t
 	}
+	if field, ok := embedsIndirect(v.Type()); ok {
+		d.errs = append(d.errs, fmt.Errorf("it embeds %s by pointer or interface: embed the device type itself", field))
+		return t
+	}
 	d.typ = t.deviceType()
 	any(&t).(interface{ setKey(key string) }).setKey(hardware)
 	d.capabilities, d.errs = fill(v, hardware, d.errs)
@@ -209,6 +216,23 @@ func Device[T DeviceType](hardware string, options ...DeviceOption) T {
 		o.applyTo(d)
 	}
 	return t
+}
+
+// embedsIndirect finds a field t embeds by pointer or interface, through which a device type
+// would be nil.
+func embedsIndirect(t reflect.Type) (string, bool) {
+	for field := range t.Fields() {
+		switch {
+		case !field.Anonymous:
+		case field.Type.Kind() == reflect.Pointer || field.Type.Kind() == reflect.Interface:
+			return field.Name, true
+		case field.Type.Kind() == reflect.Struct:
+			if name, ok := embedsIndirect(field.Type); ok {
+				return name, true
+			}
+		}
+	}
+	return "", false
 }
 
 // fill makes each of v's capabilities, and its device type's, the hardware's, and says which they
@@ -317,7 +341,6 @@ func (r RoomGroup) applyTo(d *declaredDevice) {
 		return
 	}
 	d.room = r.g
-	r.g.members = append(r.g.members, groupMember{name: d.key, capabilities: d.capabilities})
 }
 
 // Room is one of your home's rooms, by the name oikade status gives it and room/NAME takes, and the
@@ -371,6 +394,9 @@ func (d *declaredDevice) declare() {
 	declared.mu.Lock()
 	defer declared.mu.Unlock()
 	declared.devices = append(declared.devices, d)
+	if d.room != nil {
+		d.room.members = append(d.room.members, groupMember{name: d.key, capabilities: d.capabilities})
+	}
 }
 
 // declaredDevices are the devices from Device, in the order they were declared, and what's wrong

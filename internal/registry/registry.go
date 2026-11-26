@@ -289,11 +289,17 @@ func (r *Registry) Report(report Report) (device Device, changed bool, err error
 		if d.Removed {
 			d.Removed, d.Name = false, uniqueName(*s, d.Name)
 		}
+		unseen := len(d.Capabilities) == 0
 		d.Capabilities, d.DriverDeviceType = slices.Clone(report.Capabilities), report.DeviceType
 		appRoom := d.AppRoom
 		switch {
 		case newAppName(*d, report):
 			d.AppName, d.AppRoom = clean(report.Name), clean(report.Room)
+			// A line in your code that took the hardware before it was paired named it by its ID.
+			if d.Declared && unseen && d.Name == Slug("", d.ID) {
+				d.Name = ""
+				d.Name = uniqueName(*s, Slug(d.AppName, d.ID))
+			}
 		case newAppRoom(*d, report):
 			d.AppRoom = clean(report.Room)
 		}

@@ -281,8 +281,8 @@ func TestOnlyHardwareThatMapsIsOnTheBridge(t *testing.T) {
 	if _, err := reg.Declare([]registry.Declaration{{Name: "future"}, {Hardware: key("lamp").Name, Label: "Reading lamp"}}); err != nil {
 		t.Fatal(err)
 	}
-	if d := m.want()[lamp.Endpoint]; d.Name != "Reading lamp" {
-		t.Errorf("a labelled lamp is %q on the bridge", d.Name)
+	if d := m.want()[lamp.Endpoint]; d.Label != "Reading lamp" || d.Name != lamp.Name {
+		t.Errorf("a labelled lamp is %q, labelled %q, on the bridge", d.Name, d.Label)
 	}
 }
 

@@ -1,6 +1,8 @@
 package oikade
 
 import (
+	"errors"
+
 	"oikade.dev/contract/v1"
 	"oikade.dev/internal/devicetype"
 	"oikade.dev/internal/engine"
@@ -218,7 +220,13 @@ var (
 func Kinds(t DeviceType, more ...DeviceType) Kind {
 	k := Kind{}
 	for _, t := range append([]DeviceType{t}, more...) {
-		k.types = append(k.types, typeOf(t))
+		if t == nil {
+			declared.mu.Lock()
+			declared.mistakes = append(declared.mistakes, errors.New("oikade.Kinds has a nil device type"))
+			declared.mu.Unlock()
+			continue
+		}
+		k.types = append(k.types, t.deviceType())
 	}
 	return k
 }

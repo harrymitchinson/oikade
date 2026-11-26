@@ -246,7 +246,8 @@ func declaredIn(ctx context.Context, stderr io.Writer, module string, list regis
 	declared, err := registry.Declaring(list, wire.Declarations(inventory))
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "The host would refuse your declarations, so devices are under its names: %v\n", err)
-		return list
+		declared = list
+		declared.Devices = slices.Clone(list.Devices)
 	}
 	// Your code names what it declares with oikade.Device, so a handle would clash with it.
 	byHardware := map[string]bool{}

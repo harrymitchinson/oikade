@@ -119,6 +119,12 @@ func TestBridgeRenamesInPlace(t *testing.T) {
 	if got := readLabel(t, b, 3); got != "Landing sensor" {
 		t.Errorf("NodeLabel %q, want Landing sensor", got)
 	}
+
+	sensor.Label = "Palier"
+	apply(t, b, sensor)
+	if got := readLabel(t, b, 3); got != "Palier" {
+		t.Errorf("NodeLabel %q, want its label", got)
+	}
 }
 
 func readLabel(t *testing.T, b *Bridge, id uint16) string {

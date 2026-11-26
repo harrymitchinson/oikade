@@ -342,6 +342,13 @@ func TestHardwareDeclaredByItselfIsChecked(t *testing.T) {
 	if !slices.Equal(got.Unseen, []string{"hue/0x9"}) || get(t, r, "device-0x9").Key() != "hue/0x9" {
 		t.Errorf("got %+v, and %+v", got, r.List())
 	}
+	// Once paired, it has its app's name.
+	if _, _, err := r.Report(Report{ID: "0x9", Driver: "plugin/hue", Name: "Kitchen ceiling", Capabilities: []string{"on"}}); err != nil {
+		t.Fatal(err)
+	}
+	if d := get(t, r, "kitchen-ceiling"); d.Key() != "hue/0x9" || !d.Declared {
+		t.Errorf("paired, it's %+v", r.List())
+	}
 	if _, err := r.Plan([]Declaration{{Hardware: "sim-1", Capabilities: []string{"on"}}}); err != nil {
 		t.Errorf("hardware of no plugin, on record, is refused: %v", err)
 	}

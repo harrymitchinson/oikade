@@ -1,6 +1,7 @@
 package matterbridge
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -125,7 +126,7 @@ func (b *Bridge) Apply(log *slog.Logger, want map[uint16]Device) error {
 	}
 	for id, e := range b.endpoints {
 		if d, ok := want[id]; ok && d.Signature() == e.signature {
-			if label := Label(d.Name); label != e.label {
+			if label := Label(cmp.Or(d.Label, d.Name)); label != e.label {
 				e.label = label
 				b.Matter.Node.Update(func() { e.info.SetLabel(label) })
 				log.Info("Renamed bridged device", "device", d.Name, "endpoint", id)
@@ -161,7 +162,7 @@ func (b *Bridge) Apply(log *slog.Logger, want map[uint16]Device) error {
 		}
 		d := want[id]
 		e := &endpoint{
-			signature: d.Signature(), label: Label(d.Name), absent: d.Absent, product: productOf(d.Product),
+			signature: d.Signature(), label: Label(cmp.Or(d.Label, d.Name)), absent: d.Absent, product: productOf(d.Product),
 		}
 		e.key.Store(&d.Key)
 		d.After = b.after
