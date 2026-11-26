@@ -195,7 +195,8 @@ func listed(list registry.Snapshot, marks deviceMarks) []listedDevice {
 func runTypes(ctx context.Context, args []string) error {
 	fs := newFlags("types")
 	target := addTarget(fs)
-	out := fs.String("out", "devices.go", "Your devices file, which it adds to, or - to print devices.go as it would be.")
+	out := fs.String("out", "devices.go",
+		"Your devices file, in your module, which it adds to, or - to print devices.go as it would be.")
 	pkg := fs.String("package", "main", "A new file's Go package.")
 	module := fs.String("module", ".", "Your home's module, whose code names its devices.")
 	if extra := cli.Parse(fs, args); len(extra) > 0 {
@@ -209,17 +210,23 @@ func runTypes(ctx context.Context, args []string) error {
 	if path == "-" {
 		path = "devices.go"
 	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(*module, path)
+	}
 	file, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+		return cli.Errorf("couldn't read %s: %v", path, err)
+	}
+	if len(file) == 0 {
+		file = nil
 	}
 	replaced := generatedByOldTypes(file)
 	if replaced {
-		file = nil
+		*pkg, file = packageOf(file, *pkg), nil
 	}
 	others, err := packageFiles(path)
 	if err != nil {
-		return err
+		return cli.Errorf("couldn't read your home's package: %v", err)
 	}
 	list = declaredIn(ctx, os.Stderr, *module, list, func(ctx context.Context) (wire.Manifest, error) {
 		return homeManifest(ctx, *module)
@@ -227,25 +234,26 @@ func runTypes(ctx context.Context, args []string) error {
 	devices, unknown := toAdd(list)
 	result, got, err := addDevices(file, *pkg, others, devices)
 	if err != nil {
-		return cli.Wrap(err, "couldn't add your devices to %s", path)
+		return cli.Errorf("couldn't add your devices to %s: %v", path, err).
+			WithHint("fix %s, and run oikade types again", path)
 	}
 	if *out == "-" {
 		_, err = os.Stdout.Write(result)
 	} else if file == nil || len(got.names) > 0 {
-		err = os.WriteFile(path, result, 0o644)
+		err = writeAtomically(path, result)
 	}
 	if err != nil {
-		return err
+		return cli.Errorf("couldn't write %s: %v", path, err)
 	}
 	printAdded(std.err, path, *out == "-", replaced, list, got, unknown)
 	return nil
 }
 
 // toAdd are the devices on record that list, from declaredIn, has, which oikade types adds, and the
-// hardware it can't, as it hasn't said what it is.
-func toAdd(list registry.Snapshot) ([]newDevice, []string) {
+// hardware it can't, as no device type fits it, or it hasn't reported.
+func toAdd(list registry.Snapshot) ([]newDevice, []registry.Device) {
 	var devices []newDevice
-	var unknown []string
+	var unknown []registry.Device
 	for _, d := range list.Devices {
 		if d.Removed || d.ID == "" {
 			continue
@@ -254,7 +262,7 @@ func toAdd(list registry.Snapshot) ([]newDevice, []string) {
 			return !slices.ContainsFunc(devicetype.Has(t), func(c string) bool { return !slices.Contains(d.Capabilities, c) })
 		})
 		if i < 0 {
-			unknown = append(unknown, d.Key())
+			unknown = append(unknown, d)
 			continue
 		}
 		typ := d.DeviceTypes()[i]
@@ -288,7 +296,7 @@ func count(n int, thing string) string {
 
 // printAdded says what oikade types added to path, or would have, when printing it.
 func printAdded(p *cli.Printer, path string, printing, replaced bool, list registry.Snapshot, got added,
-	unknown []string,
+	unknown []registry.Device,
 ) {
 	done, add, replace := p.Done, "Added", "Replaced"
 	if printing {
@@ -297,8 +305,10 @@ func printAdded(p *cli.Printer, path string, printing, replaced bool, list regis
 	if replaced {
 		done("%s %s, which an older oikade types wrote: its devices are lines of yours now", replace, path)
 	}
-	switch n := len(got.names); n {
-	case 0:
+	switch n := len(got.names); {
+	case n == 0 && len(unknown) > 0:
+		p.Println("Nothing to add to " + path)
+	case n == 0:
 		p.Println(path + " has every device on record. Pair one, and run oikade types again.")
 	default:
 		what := count(n, "device")
@@ -324,8 +334,20 @@ func printAdded(p *cli.Printer, path string, printing, replaced bool, list regis
 	if len(both) > 0 {
 		p.Hint("Delete %s from your code: %s declares %s now", andList(both), path, them(both))
 	}
-	if len(unknown) > 0 {
-		p.Hint("Left out %s, which hasn't said what it is: run oikade types again once it has", andList(unknown))
+	var unseen, untyped []string
+	for _, d := range unknown {
+		if len(d.Capabilities) == 0 {
+			unseen = append(unseen, d.Key())
+		} else {
+			untyped = append(untyped, d.Key())
+		}
+	}
+	if len(unseen) > 0 {
+		p.Hint("Left out %s, which hasn't reported yet: run oikade types again once it has", andList(unseen))
+	}
+	if len(untyped) > 0 {
+		p.Hint("Left out %s, as no device type fits what it has: name a capability of %s yourself, as "+
+			"oikade.Number{Device: %q, Capability: oikade.Battery}", andList(untyped), them(untyped), untyped[0])
 	}
 }
 

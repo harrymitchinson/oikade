@@ -2,6 +2,7 @@ package simhome
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"oikade.dev/internal/devicetype"
@@ -17,8 +18,8 @@ func TestTheDevicesAreTheHomesLines(t *testing.T) {
 		{Hardware: "attic-fan", Room: &none, DeviceType: devicetype.DimmableLight, Capabilities: []string{"brightness", "on"}},
 		{Name: "porch-light", Room: new("porch"), DeviceType: devicetype.OnOffLight},
 	}
-	got := Declared(lines)
-	if len(got) != 2 {
+	got, err := Declared(lines)
+	if err != nil || len(got) != 2 {
 		t.Fatalf("got %+v", got)
 	}
 	fan, sensor := got[0], got[1]
@@ -29,5 +30,10 @@ func TestTheDevicesAreTheHomesLines(t *testing.T) {
 		!slices.Equal(sensor.Capabilities, []string{"occupied", "temperature"}) ||
 		!slices.Equal(sensor.DeviceTypes, []devicetype.Type{devicetype.OccupancySensor, devicetype.TemperatureSensor}) {
 		t.Errorf("a sensor is %+v", sensor)
+	}
+	// Hardware Home.Device declares has no capabilities, so it needs a line of its own.
+	old := append(slices.Clip(lines), wire.DeviceDeclaration{Name: "pool-pump", Plugin: "ewelink", ID: "1002a9b9e2"})
+	if _, err := Declared(old); err == nil || !strings.Contains(err.Error(), "pool-pump with home.Device") {
+		t.Errorf("got %v", err)
 	}
 }

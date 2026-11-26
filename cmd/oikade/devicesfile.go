@@ -317,10 +317,12 @@ func roomCall(e ast.Expr, q string) (string, bool) {
 func importName(f *ast.File) (string, bool) {
 	for _, imp := range f.Imports {
 		if path, _ := strconv.Unquote(imp.Path.Value); path == oikadeModule {
-			if imp.Name != nil {
+			switch {
+			case imp.Name == nil:
+				return oikadePackage, true
+			case imp.Name.Name != "_" && imp.Name.Name != ".":
 				return imp.Name.Name, true
 			}
-			return oikadePackage, true
 		}
 	}
 	return oikadePackage, false
@@ -331,6 +333,35 @@ func goKind(k capability.Kind) string {
 	return map[capability.Kind]string{
 		capability.KindBool: "Bool", capability.KindNumber: "Number", capability.KindName: "Choice",
 	}[k]
+}
+
+// packageOf is file's package, or pkg if it hasn't one.
+func packageOf(file []byte, pkg string) string {
+	f, err := parser.ParseFile(token.NewFileSet(), "", file, parser.PackageClauseOnly)
+	if err != nil {
+		return pkg
+	}
+	return f.Name.Name
+}
+
+// writeAtomically writes path whole or not at all, as it's yours.
+func writeAtomically(path string, b []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
+	if _, err := tmp.Write(b); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }
 
 // generatedByOldTypes says file is one an older oikade types wrote whole, which it replaces.

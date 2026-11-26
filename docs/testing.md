@@ -120,7 +120,7 @@ Sat 11:05 Wrote porch-light on = false
 | `restart` | Crashes your automations, and starts them again |
 | `help`, `quit` | |
 
-- **The devices** are the ones your home [declares with `oikade.Device`](devices.md#declaring-devices-in-code), in their rooms, of their types and with the capabilities their lines give them. A device in no room is in none. None has a value until you set it.
+- **The devices** are the ones your home [declares with `oikade.Device`](devices.md#declaring-devices-in-code), in their rooms, of their types and with the capabilities their lines give them. A device in no room is in none. None has a value until you set it. Hardware declared with `home.Device` has no capabilities to simulate, so `oikade dev`, `oikade replay` and `oikadetest` refuse it: `oikade types` gives it a line.
 - **Your values** come from `.env` and the environment, or the file `--env-file` names, as on the host. `oikade dev` doesn't run plugins, so nothing logs in.
 - **Your automations' log** goes to standard error, beside the conversation on standard output, so `oikade dev 2>dev.log` keeps it apart.
 

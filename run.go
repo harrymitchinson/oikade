@@ -219,7 +219,10 @@ func runDev(h *Home) error {
 	if err != nil {
 		return err
 	}
-	devices := simhome.Declared(home.Inventory)
+	devices, err := simhome.Declared(home.Inventory)
+	if err != nil {
+		return err
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	// Standard output is the conversation with you, so the log goes beside it.
@@ -240,7 +243,10 @@ func runReplay(h *Home) error {
 	if err != nil {
 		return err
 	}
-	devices := simhome.Declared(home.Inventory)
+	devices, err := simhome.Declared(home.Inventory)
+	if err != nil {
+		return err
+	}
 	// Errors only: a mistake in a condition is what explains a missing write, and a week of the rest
 	// would bury it.
 	log := logging.Text(os.Stderr, slog.LevelError)

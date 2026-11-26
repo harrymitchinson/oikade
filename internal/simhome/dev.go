@@ -15,11 +15,16 @@ import (
 )
 
 // Declared are the devices inventory declares with oikade.Device, as their lines give them, by
-// their keys. A device in no room is in none, with no app to give it one.
-func Declared(inventory []wire.DeviceDeclaration) []Device {
+// their keys. A device in no room is in none, with no app to give it one. Hardware it declares with
+// Home.Device has no capabilities to simulate, so it's an error, which says what to run.
+func Declared(inventory []wire.DeviceDeclaration) ([]Device, error) {
 	var out []Device
+	var old []string
 	for _, d := range wire.Declarations(inventory) {
 		if d.Hardware == "" {
+			if d.ID != "" {
+				old = append(old, d.Name)
+			}
 			continue
 		}
 		dev := Device{Name: d.Hardware, Capabilities: d.Capabilities}
@@ -33,8 +38,13 @@ func Declared(inventory []wire.DeviceDeclaration) []Device {
 		dev.DeviceTypes = devicetype.Of(typ, "", d.Capabilities)
 		out = append(out, dev)
 	}
+	if len(old) > 0 {
+		return nil, fmt.Errorf("your home declares the hardware of %s with home.Device, which has no capabilities to "+
+			"simulate: run oikade types, which gives each an oikade.Device line, and delete the home.Device lines",
+			strings.Join(old, ", "))
+	}
 	slices.SortFunc(out, func(a, b Device) int { return strings.Compare(a.Name, b.Name) })
-	return out
+	return out, nil
 }
 
 const devHelp = `Commands:
