@@ -83,8 +83,8 @@ type Device struct {
 
 // Key is how the host and your process know the device, whatever it's called: its hardware, as
 // hue/0x00178801091863f2, which is its plugin's name and the ID the plugin gives it, percent-encoded.
-// Hardware of no plugin, as a simulated device, is its ID alone, and a name reserved for hardware
-// that isn't paired yet is the name. A key has no space, so a case's key can hold one.
+// A simulated device's is simulator/ and its ID, and a name reserved for hardware that isn't paired
+// yet is the name. A key has no space, so a case's key can hold one.
 func (d Device) Key() string { return KeyOf(d.Driver, d.ID, d.Name) }
 
 // KeyOf is the key of a device of a driver instance with an ID, or of the name, with no ID. A
