@@ -208,17 +208,17 @@ func (s *apiServer) handler(route api.Route) http.HandlerFunc {
 			filter, err := api.ParseEventFilter(r.URL.Query())
 			if err == nil && len(r.URL.Query()) > 0 {
 				var m *eventMatcher
-				if m, err = s.matcher(ctx, filter); err == nil {
+				if m, err = s.matcher(filter); err == nil {
 					pass = m.pass
 				}
 			}
 			if err != nil {
-				respond(s.log, w, filterStatus(err), api.Response{Error: err.Error()})
+				respond(s.log, w, http.StatusUnprocessableEntity, api.Response{Error: err.Error()})
 				return
 			}
 			out := newLines(w)
 			defer out.end()
-			s.srv.events.stream(ctx, out, func(err error) {
+			s.srv.events.stream(ctx, named{out, s.registry()}, func(err error) {
 				respond(s.log, w, http.StatusInternalServerError, api.Response{Error: err.Error()})
 			}, pass)
 		}
@@ -322,10 +322,10 @@ func (s *apiServer) tail(w http.ResponseWriter, r *http.Request) {
 	}
 	var m *eventMatcher
 	if err == nil {
-		m, err = s.matcher(ctx, filter)
+		m, err = s.matcher(filter)
 	}
 	if err != nil {
-		respond(s.log, w, filterStatus(err), api.Response{Error: err.Error()})
+		respond(s.log, w, http.StatusUnprocessableEntity, api.Response{Error: err.Error()})
 		return
 	}
 	var events <-chan api.Event
@@ -341,8 +341,9 @@ func (s *apiServer) tail(w http.ResponseWriter, r *http.Request) {
 		events = queued(events, backlog)
 	}
 	defer stop()
-	out := newLines(w)
-	defer out.end()
+	lines := newLines(w)
+	defer lines.end()
+	out := named{lines, s.registry()}
 	write := func(e api.Event) bool { return out.write(e) && out.flush() }
 	if !filter.Since.IsZero() {
 		short, told := s.srv.events.history(ctx, out, upTo, m.pass)
@@ -365,7 +366,6 @@ func (s *apiServer) tail(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			// Not its time: an event is as old as its driver says, and it's happening now.
-			m.renamed(e)
 			if m.about(e) && !write(e) {
 				return
 			}

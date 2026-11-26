@@ -74,6 +74,8 @@ type server struct {
 	// connected, if set, hears of each session. It must not block.
 	connected func()
 	plugins   *plugins
+	// names say what the devices whose keys the host keeps are called, for what a person reads.
+	names control.Names
 	// settings, if set, takes up what a connecting process declares, and confirmedSettings replaces
 	// them with what a version that has settled declares.
 	settings, confirmedSettings func([]wire.DeviceControl) error
@@ -84,7 +86,7 @@ type server struct {
 	deploying func() bool
 	// declare, if set, takes up the devices a connecting process declares, and planDeclared says
 	// what a version's would do.
-	declare      func(decls []wire.DeviceDeclaration, keys []string) error
+	declare      func(decls []wire.DeviceDeclaration) error
 	planDeclared func([]wire.DeviceDeclaration) (registry.Declared, error)
 	// leavingSafety, if set, names the devices a version's declared rooms and types take out of
 	// Safety rules.
@@ -382,9 +384,9 @@ func (s *server) open(sess *session, hello wire.Message) string {
 	defer s.attaching.Unlock()
 	// Before the Welcome, so that it says what's arbitrated.
 	if !s.turningAway(sess.generation) {
-		// Names first, since the settings name devices by them.
+		// Before the settings, so the hub has the devices they're for.
 		if s.declare != nil {
-			if err := s.declare(hello.Inventory, append(wire.OwnCases(hello.Control), hello.Averages...)); err != nil {
+			if err := s.declare(hello.Inventory); err != nil {
 				s.log.Error("Failed to apply the home's device declarations", "err", err)
 				return "the host couldn't apply the home's device declarations: " + err.Error()
 			}
@@ -472,6 +474,15 @@ func (s *server) confirmSettings(settings []wire.DeviceControl) error {
 	return s.confirmedSettings(settings)
 }
 
+// registry is the host's record of devices, or nil without one.
+func (s *server) registry() *registry.Registry {
+	if s == nil || s.plugins == nil || s.plugins.known == nil {
+		return nil
+	}
+	return s.plugins.known.registry
+}
+
+// safetyHeld says a Safety claim holds a device's capability, by the device's key.
 func (s *server) safetyHeld(device, name string) bool {
 	return slices.ContainsFunc(s.engine.ControlOf(key(device)), func(c control.Status) bool {
 		return c.Capability == name && slices.ContainsFunc(c.Claims, func(o control.ClaimStatus) bool {
@@ -563,10 +574,10 @@ func (s *server) reconcile(rules, flows []string) error {
 			err = errors.New("dropped by a fault point")
 		}
 		if err != nil {
-			errs = append(errs, fmt.Errorf("ending the claims of %s: %w", control.RuleRef(rule), err))
+			errs = append(errs, fmt.Errorf("ending the claims of %s: %w", s.names.RuleRef(rule), err))
 			continue
 		}
-		s.log.Info("Ended the claims of a removed rule", "rule", control.RuleRef(rule), "highest", level.String())
+		s.log.Info("Ended the claims of a removed rule", "rule", s.names.RuleRef(rule), "highest", level.String())
 	}
 	for _, saved := range []interface {
 		Names() ([]string, error)
@@ -582,10 +593,10 @@ func (s *server) reconcile(rules, flows []string) error {
 				continue
 			}
 			if err := saved.Delete(s.ctx, key(name)); err != nil {
-				errs = append(errs, fmt.Errorf("forgetting the state of %s: %w", control.RuleRef(name), err))
+				errs = append(errs, fmt.Errorf("forgetting the state of %s: %w", s.names.RuleRef(name), err))
 				continue
 			}
-			s.log.Info("Forgot the saved state of a removed rule", "rule", control.RuleRef(name))
+			s.log.Info("Forgot the saved state of a removed rule", "rule", s.names.RuleRef(name))
 		}
 	}
 	if len(errs) > 0 {
@@ -698,9 +709,9 @@ func (s *server) endReleased() error {
 		}
 		delete(s.held, r)
 		if ended {
-			s.log.Info("Ended the claim of a flow run", "source", control.SourceRef(r.Source), "device", r.Device, "capability", r.Capability)
+			s.log.Info("Ended the claim of a flow run", "source", s.names.SourceRef(r.Source), "device", s.names.Device(r.Device), "capability", r.Capability)
 		} else {
-			s.log.Info("Found no claim of a flow run to end", "source", control.SourceRef(r.Source), "device", r.Device, "capability", r.Capability)
+			s.log.Info("Found no claim of a flow run to end", "source", s.names.SourceRef(r.Source), "device", s.names.Device(r.Device), "capability", r.Capability)
 		}
 	}
 	return errors.Join(errs...)
@@ -970,9 +981,9 @@ func key(name string) ident.ID {
 	return ident.ID{Name: name}
 }
 
-func deviceOf(name string, snap hub.Snapshot) wire.Device {
+func deviceOf(key string, snap hub.Snapshot) wire.Device {
 	d := wire.Device{
-		Name: name, Room: snap.Room, Discovered: snap.Discovered,
+		Key: key, Name: snap.DisplayName, Room: snap.Room, Discovered: snap.Discovered,
 		Capabilities: slices.Clone(snap.Info.Capabilities), DeviceTypes: slices.Clone(snap.DeviceTypes),
 		Values: snap.Values, LastSeen: snap.LastSeen, Online: snap.Online,
 	}

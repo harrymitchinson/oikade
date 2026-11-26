@@ -785,7 +785,8 @@ func TestADeclaredSwapOfHardwareReachesTheController(t *testing.T) {
 	})
 	c.r.mustDeploy("plugins-valve")
 	endpoint := c.endpoint("valve")
-	c.r.mustDeploy("plugins-swapped")
+	// The leak case on the old hardware goes, as swapped hardware is a new device.
+	c.r.mustDeploy("plugins-swapped", "--allow-safety")
 	if d := deviceOf(t, c.r.devices(), "valve"); d.ID != "spare-relay" || d.Endpoint != endpoint {
 		t.Fatalf("got %+v, want the spare on endpoint %d", d, endpoint)
 	}

@@ -105,7 +105,7 @@ type BudgetReport struct {
 
 // planned sets a budget's metrics from its plan, and whether the plan wants the target on now.
 func (m budgetMetrics) planned(key ident.ID, p *budgetPlan, on bool) {
-	rule := ruleRef(key)
+	rule := m.ref(key)
 	m.target.Set(float64(p.day.TargetMinutes), rule)
 	m.scheduled.Set(float64(p.day.ScheduledMinutes), rule)
 	m.desired.Set(float64(btoi(on)), rule)
@@ -114,24 +114,24 @@ func (m budgetMetrics) planned(key ident.ID, p *budgetPlan, on bool) {
 
 func (m budgetMetrics) credited(key ident.ID, run, missed time.Duration) {
 	if run > 0 {
-		m.run.Add(run.Minutes(), ruleRef(key))
+		m.run.Add(run.Minutes(), m.ref(key))
 	}
 	if missed > 0 {
-		m.missed.Add(missed.Minutes(), ruleRef(key))
+		m.missed.Add(missed.Minutes(), m.ref(key))
 	}
 }
 
 // unplanned sets a budget's metrics when it can't plan: nothing is planned or wanted, and the
 // run is kept for when it can plan again.
 func (m budgetMetrics) unplanned(key ident.ID) {
-	rule := ruleRef(key)
+	rule := m.ref(key)
 	m.target.Delete(rule)
 	m.scheduled.Delete(rule)
 	m.desired.Set(0, rule)
 }
 
 func (m budgetMetrics) delete(key ident.ID) {
-	rule := ruleRef(key)
+	rule := m.ref(key)
 	for _, v := range m.all() {
 		v.Delete(rule)
 	}
@@ -261,8 +261,8 @@ func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices 
 		p.when = when
 		bs.plan = p
 		// Exported at 0 before any is credited.
-		e.metrics.budget.run.Add(0, ruleRef(key))
-		e.metrics.budget.missed.Add(0, ruleRef(key))
+		e.metrics.budget.run.Add(0, e.ruleRef(key))
+		e.metrics.budget.missed.Add(0, e.ruleRef(key))
 	}
 
 	if p.away == nil && p.pending > 0 && !p.inBlock(now) {
@@ -310,12 +310,12 @@ func (e *Engine) planDay(key ident.ID, b *schedule.Budget, y int, m time.Month, 
 	date := time.Date(y, m, d, 0, 0, 0, 0, time.UTC).Format(time.DateOnly)
 	p := &budgetPlan{date: date, end: end, day: schedule.Plan(b.Input(y, m, d, now, e.Location, vars, read))}
 	for _, err := range p.day.Errors {
-		e.Log.Info("Budget planned with an error", "rule", ruleRef(key), "err", err)
+		e.Log.Info("Budget planned with an error", "rule", e.ruleRef(key), "err", err)
 	}
 	if len(p.day.Errors) > 0 {
 		p.failure = p.day.Errors[0].Error()
 	}
-	e.Log.Info("Planned budget", "rule", ruleRef(key), "date", date, "source", p.day.TargetSource,
+	e.Log.Info("Planned budget", "rule", e.ruleRef(key), "date", date, "source", p.day.TargetSource,
 		"target", p.day.TargetMinutes, "scheduled", p.day.ScheduledMinutes, "blocks", len(p.day.Blocks))
 	return p
 }
@@ -368,7 +368,7 @@ func (e *Engine) restorePlan(key ident.ID, saved, date string, end, now time.Tim
 	}
 	var s savedBudget
 	if err := json.Unmarshal([]byte(saved), &s); err != nil {
-		e.Log.Error("Failed to read saved budget plan", "err", err, "rule", ruleRef(key))
+		e.Log.Error("Failed to read saved budget plan", "err", err, "rule", e.ruleRef(key))
 		return nil
 	}
 	today, failure := s.Today, s.Failure
@@ -473,7 +473,7 @@ func (e *Engine) replan(key ident.ID, b *schedule.Budget, p *budgetPlan, y int, 
 	rest := schedule.Plan(b.Rest(y, m, d, now, e.Location, toCome+missed, starts, lastOff))
 	if len(rest.Errors) > 0 {
 		// A rule left out would let the minutes into hours it forbids, so the plan stays as it was.
-		e.Log.Error("Failed to replan budget", "err", errors.Join(rest.Errors...), "rule", ruleRef(key), "missed", missed)
+		e.Log.Error("Failed to replan budget", "err", errors.Join(rest.Errors...), "rule", e.ruleRef(key), "missed", missed)
 		return
 	}
 	blocks := slices.DeleteFunc(slices.Clone(p.day.Blocks), func(b schedule.Block) bool { return b.End.After(now) })
@@ -490,7 +490,7 @@ func (e *Engine) replan(key ident.ID, b *schedule.Budget, p *budgetPlan, y int, 
 	p.day.ScheduledMinutes += rest.ScheduledMinutes - toCome - missed
 	p.day.ShortfallMinutes = max(0, p.day.TargetMinutes-p.day.ScheduledMinutes)
 	p.replanned = now
-	e.Log.Info("Replanned budget", "rule", ruleRef(key), "missed", missed, "scheduled", rest.ScheduledMinutes,
+	e.Log.Info("Replanned budget", "rule", e.ruleRef(key), "missed", missed, "scheduled", rest.ScheduledMinutes,
 		"blocks", len(rest.Blocks))
 }
 
@@ -567,7 +567,7 @@ func (e *Engine) reportBudget(key ident.ID, s *state, now time.Time, r BudgetRep
 		}
 		raw, err := json.Marshal(saved)
 		if err != nil {
-			e.Log.Error("Failed to save budget plan", "err", err, "rule", ruleRef(key))
+			e.Log.Error("Failed to save budget plan", "err", err, "rule", e.ruleRef(key))
 		} else {
 			bs.saved = string(raw)
 		}

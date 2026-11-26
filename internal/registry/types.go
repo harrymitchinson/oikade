@@ -15,7 +15,7 @@ import (
 	"oikade.dev/internal/capability"
 )
 
-// Render writes the Go file oikade types commits: a value for each device, with its name and an
+// Render writes the Go file oikade types commits: a value for each device, with its Key and an
 // oikade.Bool, Number or Choice for each of its capabilities, so that code naming a device that's
 // gone, or a capability it doesn't have, stops compiling. A device your home declares is under its
 // declared name, and the rest under their app's. The same devices always give the same bytes.
@@ -49,16 +49,16 @@ func Render(s Snapshot, pkg string) ([]byte, error) {
 		for _, h := range hs {
 			fmt.Fprintf(&b, "\t%s oikade.%s\n", h.field, h.typ)
 		}
-		fmt.Fprintf(&b, "}{\n\tDevice: oikade.Device{Name: %q},\n", d.Name)
+		fmt.Fprintf(&b, "}{\n\tDevice: oikade.Device{Name: %q},\n", d.Key())
 		for _, h := range hs {
-			fmt.Fprintf(&b, "\t%s: oikade.%s{Device: %q, Capability: oikade.%s},\n", h.field, h.typ, d.Name, h.field)
+			fmt.Fprintf(&b, "\t%s: oikade.%s{Device: %q, Capability: oikade.%s},\n", h.field, h.typ, d.Key(), h.field)
 		}
 		b.WriteString("}\n\n")
 	}
 	return format.Source(b.Bytes())
 }
 
-// Handles reads back the devices a file Render wrote has handles for, by name, with their
+// Handles reads back the devices a file Render wrote has handles for, by Key, with their
 // capabilities. Rooms and types are your home's declarations'.
 func Handles(file []byte) (map[string][]string, error) {
 	f, err := parser.ParseFile(token.NewFileSet(), "devices.go", file, parser.SkipObjectResolution)
@@ -95,7 +95,7 @@ func Handles(file []byte) (map[string][]string, error) {
 	return out, nil
 }
 
-// handlesOf reads one device's value: its Device's name, and a capability for each other field.
+// handlesOf reads one device's value: its Device's key, and a capability for each other field.
 func handlesOf(lit *ast.CompositeLit, byGo map[string]string) (string, []string, bool) {
 	name, caps := "", []string{}
 	for _, e := range lit.Elts {

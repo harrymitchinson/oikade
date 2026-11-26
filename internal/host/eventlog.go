@@ -1,7 +1,6 @@
 package host
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -285,32 +284,6 @@ func (l *eventLog) send(ctx context.Context, out lineWriter, page []store.Record
 	}
 	return "", true
 }
-
-// renames are the log's rename events, oldest first: what a device's ref needs to find it under the
-// names it had. It reads the log through, decoding only those.
-func (l *eventLog) renames(ctx context.Context) ([]api.Event, error) {
-	l.flush()
-	var out []api.Event
-	_, page, err := l.store.Start(eventPage)
-	for err == nil && len(page) > 0 && ctx.Err() == nil {
-		for _, r := range page {
-			if !bytes.Contains(r.Data, renameMark) {
-				continue
-			}
-			if e, err := decodeEvent(r); err == nil && e.Type == api.EventRename {
-				out = append(out, e)
-			}
-		}
-		page, err = l.store.Read(page[len(page)-1].Seq, eventPage)
-	}
-	if err != nil {
-		return nil, err
-	}
-	return out, ctx.Err()
-}
-
-// renameMark is in every rename event as the log keeps it, and in few others.
-var renameMark = []byte(`"type":"` + api.EventRename + `"`)
 
 // zoneName finds this machine's time zone's IANA name, which Go doesn't say, by the rules Go uses to
 // choose it. Empty means it can't tell.

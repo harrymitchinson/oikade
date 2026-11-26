@@ -25,7 +25,7 @@ import (
 )
 
 // inventory keeps the live devices in step with the registry: the registry decides what exists and
-// what it's called, and each driver instance sees its own devices there.
+// what it's called, and each driver instance sees its own devices there, by their keys.
 type inventory struct {
 	registry *registry.Registry
 	settings *store.Namespace
@@ -41,9 +41,6 @@ type inventory struct {
 	// home is the device settings your home declares, which win over any on record.
 	home         []wire.DeviceControl
 	declarations *store.Namespace
-	// renamed, if set, moves what's on record for cases and averages to the keys its function gives
-	// them, before the registry renames their devices.
-	renamed func(rename func(string) string) error
 	// emit, if set, puts a forgotten device and a renamed one in the event log.
 	emit func(api.Event)
 }
@@ -119,7 +116,7 @@ func (i *inventory) paired(instance driver.InstanceKey, app driver.AppDevice,
 	if changed {
 		i.sync()
 	}
-	return key(d.Name), nil
+	return devKey(d), nil
 }
 
 // onHub reports whether the hub keeps d: hardware on record, of a plugin attached.
@@ -148,7 +145,7 @@ func (i *inventory) meta(d registry.Device) (hub.Meta, bool) {
 // withHome is what's on record for a device, overlaid with what the home says: its own settings, and
 // its room's on the capabilities it has none of its own for. Call with mu held.
 func (i *inventory) withHome(d registry.Device, entries []control.Entry) []control.Entry {
-	home := wire.SettingsFor(i.home, d.Name, d.Room, d.DeviceTypes(), d.Capabilities)
+	home := wire.SettingsFor(i.home, d.Key(), d.Room, d.DeviceTypes(), d.Capabilities)
 	var out []control.Entry
 	for _, e := range entries {
 		if !slices.ContainsFunc(home, func(h control.Entry) bool { return h.Capability == e.Capability }) {
@@ -223,24 +220,19 @@ func sameSetting(a, b wire.DeviceControl) bool {
 // key finds a driver's device in the hub.
 func (i *inventory) key(instance driver.InstanceKey, id string) (ident.ID, bool) {
 	d, ok := i.registry.ByID(instanceName(instance), id)
-	return key(d.Name), ok
+	return devKey(d), ok
 }
 
-// sync gives each driver instance its devices. Call with mu held.
-func (i *inventory) sync() { i.syncExcept(nil) }
-
-// syncExcept is sync, without the devices named in skip. Call with mu held.
-func (i *inventory) syncExcept(skip []string) {
+// sync gives each driver instance its devices. A device whose hardware changed is another key, so
+// its live state starts again. Call with mu held.
+func (i *inventory) sync() {
 	metas := map[string]map[ident.ID]hub.Meta{}
 	for name := range i.instances {
 		metas[name] = map[ident.ID]hub.Meta{}
 	}
 	for _, d := range i.registry.List().Devices {
-		if slices.Contains(skip, d.Name) {
-			continue
-		}
 		if meta, ok := i.meta(d); ok {
-			metas[d.Driver][key(d.Name)] = meta
+			metas[d.Driver][devKey(d)] = meta
 		}
 	}
 	for name, devices := range metas {
@@ -260,20 +252,21 @@ func (i *inventory) announce(dev ident.ID) {
 
 // claimed says who holds a device: every claim's source, by its ref, and whether one is at Safety.
 // A device with no arbiters can still have claims on record, waiting for it.
-func (i *inventory) claimed(name string) (holders []string, safety bool) {
-	status := i.engine.ControlOf(key(name))
+func (i *inventory) claimed(dev ident.ID) (holders []string, safety bool) {
+	names := registryNames(i.registry)
+	status := i.engine.ControlOf(dev)
 	for _, c := range status {
 		for _, o := range c.Claims {
 			if o.Reverted {
 				continue
 			}
-			holders = append(holders, control.SourceRef(o.Source).String())
+			holders = append(holders, names.SourceRef(o.Source).String())
 			safety = safety || o.Level == control.NameSafety
 		}
 	}
 	if len(status) == 0 {
-		for _, c := range i.engine.SavedClaims(key(name)) {
-			holders = append(holders, control.SourceRef(c.Source).String())
+		for _, c := range i.engine.SavedClaims(dev) {
+			holders = append(holders, names.SourceRef(c.Source).String())
 			safety = safety || c.Level == control.Safety
 		}
 	}
@@ -285,23 +278,6 @@ func (i *inventory) claimed(name string) (holders []string, safety bool) {
 // would make. Both are read with mu held, so no other change is taken for it.
 type members struct {
 	before, after map[string]hub.Member
-}
-
-// moveLive takes the registry's new names up in the hub, as one change. Call with mu held, after the
-// registry has changed.
-func (i *inventory) moveLive(names map[string]string) {
-	moves := map[ident.ID]hub.Move{}
-	for from, to := range names {
-		d, ok := i.registry.Get(to)
-		if !ok {
-			continue
-		}
-		if meta, ok := i.meta(d); ok {
-			moves[key(from)] = hub.Move{To: key(to), Meta: meta}
-		}
-	}
-	i.store.Rename(moves)
-	i.sync()
 }
 
 // describe says what becomes of a device on record once it's forgotten, beyond its claims.
@@ -359,10 +335,15 @@ func (i *inventory) forgetLocked(ctx context.Context, names []string, allowSafet
 	if len(refused) > 0 {
 		return api.Response{Error: strings.Join(refused, "; ")}, members{}
 	}
+	keys := map[string]ident.ID{}
+	for _, name := range names {
+		d, _ := i.registry.Get(name)
+		keys[name] = devKey(d)
+	}
 	if !allowSafety {
 		var held []string
 		for _, name := range names {
-			if holders, safety := i.claimed(name); safety {
+			if holders, safety := i.claimed(keys[name]); safety {
 				held = append(held, fmt.Sprintf("%s holds %s at Safety", strings.Join(holders, ", "), name))
 			}
 		}
@@ -379,7 +360,7 @@ func (i *inventory) forgetLocked(ctx context.Context, names []string, allowSafet
 			f = how(d)
 		}
 		f.Device, f.Ref = name, ident.DeviceRef(name).String()
-		f.Ended, _ = i.claimed(name)
+		f.Ended, _ = i.claimed(keys[name])
 		if err := i.registry.Remove(name); err != nil {
 			if errors.Is(err, registry.ErrNoDevice) {
 				err = noDevice(name)
@@ -391,11 +372,11 @@ func (i *inventory) forgetLocked(ctx context.Context, names []string, allowSafet
 	}
 	i.sync()
 	for _, f := range done {
-		if err := i.engine.ForgetDevice(ctx, key(f.Device)); err != nil {
+		if err := i.engine.ForgetDevice(ctx, keys[f.Device]); err != nil {
 			problems = append(problems, fmt.Sprintf("forgot %s, but couldn't end its claims: %v", f.Ref, err))
 		}
 		i.log.Info("Forgot device", "device", f.Device)
-		i.record(api.Event{Type: api.EventForget, Device: f.Device})
+		i.record(api.Event{Type: api.EventForget, Device: keys[f.Device].Name})
 	}
 	return api.Response{Error: strings.Join(problems, "; "), Forgotten: done},
 		members{before: before, after: i.store.Members()}
@@ -459,7 +440,7 @@ func (s *apiServer) forget(req api.Request) api.Response {
 		resp, change = s.devices.forget(s.ctx, req.Devices, req.AllowSafety, how)
 	}
 	if len(resp.Forgotten) > 0 {
-		resp.Warning = emptiedWarning(s.srv.emptyReads(change.before, change.after, nil))
+		resp.Warning = emptiedWarning(s.srv.emptyReads(change.before, change.after, nil, s.srv.names))
 	}
 	return resp
 }
@@ -477,10 +458,10 @@ func emptiedWarning(emptied map[string][]string) string {
 }
 
 // emptyReads are the refs of the running process's holds with a read of a room that had devices of
-// the read's types among before and has none among after, by room, each sorted. A read that was empty
-// already isn't the change's doing. rename gives the key a hold's rule will have, or false for one
-// to leave out; nil keeps every one as it is.
-func (s *server) emptyReads(before, after map[string]hub.Member, rename func(rule string) (string, bool)) map[string][]string {
+// the read's types among before and has none among after, by room, each sorted and named by names. A
+// read that was empty already isn't the change's doing. keep, if set, says which holds' rules to
+// keep: nil keeps every one.
+func (s *server) emptyReads(before, after map[string]hub.Member, keep func(rule string) bool, names control.Names) map[string][]string {
 	covers := func(members map[string]hub.Member, r engine.RoomRead) bool {
 		for _, m := range members {
 			if m.Room == r.Room && m.OfTypes(r.Types) {
@@ -494,11 +475,8 @@ func (s *server) emptyReads(before, after map[string]hub.Member, rename func(rul
 	out := map[string][]string{}
 	if sess := s.session; sess != nil {
 		for rule, reads := range sess.reads {
-			if rename != nil {
-				var ok bool
-				if rule, ok = rename(rule); !ok {
-					continue
-				}
+			if keep != nil && !keep(rule) {
+				continue
 			}
 			rooms := map[string]bool{}
 			for _, r := range reads {
@@ -507,7 +485,7 @@ func (s *server) emptyReads(before, after map[string]hub.Member, rename func(rul
 				}
 			}
 			for room := range rooms {
-				out[room] = append(out[room], control.RuleRef(rule).String())
+				out[room] = append(out[room], names.RuleRef(rule).String())
 			}
 		}
 	}

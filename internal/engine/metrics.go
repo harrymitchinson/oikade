@@ -33,12 +33,13 @@ type engineMetrics struct {
 	controlLevel series.Vec
 }
 
-func newMetrics(rules, controls *vm.Set) engineMetrics {
+func newMetrics(rules, controls *vm.Set, rule func(ident.ID) string) engineMetrics {
 	m := engineMetrics{
 		runs:       series.NewVec(rules, runsFamily, labelRule, "result"),
 		nextChange: series.NewVec(rules, nextChangeFamily, labelRule),
 		active:     series.NewVec(rules, activeFamily, labelRule),
 		budget: budgetMetrics{
+			rule:      rule,
 			target:    series.NewVec(rules, "oikade_rule_budget_target_minutes", labelRule),
 			scheduled: series.NewVec(rules, "oikade_rule_budget_scheduled_minutes", labelRule),
 			run:       series.NewVec(rules, "oikade_rule_budget_run_minutes_total", labelRule),
@@ -56,6 +57,8 @@ func newMetrics(rules, controls *vm.Set) engineMetrics {
 
 // budgetMetrics are the budget holds' gauges and counter, by rule.
 type budgetMetrics struct {
+	// rule is a rule's label.
+	rule func(ident.ID) string
 	// target is a budget hold's minutes for the current planning day, and scheduled how many of them
 	// the day's plan places.
 	target, scheduled series.Vec
@@ -69,9 +72,24 @@ type budgetMetrics struct {
 	desired series.Vec
 }
 
+// ref is a rule's label: its ref, with its device named once rule can.
+func (m budgetMetrics) ref(key ident.ID) string {
+	if m.rule == nil {
+		return control.RuleRef(key.Name).String()
+	}
+	return m.rule(key)
+}
+
 func (m budgetMetrics) all() []series.Vec {
 	return []series.Vec{m.target, m.scheduled, m.run, m.todayRun, m.missed, m.desired}
 }
 
-// ruleRef is a rule's ref, as its series' rule label and its log lines name it.
-func ruleRef(key ident.ID) string { return control.RuleRef(key.Name).String() }
+// ruleRef is a rule's ref, as its series' rule label and its log lines name it, with its device
+// named.
+func (e *Engine) ruleRef(key ident.ID) string { return e.names().RuleRef(key.Name).String() }
+
+// names are what the store calls the devices, for log lines and metric labels.
+func (e *Engine) names() control.Names { return e.Store.Names() }
+
+// name is a device's name, for a log line.
+func (e *Engine) name(dev ident.ID) string { return e.names().Device(dev.Name) }

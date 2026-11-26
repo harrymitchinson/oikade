@@ -5,7 +5,6 @@ package wire
 import (
 	"net"
 	"slices"
-	"strings"
 	"time"
 
 	"oikade.dev/contract/v1"
@@ -138,23 +137,6 @@ type DeviceDeclaration struct {
 	DeviceType devicetype.Type `json:"deviceType,omitempty"`
 }
 
-// OwnCases are the keys of the cases in devices' own decisions, without a group's or a room's,
-// which a device's settings can name too.
-func OwnCases(settings []DeviceControl) []string {
-	var keys []string
-	for _, c := range settings {
-		if c.Device == "" {
-			continue
-		}
-		for _, l := range c.Entry.Lines {
-			if k, ok := strings.CutPrefix(l, control.SourceRule+c.Device+" "); ok {
-				keys = append(keys, c.Device+" "+k)
-			}
-		}
-	}
-	return keys
-}
-
 // Declarations are a home's declarations as the registry takes them.
 func Declarations(decls []DeviceDeclaration) []registry.Declaration {
 	out := make([]registry.Declaration, 0, len(decls))
@@ -170,8 +152,8 @@ func Declarations(decls []DeviceDeclaration) []registry.Declaration {
 
 // DeviceControl is how a home arbitrates one capability of a device.
 type DeviceControl struct {
-	// Device is the device's name, or Room a room's, whose devices of DeviceTypes, or every one with
-	// none, take the entry unless they have one of their own.
+	// Device is the device's key, or Room a room's name, whose devices of DeviceTypes, or every one
+	// with none, take the entry unless they have one of their own.
 	Device      string            `json:"device,omitempty"`
 	Room        string            `json:"room,omitempty"`
 	DeviceTypes []devicetype.Type `json:"deviceTypes,omitempty"`
@@ -186,7 +168,7 @@ type RuleInfo struct {
 	Safety bool `json:"safety,omitempty"`
 	// Latch is a hold that stays active until a release.
 	Latch bool `json:"latch,omitempty"`
-	// Device, Capability and Case name a case's line in its decision.
+	// Device, Capability and Case name a case's line in its decision, the device by its key.
 	Device     string `json:"device,omitempty"`
 	Capability string `json:"capability,omitempty"`
 	Case       string `json:"case,omitempty"`
@@ -200,7 +182,7 @@ type RoomOfTypes struct {
 	Room        string            `json:"room"`
 	Capability  string            `json:"capability"`
 	DeviceTypes []devicetype.Type `json:"deviceTypes"`
-	// Except are the devices it leaves out, which have decisions of their own.
+	// Except are the devices it leaves out, by key, which have decisions of their own.
 	Except []string `json:"except,omitempty"`
 }
 
@@ -211,8 +193,12 @@ type Change struct {
 	Previous   any    `json:"previous,omitempty"`
 }
 
+// Device is a device as the host has it. Every message names a device by its Key, which is its
+// hardware, so a rename changes nothing your process keeps for it.
 type Device struct {
-	Name string `json:"name"`
+	Key string `json:"key"`
+	// Name is what the device is called, for what a person reads.
+	Name string `json:"name,omitempty"`
 	Room string `json:"room,omitempty"`
 	// Arbitrated are the capabilities the host arbitrates, which take claims rather than writes.
 	Arbitrated   []string `json:"arbitrated,omitempty"`
@@ -283,7 +269,7 @@ type Message struct {
 	// Unfinished is a Run's run, one per message, and in what Dial returns, all of them.
 	Unfinished []Run `json:"unfinished,omitempty"`
 
-	// Device, Capability and Value address a device.
+	// Device, Capability and Value address a device, by its key.
 	Device     string `json:"device,omitempty"`
 	Capability string `json:"capability,omitempty"`
 	Value      any    `json:"value,omitempty"`
@@ -333,7 +319,7 @@ type Message struct {
 	// isn't, or can't tell.
 	WhyNot string `json:"whyNot,omitempty"`
 	// Why and Dead are a SignalWhy's: what its Rule's signal's conditions say now, and the devices it
-	// leaves out as dead, by name.
+	// leaves out as dead, by key.
 	Why  string   `json:"why,omitempty"`
 	Dead []string `json:"dead,omitempty"`
 	// Result is a RuleRun's, with Rule and Time.
@@ -350,12 +336,12 @@ func NewConn(c net.Conn) *Conn { return pluginwire.NewConn[Message](c) }
 // ErrRejected is a session the host refused.
 var ErrRejected = pluginwire.ErrRejected
 
-// SettingsFor are the settings a home gives a device: its own, and for a capability it has none of
-// its own for, its room's, if it has the capability and is of the room's device types.
-func SettingsFor(settings []DeviceControl, name, room string, types []devicetype.Type, capabilities []string) []control.Entry {
+// SettingsFor are the settings a home gives a device, by its key: its own, and for a capability it
+// has none of its own for, its room's, if it has the capability and is of the room's device types.
+func SettingsFor(settings []DeviceControl, key, room string, types []devicetype.Type, capabilities []string) []control.Entry {
 	var out []control.Entry
 	for _, c := range settings {
-		if c.Device == name {
+		if c.Device == key {
 			out = append(out, c.Entry)
 		}
 	}

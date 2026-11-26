@@ -105,7 +105,7 @@ func runAutomations(ctx context.Context, h *Home, rules []*engine.Compiled, flow
 	mirror := hub.NewStore(logging.Discard())
 	metas := map[ident.ID]hub.Meta{}
 	for _, d := range welcome.Devices {
-		metas[deviceKey(d.Name)] = meta(d, settings)
+		metas[deviceKey(d.Key)] = meta(d, settings)
 	}
 	mirror.SetDevices(hostInstance, metas)
 	for _, d := range welcome.Devices {
@@ -118,7 +118,8 @@ func runAutomations(ctx context.Context, h *Home, rules []*engine.Compiled, flow
 		// A budget has no Rule to show this on, so the log is where you find it.
 		OnBudget: func(key ident.ID, r engine.BudgetReport) {
 			if r.Unplanned {
-				log.Info("Could not plan budget", "rule", control.RuleRef(key.Name), "reason", r.Reason, "message", r.Message)
+				log.Info("Could not plan budget", "rule", mirror.Names().RuleRef(key.Name), "reason", r.Reason,
+					"message", r.Message)
 			}
 		},
 	}
@@ -182,7 +183,7 @@ func runAutomations(ctx context.Context, h *Home, rules []*engine.Compiled, flow
 			return fmt.Errorf("saving a timer: %w", err)
 		}
 	}
-	go saveFires(logging.NewContext(ctx, log), client, fires)
+	go saveFires(logging.NewContext(ctx, log), client, fires, mirror.Names())
 	flowCtx := logging.NewContext(ctx, log.With("logger", "flows"))
 	// The host drops a paused flow's runs. This is for a pause that landed since.
 	bodies := flow.Recover(flowCtx, paused.without(flows), savedRuns(welcome.Unfinished), client, eng)
@@ -320,7 +321,7 @@ type timerFire struct {
 }
 
 // saveFires tells the host about fires, apart from the engine, which can't wait for a socket.
-func saveFires(ctx context.Context, client *wire.Client, fires <-chan timerFire) {
+func saveFires(ctx context.Context, client *wire.Client, fires <-chan timerFire, names control.Names) {
 	log := logging.FromContext(ctx)
 	for {
 		select {
@@ -330,7 +331,7 @@ func saveFires(ctx context.Context, client *wire.Client, fires <-chan timerFire)
 			return
 		case f := <-fires:
 			if err := client.SaveFire(ctx, f.rule, f.at); err != nil {
-				log.Error("Failed to save timer fire", "err", err, "rule", control.RuleRef(f.rule))
+				log.Error("Failed to save timer fire", "err", err, "rule", names.RuleRef(f.rule))
 			}
 		}
 	}
@@ -366,7 +367,7 @@ func deviceKey(name string) ident.ID {
 
 func meta(d wire.Device, settings []wire.DeviceControl) hub.Meta {
 	m := hub.Meta{DisplayName: d.Name, Room: d.Room, Instance: hostInstance, DeviceTypes: slices.Clone(d.DeviceTypes)}
-	home := wire.SettingsFor(settings, d.Name, d.Room, d.DeviceTypes, d.Arbitrated)
+	home := wire.SettingsFor(settings, d.Key, d.Room, d.DeviceTypes, d.Arbitrated)
 	for _, c := range d.Arbitrated {
 		// The host runs the arbiter, so only the name matters here to a claim. A budget plans around
 		// the limits, which the home declared.
@@ -380,7 +381,7 @@ func meta(d wire.Device, settings []wire.DeviceControl) hub.Meta {
 }
 
 func seed(mirror *hub.Store, d wire.Device) {
-	key := deviceKey(d.Name)
+	key := deviceKey(d.Key)
 	values := make([]driver.Update, 0, len(d.Values))
 	for _, name := range slices.Sorted(maps.Keys(d.Values)) {
 		values = append(values, driver.Update{Device: key, Capability: name, Value: d.Values[name]})
@@ -403,19 +404,19 @@ func seed(mirror *hub.Store, d wire.Device) {
 func discovered(mirror *hub.Store, metas map[ident.ID]hub.Meta, settings []wire.DeviceControl,
 	d wire.Device,
 ) {
-	metas[deviceKey(d.Name)] = meta(d, settings)
+	metas[deviceKey(d.Key)] = meta(d, settings)
 	mirror.SetDevices(hostInstance, metas)
-	m := wire.Message{Device: d.Name}
+	m := wire.Message{Device: d.Key}
 	for _, name := range slices.Sorted(maps.Keys(d.Values)) {
 		m.Changes = append(m.Changes, wire.Change{Capability: name, Value: d.Values[name]})
 	}
 	changed(mirror, m)
-	mirror.Discovered(deviceKey(d.Name), driver.Info{Found: true, Capabilities: d.Capabilities})
+	mirror.Discovered(deviceKey(d.Key), driver.Info{Found: true, Capabilities: d.Capabilities})
 	if !d.LastSeen.IsZero() {
-		mirror.Seen(deviceKey(d.Name), d.LastSeen)
+		mirror.Seen(deviceKey(d.Key), d.LastSeen)
 	}
 	if d.Online != nil {
-		mirror.Availability(deviceKey(d.Name), *d.Online)
+		mirror.Availability(deviceKey(d.Key), *d.Online)
 	}
 }
 

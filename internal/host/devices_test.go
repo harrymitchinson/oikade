@@ -95,10 +95,10 @@ func TestAClaimOnRecordCountsForADeviceWithNoArbiters(t *testing.T) {
 		{Source: "Rule/leak", Level: control.Safety},
 		{Source: "Rule/old", Level: control.Normal, Expires: time.Now().Add(-time.Hour)},
 	}}}
-	if err := controls.Put(ctx, key("valve"), state); err != nil {
+	if err := controls.Put(ctx, key("v"), state); err != nil {
 		t.Fatal(err)
 	}
-	if holders, safety := known.claimed("valve"); !safety || len(holders) != 1 || holders[0] != "flow/leak" {
+	if holders, safety := known.claimed(key("v")); !safety || len(holders) != 1 || holders[0] != "flow/leak" {
 		t.Errorf("got %v, %v", holders, safety)
 	}
 	if resp, _ := known.forget(ctx, []string{"valve"}, false, nil); !resp.NeedsAllowSafety {
@@ -143,17 +143,18 @@ func TestHomeSettingsWinAndSurviveARestart(t *testing.T) {
 	}
 
 	declared := recorded
-	declared.Lines = []string{"Rule/valve on leak"}
-	if err := known.setHome([]wire.DeviceControl{{Device: "valve", Entry: declared}}); err != nil {
+	declared.Lines = []string{"Rule/v on leak"}
+	// The home's settings have a device by its key: a simulated one's ID.
+	if err := known.setHome([]wire.DeviceControl{{Device: "v", Entry: declared}}); err != nil {
 		t.Fatal(err)
 	}
-	if got := resolve(devices); got != "Rule/valve on leak" {
+	if got := resolve(devices); got != "Rule/v on leak" {
 		t.Fatalf("lines %q, want the home's", got)
 	}
 
 	// A host that restarts arbitrates this before any process has attached.
 	_, again := open()
-	if got := resolve(again); got != "Rule/valve on leak" {
+	if got := resolve(again); got != "Rule/v on leak" {
 		t.Fatalf("lines %q after a restart, want the home's", got)
 	}
 
@@ -198,7 +199,7 @@ func TestARoomsSettingReachesTheDevicesThereNow(t *testing.T) {
 	}
 	if err := known.setHome([]wire.DeviceControl{
 		{Room: "hall", Entry: entry("Rule/hall on evening")},
-		{Device: "lamp", Entry: entry("Rule/lamp on reading")},
+		{Device: "x/l", Entry: entry("Rule/x/l on reading")},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -224,12 +225,12 @@ func TestARoomsSettingReachesTheDevicesThereNow(t *testing.T) {
 		for name, room := range rooms {
 			decls = append(decls, wire.DeviceDeclaration{Name: name, Plugin: "x", ID: name[:1], Room: &room})
 		}
-		if err := known.takeDeclared(decls, nil); err != nil {
+		if err := known.takeDeclared(decls); err != nil {
 			t.Fatal(err)
 		}
 	}
 	declare(map[string]string{"lamp": "hall"})
-	if got := lines("lamp"); got != "Rule/lamp on reading" {
+	if got := lines("lamp"); got != "Rule/x/l on reading" {
 		t.Errorf("lamp's lines are %q, want its own", got)
 	}
 	declare(map[string]string{"lamp": "hall", "ceiling": "attic"})
@@ -324,7 +325,7 @@ func TestRemovingARoomsLastDeviceWarnsOfTheHoldsThatReadIt(t *testing.T) {
 
 	// A refused forget empties nothing.
 	state := engine.ControlState{capability.On: control.State{Claims: []control.Claim{{Source: "Rule/study-fan", Level: control.Safety}}}}
-	if err := controls.Put(t.Context(), key("bulb"), state); err != nil {
+	if err := controls.Put(t.Context(), key("relays/b"), state); err != nil {
 		t.Fatal(err)
 	}
 	if resp := s.forget(api.Request{Type: api.TypeForget, Devices: []string{"bulb"}}); !resp.NeedsAllowSafety || resp.Warning != "" {
@@ -375,7 +376,7 @@ func TestForgettingAPluginsDevicesForgetsThemAll(t *testing.T) {
 	}
 	ctx := t.Context()
 	state := engine.ControlState{capability.On: control.State{Claims: []control.Claim{{Source: "Rule/frost", Level: control.Safety}}}}
-	if err := controls.Put(ctx, key("boiler"), state); err != nil {
+	if err := controls.Put(ctx, key("relays/b"), state); err != nil {
 		t.Fatal(err)
 	}
 
@@ -424,7 +425,7 @@ func TestADeclaredTypeOutOfARoomsSafetyCaseNamesIt(t *testing.T) {
 		}
 	}
 	rules := []wire.RuleInfo{{Name: "hall on smoke", Kind: wire.KindCase, Safety: true, Rooms: []wire.RoomOfTypes{{
-		Room: "hall", Capability: capability.On, DeviceTypes: []devicetype.Type{devicetype.OnOffLight}, Except: []string{"lamp"},
+		Room: "hall", Capability: capability.On, DeviceTypes: []devicetype.Type{devicetype.OnOffLight}, Except: []string{"x/l"},
 	}}}}
 	as := func(name, room string, t devicetype.Type) []wire.DeviceDeclaration {
 		return []wire.DeviceDeclaration{{Name: name, Plugin: "x", ID: name[:1], Room: &room, DeviceType: t}}
@@ -445,7 +446,7 @@ func TestADeclaredTypeOutOfARoomsSafetyCaseNamesIt(t *testing.T) {
 	// The next version's case takes plugs too, so a plug is still covered.
 	widened := []wire.RuleInfo{rules[0]}
 	widened[0].Rooms = []wire.RoomOfTypes{{Room: "hall", Capability: capability.On,
-		DeviceTypes: []devicetype.Type{devicetype.OnOffLight, devicetype.OnOffPlugInUnit}, Except: []string{"lamp"}}}
+		DeviceTypes: []devicetype.Type{devicetype.OnOffLight, devicetype.OnOffPlugInUnit}, Except: []string{"x/l"}}}
 	if out := known.leavingSafety(as("ceiling", "hall", devicetype.OnOffPlugInUnit), rules, widened); len(out) != 0 {
 		t.Errorf("declaring ceiling a plug, which the next case covers, names %v", out)
 	}
@@ -491,7 +492,7 @@ func TestAForgetChecksEveryDeviceAndSaysWhatBecameOfIt(t *testing.T) {
 		}
 	}
 	state := engine.ControlState{capability.On: control.State{Claims: []control.Claim{{Source: "Rule/frost", Level: control.Safety}}}}
-	if err := controls.Put(t.Context(), key("boiler"), state); err != nil {
+	if err := controls.Put(t.Context(), key("relays/b"), state); err != nil {
 		t.Fatal(err)
 	}
 	imports := &plugins{host: &Host{}, known: known, imported: []string{"relays"}, importsKnown: true}

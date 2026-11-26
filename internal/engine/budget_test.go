@@ -58,9 +58,9 @@ func blocks(today *BudgetDay) string {
 func (r *rig) expectBudgetMetrics(name string, target, scheduled, run float64) {
 	r.t.Helper()
 	for metric, tc := range map[string]struct{ got, want float64 }{
-		"oikade_rule_budget_target_minutes":    {r.e.metrics.budget.target.Gauge(ruleRef(ident.ID{Name: name})).Get(), target},
-		"oikade_rule_budget_scheduled_minutes": {r.e.metrics.budget.scheduled.Gauge(ruleRef(ident.ID{Name: name})).Get(), scheduled},
-		"oikade_rule_budget_run_minutes_total": {r.e.metrics.budget.run.FloatCounter(ruleRef(ident.ID{Name: name})).Get(), run},
+		"oikade_rule_budget_target_minutes":    {r.e.metrics.budget.target.Gauge(r.e.ruleRef(ident.ID{Name: name})).Get(), target},
+		"oikade_rule_budget_scheduled_minutes": {r.e.metrics.budget.scheduled.Gauge(r.e.ruleRef(ident.ID{Name: name})).Get(), scheduled},
+		"oikade_rule_budget_run_minutes_total": {r.e.metrics.budget.run.FloatCounter(r.e.ruleRef(ident.ID{Name: name})).Get(), run},
 	} {
 		if tc.got < tc.want-0.1 || tc.got > tc.want+0.1 {
 			r.t.Errorf("%s = %v, want %v", metric, tc.got, tc.want)

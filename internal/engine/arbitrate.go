@@ -213,9 +213,6 @@ func (e *Engine) availabilityChanged(dev ident.ID, online bool) {
 // ensure creates or updates the device's arbiters from its control entries, and drops those
 // whose entry has gone. Call with e.mu held.
 func (e *Engine) ensure(dev ident.ID) {
-	if e.moving[dev] {
-		return
-	}
 	snap, ok := e.Store.Get(dev)
 	if !ok {
 		// The device left the store, as when it moves between driver instances. Its arbiters go,
@@ -240,7 +237,7 @@ func (e *Engine) ensure(dev ident.ID) {
 		settings, err := ControlSettings(c, e.Location)
 		if err != nil {
 			// The capability stays unarbitrated.
-			e.Log.Info("Ignored invalid control entry", "device", dev, "err", err)
+			e.Log.Info("Ignored invalid control entry", "device", e.name(dev), "err", err)
 			e.dropArb(dev, c.Capability, true)
 			continue
 		}
@@ -252,7 +249,7 @@ func (e *Engine) ensure(dev ident.ID) {
 				if err := e.unreadableClaims(dev); err != nil {
 					// It may hold a Safety claim, so it stays, and no arbiter starts empty to save
 					// over it. UnreadableClaim refuses writes in the meantime.
-					e.Log.Error("Refused writes to a device whose claims can't be read", "err", err, "device", dev)
+					e.Log.Error("Refused writes to a device whose claims can't be read", "err", err, "device", e.name(dev))
 					return
 				}
 				saved, _ = e.Controls.Get(dev)
@@ -262,7 +259,7 @@ func (e *Engine) ensure(dev ident.ID) {
 		}
 		a, err := control.New(settings, e.Clock, st)
 		if err != nil {
-			e.Log.Error("Failed to start arbiter", "err", err, "device", dev, "capability", c.Capability)
+			e.Log.Error("Failed to start arbiter", "err", err, "device", e.name(dev), "capability", c.Capability)
 			e.dropArb(dev, c.Capability, true)
 			continue
 		}
@@ -304,7 +301,7 @@ func (e *Engine) dropArb(dev ident.ID, name string, forget bool) {
 	if len(e.arbs[dev]) == 0 {
 		delete(e.arbs, dev)
 	}
-	e.metrics.controlLevel.Delete(dev.Name, name)
+	e.metrics.controlLevel.Delete(e.name(dev), name)
 	if forget {
 		e.markSave(dev)
 	}
@@ -424,7 +421,7 @@ func (e *Engine) writeControl(ctx context.Context, dev ident.ID, name string, ar
 		if ctx.Err() != nil {
 			return
 		}
-		e.Log.Error("Failed to write arbitrated capability", "err", err, "device", dev, "capability", name)
+		e.Log.Error("Failed to write arbitrated capability", "err", err, "device", e.name(dev), "capability", name)
 		cur.retry = now.Add(retryFailed)
 	} else {
 		cur.a.Wrote(value)
@@ -526,7 +523,7 @@ func (e *Engine) recordOutside(dev ident.ID, name string, ar *arb, v float64) {
 		source = w.source
 	}
 	if err := ar.a.Outside(source, v); err != nil {
-		e.Log.Error("Failed to record outside change", "err", err, "device", dev, "capability", name, "source", control.SourceRef(source))
+		e.Log.Error("Failed to record outside change", "err", err, "device", e.name(dev), "capability", name, "source", e.names().SourceRef(source))
 	}
 }
 
@@ -661,7 +658,7 @@ func (e *Engine) Claim(ctx context.Context, dev ident.ID, name string, c control
 // makeClaim gives the arbiter a claim and decides again. Call with e.mu held.
 func (e *Engine) makeClaim(ctx context.Context, dev ident.ID, name string, ar *arb, c control.Claim) {
 	if err := ar.a.Claim(c); err != nil {
-		e.Log.Error("Failed to claim", "err", err, "device", dev, "capability", name, "source", control.SourceRef(c.Source))
+		e.Log.Error("Failed to claim", "err", err, "device", e.name(dev), "capability", name, "source", e.names().SourceRef(c.Source))
 		return
 	}
 	e.decide(ctx, dev, name, ar)
@@ -985,7 +982,7 @@ func (e *Engine) arbitrated(dev ident.ID, name string) bool {
 // reportControl sets the gauge of the device's arbitrated capabilities. Call with e.mu held.
 func (e *Engine) reportControl(dev ident.ID) {
 	for name, ar := range e.arbs[dev] {
-		e.metrics.controlLevel.Set(float64(ar.d.Level), dev.Name, name)
+		e.metrics.controlLevel.Set(float64(ar.d.Level), e.name(dev), name)
 	}
 }
 
@@ -1143,7 +1140,7 @@ func (e *Engine) saveDevices(ctx context.Context) []ident.ID {
 		}
 		if err != nil {
 			if ctx.Err() == nil {
-				e.Log.Error("Failed to save control state", "err", err, "device", dev)
+				e.Log.Error("Failed to save control state", "err", err, "device", e.name(dev))
 			}
 			failed = append(failed, dev)
 			continue

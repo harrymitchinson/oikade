@@ -223,9 +223,10 @@ func TestRenderIsDeterministicAndValidGo(t *testing.T) {
 	if strings.Contains(string(first), "\nconst Evil") {
 		t.Errorf("a room wrote code:\n%s", first)
 	}
+	// Each handle has its device's key: a simulated device's ID, here.
 	for _, want := range []string{
-		"var AppleLamp = struct", `Name: "apple-lamp"`, "var ZebraLamp = struct",
-		`On:     oikade.Bool{Device: "zebra-lamp", Capability: oikade.On}`,
+		"var AppleLamp = struct", "AppleLamp is apple-lamp", `Name: "a"`, "var ZebraLamp = struct",
+		`On:     oikade.Bool{Device: "z", Capability: oikade.On}`,
 		"var Porch = struct {\n\toikade.Device\n}{\n\tDevice: oikade.Device{Name: \"porch\"},\n}", "reserved",
 	} {
 		if !strings.Contains(string(first), want) {
@@ -263,7 +264,9 @@ func TestRenderLeavesOutRemovedDevices(t *testing.T) {
 
 func TestHandlesReadsBackWhatRenderWrote(t *testing.T) {
 	r, _ := open(t)
-	report(t, r, "0x1", "lamp")
+	if _, _, err := r.Report(Report{ID: "0x1", Driver: "plugin/hue", Name: "lamp", Capabilities: []string{"on"}}); err != nil {
+		t.Fatal(err)
+	}
 	declareOK(t, r, Declaration{Name: "shed-fan"})
 	file, err := Render(r.List(), "home")
 	if err != nil {
@@ -276,8 +279,8 @@ func TestHandlesReadsBackWhatRenderWrote(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(got["lamp"], []string{"on"}) || got["shed-fan"] == nil || len(got) != 2 {
-		t.Errorf("read back %v", got)
+	if !slices.Equal(got["hue/0x1"], []string{"on"}) || got["shed-fan"] == nil || len(got) != 2 {
+		t.Errorf("read back %v, want the lamp by its hardware and the reserved name by itself", got)
 	}
 	if _, err := Handles([]byte("not go")); err == nil {
 		t.Error("read a file that isn't Go")
@@ -443,5 +446,44 @@ func TestAFirmwareUpdateIsTakenUpAndTheRestKept(t *testing.T) {
 	want.FirmwareVersion = "3.05.10"
 	if !changed || d.Product != want {
 		t.Errorf("got %+v, changed %v, want %+v", d.Product, changed, want)
+	}
+}
+
+// A device is its hardware: a plugin's ID under the plugin's name, percent-encoded where it isn't
+// safe in a ref, and with no space, so a case's key can hold it.
+func TestADevicesKeyIsItsHardware(t *testing.T) {
+	for _, tc := range []struct {
+		d    Device
+		want string
+	}{
+		{Device{Name: "desk-lamp", Driver: "plugin/hue", ID: "0x00178801091863f2"}, "hue/0x00178801091863f2"},
+		{Device{Name: "terrace-blind", Driver: "plugin/overkiz", ID: "io://1234-5678/9 0"}, "overkiz/io:%2F%2F1234-5678%2F9%200"},
+		{Device{Name: "study-heater", Driver: "simulated/simulator", ID: "study-heater"}, "study-heater"},
+		{Device{Name: "greenhouse-fan"}, "greenhouse-fan"},
+	} {
+		if got := tc.d.Key(); got != tc.want || strings.Contains(got, " ") {
+			t.Errorf("%s's key is %q, want %q", tc.d.Name, got, tc.want)
+		}
+	}
+}
+
+// A rename leaves a device's key as it is, and a device forgotten keeps its name for its past.
+func TestADeviceKeepsItsKeyThroughARename(t *testing.T) {
+	r, _ := open(t)
+	d := report(t, r, "0x1", "Hall lamp")
+	declareOK(t, r, Declaration{Name: "landing-lamp", Driver: "sim", ID: "0x1"})
+	got, ok := r.ByKey(d.Key())
+	if !ok || got.Name != "landing-lamp" || got.Key() != d.Key() {
+		t.Fatalf("by its key: %+v, %v", got, ok)
+	}
+	declareOK(t, r)
+	if err := r.Remove("hall-lamp"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := r.ByKey(d.Key()); ok {
+		t.Error("a forgotten device is still live by its key")
+	}
+	if name, ok := r.NameOf(d.Key()); !ok || name != "hall-lamp" {
+		t.Errorf("NameOf = %q, %v, want hall-lamp", name, ok)
 	}
 }

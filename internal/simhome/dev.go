@@ -17,9 +17,9 @@ import (
 	"oikade.dev/internal/registry"
 )
 
-// ReadTypes reads the devices from the file oikade types wrote, with the rooms and types inventory
-// declares. A device it doesn't declare a room for is in none, with no app to give it one, and a
-// device it doesn't declare is what its capabilities say.
+// ReadTypes reads the devices from the file oikade types wrote, by their keys, with the rooms and
+// types inventory declares. A device it doesn't declare a room for is in none, with no app to give it
+// one, and a device it doesn't declare is what its capabilities say.
 func ReadTypes(path string, inventory []wire.DeviceDeclaration) ([]Device, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -29,17 +29,17 @@ func ReadTypes(path string, inventory []wire.DeviceDeclaration) ([]Device, error
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", path, err)
 	}
-	declared := make(map[string]wire.DeviceDeclaration, len(inventory))
-	for _, d := range inventory {
-		declared[d.Name] = d
+	declared := make(map[string]registry.Declaration, len(inventory))
+	for _, d := range wire.Declarations(inventory) {
+		declared[registry.KeyOf(d.Driver, d.ID, d.Name)] = d
 	}
 	out := make([]Device, 0, len(handles))
-	for _, name := range slices.Sorted(maps.Keys(handles)) {
-		d := Device{Name: name, Capabilities: handles[name]}
-		if room := declared[name].Room; room != nil {
+	for _, key := range slices.Sorted(maps.Keys(handles)) {
+		d := Device{Name: key, Capabilities: handles[key]}
+		if room := declared[key].Room; room != nil {
 			d.Room = *room
 		}
-		d.DeviceTypes = devicetype.Of(declared[name].DeviceType, "", d.Capabilities)
+		d.DeviceTypes = devicetype.Of(declared[key].DeviceType, "", d.Capabilities)
 		out = append(out, d)
 	}
 	return out, nil

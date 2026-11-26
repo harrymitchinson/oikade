@@ -152,7 +152,7 @@ func timedHarness(t *testing.T, now time.Time, site *sun.Site, edit func(*steps)
 }
 
 func (h *harness) result(name, result string) float64 {
-	return float64(h.e.metrics.runs.Counter(ruleRef(ident.ID{Name: name}), result).Get())
+	return float64(h.e.metrics.runs.Counter(h.e.ruleRef(ident.ID{Name: name}), result).Get())
 }
 
 var lightOn = call{"hallway-light", capability.On, true}

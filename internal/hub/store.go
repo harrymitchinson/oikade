@@ -20,6 +20,7 @@ import (
 
 // Meta is what the hub is told about a declared Device, as against what its driver reports.
 type Meta struct {
+	// DisplayName is what a person calls the device. The hub knows it by its key, its hardware.
 	DisplayName string
 	Room        string
 	// Instance is the driver instance the device belongs to.
@@ -142,45 +143,6 @@ type Reassigner interface {
 	Reassigned(dev ident.ID)
 }
 
-// Move is a device's live state going to another key, with the Meta it has there.
-type Move struct {
-	To   ident.ID
-	Meta Meta
-}
-
-// Rename moves devices' live state to other keys, as one change: names can swap, a device replaces
-// anything at its new key, and nobody sees one with the wrong Meta. The listeners hear about every
-// key involved.
-func (s *Store) Rename(moves map[ident.ID]Move) {
-	s.mu.Lock()
-	taken := map[ident.ID]*entry{}
-	for from := range moves {
-		if e, ok := s.devices[from]; ok {
-			taken[from] = e
-			delete(s.devices, from)
-		}
-	}
-	touched := make([]ident.ID, 0, 2*len(moves))
-	for from, m := range moves {
-		touched = append(touched, from, m.To)
-		if e, ok := taken[from]; ok {
-			e.Meta = m.Meta
-			s.devices[m.To] = e
-		}
-	}
-	s.mu.Unlock()
-	for _, l := range s.Listeners {
-		for _, key := range touched {
-			if r, ok := l.(Reassigner); ok {
-				r.Reassigned(key)
-			}
-			if c, ok := l.(ControlWatcher); ok {
-				c.ControlChanged(key)
-			}
-		}
-	}
-}
-
 // Forget drops a driver instance that no longer exists: its devices, its undeclared count and its
 // inventory.
 func (s *Store) Forget(instance driver.InstanceKey) {
@@ -285,7 +247,7 @@ func (s *Store) Liveness() map[string]Liveness {
 	return out
 }
 
-// Room returns the declared devices whose room is room, sorted by name.
+// Room returns the declared devices whose room is room, sorted by key.
 func (s *Store) Room(room string) []ident.ID {
 	if room == "" {
 		return nil
@@ -302,11 +264,30 @@ func (s *Store) Room(room string) []ident.ID {
 	return out
 }
 
+// Names names devices by their DisplayName, for what a person reads. A nil store names none.
+func (s *Store) Names() control.Names {
+	if s == nil {
+		return nil
+	}
+	return func(key string) (string, bool) {
+		snap, ok := s.Get(ident.ID{Name: key})
+		return snap.DisplayName, ok && snap.DisplayName != ""
+	}
+}
+
 // UndeclaredCounts returns the number of paired-but-undeclared devices per driver instance.
 func (s *Store) UndeclaredCounts() map[driver.InstanceKey]int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return maps.Clone(s.undeclared)
+}
+
+// name is what a person calls the device, for a log line: its DisplayName, or else its key.
+func (e *entry) name(key ident.ID) string {
+	if e.DisplayName != "" {
+		return e.DisplayName
+	}
+	return key.Name
 }
 
 func (e *entry) copy() Snapshot {
@@ -344,6 +325,7 @@ func (s *Store) Discovered(dev ident.ID, info driver.Info) {
 // Changed implements driver.Sink. A report's values all land before any listener hears of them.
 func (s *Store) Changed(changes ...driver.Update) {
 	known := make([]driver.Update, 0, len(changes))
+	names := make([]string, 0, len(changes))
 	s.mu.Lock()
 	for _, u := range changes {
 		e, ok := s.devices[u.Device]
@@ -353,15 +335,16 @@ func (s *Store) Changed(changes ...driver.Update) {
 		e.Values[u.Capability] = u.Value
 		e.Changes[u.Capability]++
 		known = append(known, u)
+		names = append(names, e.name(u.Device))
 	}
 	s.mu.Unlock()
 	if len(known) == 0 {
 		return
 	}
-	for _, u := range known {
+	for i, u := range known {
 		// Link quality changes on almost every message; logging it would drown the rest.
 		if u.Capability != capability.LinkQuality {
-			s.Log.Info("Changed capability", "device", u.Device.Name,
+			s.Log.Info("Changed capability", "device", names[i],
 				"capability", u.Capability, "value", u.Value, "previous", u.Previous)
 		}
 	}
@@ -374,8 +357,9 @@ func (s *Store) Changed(changes ...driver.Update) {
 // log says when it went. One first reported online isn't, since that's every device at start.
 func (s *Store) Availability(dev ident.ID, online bool) {
 	var was *bool
+	var name string
 	if !s.update(dev, func(e *entry) {
-		was, e.Online = e.Online, &online
+		was, e.Online, name = e.Online, &online, e.name(dev)
 		switch {
 		case online:
 			e.OfflineSince = time.Time{}
@@ -387,10 +371,10 @@ func (s *Store) Availability(dev ident.ID, online bool) {
 	}
 	switch {
 	case !online && (was == nil || *was):
-		s.Log.Info("Device went offline", "device", dev.Name)
+		s.Log.Info("Device went offline", "device", name)
 		s.went(dev, false)
 	case online && was != nil && !*was:
-		s.Log.Info("Device came back online", "device", dev.Name)
+		s.Log.Info("Device came back online", "device", name)
 		s.went(dev, true)
 	}
 	for _, l := range s.Listeners {

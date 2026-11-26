@@ -184,7 +184,7 @@ func (r *rig) expect(want ...call) {
 }
 
 func (r *rig) active(name string) float64 {
-	return r.e.metrics.active.Gauge(ruleRef(ident.ID{Name: name})).Get()
+	return r.e.metrics.active.Gauge(r.e.ruleRef(ident.ID{Name: name})).Get()
 }
 
 var heaterNight = Hold{Device: "water-heater", Capability: capability.On, Value: true, Window: &Window{Start: At{Time: "22:00"}, End: At{Time: "06:00"}}}

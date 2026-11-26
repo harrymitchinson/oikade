@@ -115,7 +115,8 @@ func (b *Bridge) after(d time.Duration, f func()) (stop func()) {
 }
 
 // Apply adds, removes and rebuilds endpoints to match want, by endpoint ID. An endpoint whose
-// device takes another name keeps its clusters, and its writes go to the new name.
+// device takes another name keeps its clusters, and one whose name takes other hardware sends its
+// writes to that.
 func (b *Bridge) Apply(log *slog.Logger, want map[uint16]Device) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -127,13 +128,13 @@ func (b *Bridge) Apply(log *slog.Logger, want map[uint16]Device) error {
 			if label := Label(d.Name); label != e.label {
 				e.label = label
 				b.Matter.Node.Update(func() { e.info.SetLabel(label) })
-				log.Info("Renamed bridged device", "device", e.device(), "endpoint", id)
+				log.Info("Renamed bridged device", "device", d.Name, "endpoint", id)
 			}
 			continue
 		}
 		b.Matter.RemoveDevice(id)
 		delete(b.endpoints, id)
-		log.Info("Removed bridged device", "device", e.device(), "endpoint", id)
+		log.Info("Removed bridged device", "device", e.label, "endpoint", id)
 	}
 	// Names can swap, so what each endpoint is called now is worked out in one go. Different
 	// hardware can have taken a name with no event at all, so each is brought up to date.
@@ -166,7 +167,7 @@ func (b *Bridge) Apply(log *slog.Logger, want map[uint16]Device) error {
 		d.After = b.after
 		// So the log says what a controller asked for, as well as what was written.
 		d.Command = func(command string, args ...any) {
-			log.Info("Took Matter command", append([]any{"device", e.device(), "command", command}, args...)...)
+			log.Info("Took Matter command", append([]any{"device", e.label, "command", command}, args...)...)
 		}
 		d.Send = func() { b.Writes.Send(e.device()) }
 		d.Gathering = func(name string) bool { return b.Writes.Gathering(e.device(), name) }
@@ -180,7 +181,7 @@ func (b *Bridge) Apply(log *slog.Logger, want map[uint16]Device) error {
 		b.endpoints[id], b.byDevice[d.Key] = e, e
 		// Start from the bus's state, then follow it.
 		b.refresh(e)
-		log.Info("Added bridged device", "device", d.Key, "endpoint", id, "types", len(e.mapped.Types))
+		log.Info("Added bridged device", "device", d.Name, "endpoint", id, "types", len(e.mapped.Types))
 	}
 	return failed
 }

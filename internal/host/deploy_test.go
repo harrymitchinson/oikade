@@ -24,35 +24,32 @@ func manifest(rules ...wire.RuleInfo) wire.Manifest {
 func TestRenamedLatchedSafetyHoldIsFlagged(t *testing.T) {
 	old := manifest(wire.RuleInfo{Name: "leak", Kind: "hold", Safety: true, Latch: true}, wire.RuleInfo{Name: "fan", Kind: "hold"})
 	next := manifest(wire.RuleInfo{Name: "water-leak", Kind: "hold", Safety: true, Latch: true}, wire.RuleInfo{Name: "fan", Kind: "hold"})
-	findings := safetyFindings(old, next, nil, nil, noneHeld)
+	findings := safetyFindings(old, next, nil, noneHeld, nil)
 	if len(findings) != 1 || !strings.Contains(findings[0], `"leak"`) || !strings.Contains(findings[0], "latch") {
 		t.Fatalf("got %q", findings)
 	}
 }
 
+// A case is keyed by its device's hardware, so renaming the device leaves its Safety cases as they
+// were, and what goes is named as the next version calls its device.
 func TestADeviceRenamedInTheSameDeployKeepsItsSafetyCases(t *testing.T) {
-	old := manifest(wire.RuleInfo{Name: "water-valve on leak", Kind: wire.KindCase, Safety: true, Device: "water-valve"})
-	old.Control = []wire.DeviceControl{{Device: "water-valve", Entry: control.Entry{Capability: "on", Lines: []string{"Rule/water-valve on leak"}}}}
-	next := manifest(wire.RuleInfo{Name: "mains-valve on leak", Kind: wire.KindCase, Safety: true, Device: "mains-valve"})
-	next.Control = []wire.DeviceControl{{Device: "mains-valve", Entry: control.Entry{Capability: "on", Lines: []string{"Rule/mains-valve on leak"}}}}
-	held := map[string]control.Level{"water-valve on leak": control.Safety}
-	safetyHeld := func(device, _ string) bool { return device == "water-valve" }
-	if got := safetyFindings(old, next, map[string]string{"water-valve": "mains-valve"}, held, safetyHeld); len(got) != 0 {
+	valve := func(name string) wire.Manifest {
+		m := manifest(wire.RuleInfo{Name: "x/v on leak", Kind: wire.KindCase, Safety: true, Device: "x/v"})
+		m.Control = []wire.DeviceControl{{Device: "x/v", Entry: control.Entry{Capability: "on", Lines: []string{"Rule/x/v on leak"}}}}
+		m.Inventory = []wire.DeviceDeclaration{{Name: name, Plugin: "x", ID: "v"}}
+		return m
+	}
+	old, next := valve("water-valve"), valve("mains-valve")
+	held := map[string]control.Level{"x/v on leak": control.Safety}
+	safetyHeld := func(device, _ string) bool { return device == "x/v" }
+	names := declaredNames(next.Inventory, nil)
+	if got := safetyFindings(old, next, held, safetyHeld, names); len(got) != 0 {
 		t.Errorf("a rename was taken for Safety going: %q", got)
 	}
-	if got := safetyFindings(old, next, nil, held, safetyHeld); len(got) != 2 {
-		t.Errorf("without the rename, got %q, want the case and its Control gone", got)
-	}
-}
-
-func TestAGroupsCaseIsntADevicesOfTheSameName(t *testing.T) {
-	// The group hall's Safety case goes, as the device hall, which isn't in it, becomes hall-lamp,
-	// whose own case has the same name.
-	old := manifest(wire.RuleInfo{Name: "hall on dark", Kind: wire.KindCase, Safety: true, Device: "hall"})
-	next := manifest(wire.RuleInfo{Name: "hall-lamp on dark", Kind: wire.KindCase, Safety: true, Device: "hall-lamp"})
-	next.Control = []wire.DeviceControl{{Device: "hall-lamp", Entry: control.Entry{Capability: "on", Lines: []string{"Rule/hall-lamp on dark"}}}}
-	if got := safetyFindings(old, next, map[string]string{"hall": "hall-lamp"}, nil, noneHeld); len(got) != 1 {
-		t.Errorf("got %q, want the group's case gone", got)
+	next.Rules, next.Control = nil, nil
+	want := []string{`Safety case "mains-valve on leak" is gone`, "on on mains-valve has no Control any more, which would end a Safety claim on it"}
+	if got := safetyFindings(old, next, held, safetyHeld, names); !slices.Equal(got, want) {
+		t.Errorf("without the case, got %q, want %q", got, want)
 	}
 }
 
@@ -71,7 +68,7 @@ func TestOnlySafetyRulesAreFlagged(t *testing.T) {
 		"the rule and its claim":    {manifest(), map[string]control.Level{"leak": control.Safety}, 1},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if got := safetyFindings(old, tc.next, nil, tc.held, noneHeld); len(got) != tc.want {
+			if got := safetyFindings(old, tc.next, tc.held, noneHeld, nil); len(got) != tc.want {
 				t.Fatalf("got %q, want %d findings", got, tc.want)
 			}
 		})
@@ -103,7 +100,7 @@ func TestSafetyFindingsNameWhatGoes(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if got := safetyFindings(tc.old, tc.next, nil, tc.held, noneHeld); !slices.Equal(got, tc.want) {
+			if got := safetyFindings(tc.old, tc.next, tc.held, noneHeld, nil); !slices.Equal(got, tc.want) {
 				t.Errorf("got %q, want %q", got, tc.want)
 			}
 		})
@@ -672,13 +669,13 @@ func TestDroppingAControlThatHoldsASafetyClaimIsAFinding(t *testing.T) {
 	old := wire.Manifest{Control: []wire.DeviceControl{entry("on"), entry("brightness")}}
 	next := wire.Manifest{Control: []wire.DeviceControl{entry("on")}}
 	held := func(device, name string) bool { return device == "valve" && name == "brightness" }
-	if got := safetyFindings(old, next, nil, nil, held); len(got) != 1 {
+	if got := safetyFindings(old, next, nil, held, nil); len(got) != 1 {
 		t.Fatalf("findings %v, want one", got)
 	}
-	if got := safetyFindings(old, next, nil, nil, noneHeld); len(got) != 0 {
+	if got := safetyFindings(old, next, nil, noneHeld, nil); len(got) != 0 {
 		t.Fatalf("findings %v with nothing held", got)
 	}
-	if got := safetyFindings(old, old, nil, nil, held); len(got) != 0 {
+	if got := safetyFindings(old, old, nil, held, nil); len(got) != 0 {
 		t.Fatalf("findings %v with nothing dropped", got)
 	}
 }

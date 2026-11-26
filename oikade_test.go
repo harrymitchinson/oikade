@@ -582,19 +582,21 @@ func TestAHoldsDailyIsItsWindow(t *testing.T) {
 	}
 }
 
+// A device is its key, its hardware, and its name is only for what a person reads.
 func TestDiscoveredAddsADeviceNewSinceTheWelcome(t *testing.T) {
 	mirror := hub.NewStore(logging.Discard())
 	metas := map[ident.ID]hub.Meta{}
 	discovered(mirror, metas, nil, wire.Device{
-		Name: "lamp", Room: "hall", Arbitrated: []string{"on"}, Discovered: true,
+		Key: "hue/0x1", Name: "lamp", Room: "hall", Arbitrated: []string{"on"}, Discovered: true,
 		Capabilities: []string{"on"}, Values: map[string]any{"on": true},
 	})
-	snap, ok := mirror.Get(deviceKey("lamp"))
-	if !ok || !snap.Discovered || snap.Room != "hall" || !snap.Controls("on") || snap.Values["on"] != true {
+	snap, ok := mirror.Get(deviceKey("hue/0x1"))
+	if !ok || !snap.Discovered || snap.Room != "hall" || !snap.Controls("on") || snap.Values["on"] != true ||
+		snap.DisplayName != "lamp" {
 		t.Fatalf("got %+v, %v", snap, ok)
 	}
-	changed(mirror, wire.Message{Device: "lamp", Changes: []wire.Change{{Capability: "on", Value: false}}})
-	if snap, _ := mirror.Get(deviceKey("lamp")); snap.Values["on"] != false {
+	changed(mirror, wire.Message{Device: "hue/0x1", Changes: []wire.Change{{Capability: "on", Value: false}}})
+	if snap, _ := mirror.Get(deviceKey("hue/0x1")); snap.Values["on"] != false {
 		t.Fatalf("a later change didn't reach it: %+v", snap)
 	}
 }
@@ -612,7 +614,7 @@ func TestAChangeReachesTheEngineAsOneReport(t *testing.T) {
 	r := &reports{}
 	mirror := hub.NewStore(logging.Discard(), r)
 	discovered(mirror, map[ident.ID]hub.Meta{}, nil, wire.Device{
-		Name: "hall", Discovered: true, Capabilities: []string{"humidity", "occupied"},
+		Key: "hall", Discovered: true, Capabilities: []string{"humidity", "occupied"},
 		Values: map[string]any{"humidity": 40.0, "occupied": false},
 	})
 	r.got = nil
@@ -916,7 +918,7 @@ func TestMetaHasTheLimitsOfTheHomesDecision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := meta(wire.Device{Name: "pump", Arbitrated: []string{"on", "brightness"}}, settings)
+	m := meta(wire.Device{Key: "pump", Arbitrated: []string{"on", "brightness"}}, settings)
 	if len(m.Control) != 2 || time.Duration(m.Control[0].MinimumOn) != time.Hour ||
 		m.Control[1].Capability != "brightness" {
 		t.Fatalf("got %+v", m.Control)
@@ -929,7 +931,7 @@ func TestMetaHasTheRoomsSettingForItsKinds(t *testing.T) {
 	dusk := control.Entry{Capability: "on", Lines: []string{"Rule/hall on dusk"}}
 	settings := []wire.DeviceControl{{Room: "hall", DeviceTypes: lights, Entry: dusk}}
 	device := func(name string, t devicetype.Type) wire.Device {
-		return wire.Device{Name: name, Room: "hall", DeviceTypes: []devicetype.Type{t}, Arbitrated: []string{"on"}}
+		return wire.Device{Key: name, Room: "hall", DeviceTypes: []devicetype.Type{t}, Arbitrated: []string{"on"}}
 	}
 	lamp := meta(device("lamp", devicetype.OnOffLight), settings)
 	plug := meta(device("plug", devicetype.OnOffPlugInUnit), settings)

@@ -1,6 +1,8 @@
 // Package registry is the host's list of devices, which it owns and keeps in the store. Git holds a
 // copy, from oikade types. Each device has a Matter endpoint ID that nothing else ever gets: Next
-// only rises, and a removed device stays on record so that its endpoint comes back with it.
+// only rises, and a removed device stays on record so that its endpoint comes back with it. The
+// host and your process know a device by its Key, its hardware, so a name only ever reaches what a
+// person reads.
 package registry
 
 import (
@@ -9,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -75,6 +78,23 @@ type Device struct {
 	// Control is how it's arbitrated, opaque here. It's on record so that claims hold from the moment
 	// the host starts, before a driver has reported.
 	Control json.RawMessage `json:"control,omitempty"`
+}
+
+// Key is how the host and your process know the device, whatever it's called: its hardware, as
+// hue/0x00178801091863f2, which is its plugin's name and the ID the plugin gives it, percent-encoded.
+// Hardware of no plugin, as a simulated device, is its ID alone, and a name reserved for hardware
+// that isn't paired yet is the name. A key has no space, so a case's key can hold one.
+func (d Device) Key() string { return KeyOf(d.Driver, d.ID, d.Name) }
+
+// KeyOf is the key of a device of a driver instance with an ID, or of the name, with no ID.
+func KeyOf(instance, id, name string) string {
+	switch plugin, ok := strings.CutPrefix(instance, driver.Plugin+"/"); {
+	case id == "":
+		return name
+	case ok:
+		return ident.HardwareKey(plugin, id)
+	}
+	return url.PathEscape(id)
 }
 
 // DeviceTypes are what it is: yours, else its driver's, else what its capabilities say.
@@ -158,6 +178,39 @@ func (r *Registry) Get(name string) (Device, bool) {
 		return cloneDevice(r.state.Devices[i]), true
 	}
 	return Device{}, false
+}
+
+// ByKey returns a live device by its Key.
+func (r *Registry) ByKey(key string) (Device, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if i := slices.IndexFunc(r.state.Devices, func(d Device) bool { return !d.Removed && d.Key() == key }); i >= 0 {
+		return cloneDevice(r.state.Devices[i]), true
+	}
+	return Device{}, false
+}
+
+// NameOf is what the device a key is is called: a live one's name, or else the name the last one
+// removed had, for its past.
+func (r *Registry) NameOf(key string) (string, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.state.NameOf(key)
+}
+
+// NameOf is the name of the device a key is, as Registry.NameOf says.
+func (s Snapshot) NameOf(key string) (string, bool) {
+	name, found := "", false
+	for _, d := range s.Devices {
+		switch {
+		case d.Key() != key:
+		case !d.Removed:
+			return d.Name, true
+		default:
+			name, found = d.Name, true
+		}
+	}
+	return name, found
 }
 
 // ByID returns a live device by its hardware.
