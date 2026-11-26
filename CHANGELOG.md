@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.2.0-alpha.6](https://github.com/harrymitchinson/oikade/compare/v0.2.0-alpha.5...v0.2.0-alpha.6) (2026-11-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* Home.Device, Declaration and Is are removed: run oikade types and use the oikade.Device lines it writes. ShowOnMatter takes devices, not names, and Release takes "<device's key> <capability> <case>". The host protocol is version 10, so a home built against an older oikade.dev is turned away until it's rebuilt. Status JSON's declare is now undeclared, and the rename event is gone.
+* a device's ref is its hardware's, hardware/PLUGIN/ID, and a case's case/PLUGIN/ID/CAPABILITY/CASE: device/NAME and bare device names are gone from every command, except for a reserved device, which is device/NAME until it has hardware. Simulated hardware is simulator/<id>. The API's Device has hardware and ref in place of name, events carry keys in device and rule, and the device metric label is the hardware's ref. oikade forget takes hardware/PLUGIN/ID, and oikade dev's set takes a capability's ref.
+* devices.go is the home's own file of oikade.Device lines, which oikade types replaces once if an older one generated it; oikade dev and oikade replay lose --types, and oikadetest.Options loses Types.
+* oikade.Device, the struct devices.go embeds, is oikade.Hardware{Key: ...}; DeviceType is an interface, so Kinds and Is take a zero value, as oikade.OnOffLight{}; home.Room takes an oikade.Room; and the host protocol is version 9. Run oikade types and rebuild the home.
+* the host protocol is version 8. Run oikade types and deploy again. A host whose store kept state under device names starts its claims, latches and flow runs again, and logs that it did.
+
+### Features
+
+* a device has no name, and oikade.Device is the one way to declare one ([#452](https://github.com/harrymitchinson/oikade/issues/452)) ([5e0f20e](https://github.com/harrymitchinson/oikade/commit/5e0f20ea434bab7b21573b8dfa6ae0126bc47b3b))
+* a device is its hardware in the host and to your process ([#448](https://github.com/harrymitchinson/oikade/issues/448)) ([264c2b3](https://github.com/harrymitchinson/oikade/commit/264c2b3759ab8faeb7ee4cc1349232f9432b6635))
+* commands and metrics name a device by its hardware ([#451](https://github.com/harrymitchinson/oikade/issues/451)) ([6c5861e](https://github.com/harrymitchinson/oikade/commit/6c5861e7a3a323546625f3a56fe7dae10b1bc84a))
+* devices and rooms declared in code, beside home.Device ([#449](https://github.com/harrymitchinson/oikade/issues/449)) ([4157ece](https://github.com/harrymitchinson/oikade/commit/4157ece902978fc095016d601c4383070445bafa))
+* oikade types adds to the home's own devices.go ([#450](https://github.com/harrymitchinson/oikade/issues/450)) ([3562e09](https://github.com/harrymitchinson/oikade/commit/3562e095649ddc859307595685d3f12cbd383859))
+* **registry:** a declaration without a room keeps its app's room ([#447](https://github.com/harrymitchinson/oikade/issues/447)) ([b5d3aef](https://github.com/harrymitchinson/oikade/commit/b5d3aefecd4d49c68c4882c94bbb1905082f58b0))
+
+
+### Bug Fixes
+
+* **ident:** a letter with an accent becomes its letter in a copied name ([#445](https://github.com/harrymitchinson/oikade/issues/445)) ([3255f7d](https://github.com/harrymitchinson/oikade/commit/3255f7deff9ee510fc515d7a633c0aaf711d1f3d))
+
 ## [0.2.0-alpha.5](https://github.com/harrymitchinson/oikade/compare/v0.2.0-alpha.4...v0.2.0-alpha.5) (2026-11-26)
 
 
