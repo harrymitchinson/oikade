@@ -562,3 +562,45 @@ func TestABudgetCountsAStretchOfflineItRanThrough(t *testing.T) {
 		})
 	}
 }
+
+func TestAStretchOfflinePastTheDaysEndCountsInTheTotal(t *testing.T) {
+	late := hourBudget(nil)
+	late.Budget.Prefer = []schedule.PreferSpec{{Window: schedule.WindowSpec{Start: "23:00", End: "00:00"}, Score: 100}}
+	r := startRigWith(t, rigOptions{
+		now:     local("2026-10-22 22:00 BST"),
+		values:  map[string]map[string]any{"pump": {capability.On: false}},
+		control: map[string][]control.Entry{"pump": {pumpEntry()}},
+	}, holdRule(t, "pump-daily", late))
+	if got := blocks(r.budget("pump-daily").Today); got != "23:00-00:00" {
+		t.Fatalf("blocks %s, want 23:00-00:00", got)
+	}
+	r.at("2026-10-22 22:50 BST")
+	r.store.Availability(ident.ID{Name: "pump"}, false)
+	r.at("2026-10-23 00:30 BST")
+	r.store.Availability(ident.ID{Name: "pump"}, true)
+	r.report("pump", capability.On, false)
+	r.at("2026-10-23 00:32 BST")
+	if today := r.budget("pump-daily").Today; today.Date != "2026-10-23" || today.MissedMinutes != 0 {
+		t.Errorf("the next day %s missed %d, want none of its own", today.Date, today.MissedMinutes)
+	}
+	if got := r.e.metrics.budget.missed.FloatCounter("flow/pump-daily").Get(); got != 60 {
+		t.Errorf("oikade_rule_budget_missed_minutes_total %v, want the day before's 60", got)
+	}
+}
+
+func TestABudgetThatCantPlanMissesNothing(t *testing.T) {
+	r := startRigWith(t, rigOptions{
+		now:     local("2026-10-22 00:00 BST"),
+		values:  map[string]map[string]any{"pump": {capability.On: false}},
+		control: map[string][]control.Entry{"pump": {pumpEntry()}},
+	}, holdRule(t, "pump-daily", hourBudget(nil)))
+	r.at("2026-10-22 01:20 BST")
+	// Its control entry goes, so it keeps the pump off.
+	r.setControlOf("pump")
+	r.at("2026-10-22 02:10 BST")
+	r.setControlOf("pump", pumpEntry())
+	r.at("2026-10-22 02:16 BST")
+	if got := r.budget("pump-daily").Today.MissedMinutes; got < 19 || got > 21 {
+		t.Errorf("missed %d, want the 20 before it couldn't plan", got)
+	}
+}

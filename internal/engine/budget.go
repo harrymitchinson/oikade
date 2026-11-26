@@ -159,7 +159,13 @@ type awayStretch struct {
 	// on is whether the target was on as it went offline, and seen when it had last reported.
 	on   bool
 	seen time.Time
-	// length is how long it's been offline, and planned how much of that the plan wanted it on.
+	// today is the stretch in this planning day, and earlier in the days before, which only the
+	// metrics count.
+	today, earlier stretch
+}
+
+type stretch struct {
+	// length is how long the target was offline, and planned how much of that the plan wanted it on.
 	length, planned time.Duration
 }
 
@@ -202,13 +208,24 @@ func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices 
 		online: snap.Online == nil || *snap.Online, seen: snap.LastSeen,
 	}
 	p := bs.plan
+	// last is the plan as the last look left it, which says what the target did past its day's end.
+	var last budgetPlan
 	if p != nil {
+		last = *p
+		if p.away != nil {
+			away := *p.away
+			last.away = &away
+		}
 		// Credited even when the budget can't plan, so the run isn't lost meanwhile.
 		p.credit(now, t, e.metrics.budget, key)
 		p.when = when
 	}
 	b, report := e.compileBudget(s, snap)
 	if b == nil {
+		if p != nil {
+			// It keeps its target off, which isn't its target missing a run.
+			p.when = false
+		}
 		e.metrics.budget.unplanned(key)
 		e.reportBudget(key, s, now, report)
 		return false, time.Time{}
@@ -221,37 +238,12 @@ func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices 
 		prev := p
 		p = e.restorePlan(key, hs.saved.Budget, date, end, now)
 		if p == nil {
-			read := func(device, name string) *schedule.Reading {
-				in, ok := e.Store.Get(ident.ID{Name: device})
-				v, has := in.Values[name]
-				if avg, isAverage := e.averageOf(device, name, now); isAverage {
-					// An average is as fresh as the device's last report, so a dead sensor's is stale.
-					v, has = avg, true
-				}
-				if !ok || !has {
-					return nil
-				}
-				return &schedule.Reading{Value: capability.Float(v), At: in.LastSeen}
-			}
-			vars := e.conditionVars(now, devices)
-			p = &budgetPlan{date: date, end: end, day: schedule.Plan(b.Input(y, m, d, now, e.Location, vars, read))}
-			for _, err := range p.day.Errors {
-				e.Log.Info("Budget planned with an error", "rule", ruleRef(key), "err", err)
-			}
-			if len(p.day.Errors) > 0 {
-				p.failure = p.day.Errors[0].Error()
-			}
-			e.Log.Info("Planned budget", "rule", ruleRef(key), "date", date, "source", p.day.TargetSource,
-				"target", p.day.TargetMinutes, "scheduled", p.day.ScheduledMinutes, "blocks", len(p.day.Blocks))
+			p = e.planDay(key, b, y, m, d, end, now, devices)
 		}
 		p.device, p.capability = h.device, h.capability
 		p.credited, p.when = now, when
 		if prev != nil && prev.device == h.device && prev.capability == h.capability && !now.Before(prev.end) {
-			// The run since the last day ended belongs to this one.
-			p.credited, p.on, p.when = prev.end, prev.on, prev.when
-			if a := prev.away; a != nil {
-				p.away = &awayStretch{on: a.on, seen: a.seen}
-			}
+			p.carry(prev, last)
 		}
 		p.credit(now, t, e.metrics.budget, key)
 		p.when = when
@@ -282,6 +274,49 @@ func (e *Engine) budgetCondition(key ident.ID, s *state, now time.Time, devices 
 	}
 	e.reportBudget(key, s, now, report)
 	return on, next
+}
+
+// planDay plans the planning day that starts on the given date, from now. Call with e.mu held.
+func (e *Engine) planDay(key ident.ID, b *schedule.Budget, y int, m time.Month, d int, end, now time.Time, devices *home) *budgetPlan {
+	read := func(device, name string) *schedule.Reading {
+		in, ok := e.Store.Get(ident.ID{Name: device})
+		v, has := in.Values[name]
+		if avg, isAverage := e.averageOf(device, name, now); isAverage {
+			// An average is as fresh as the device's last report, so a dead sensor's is stale.
+			v, has = avg, true
+		}
+		if !ok || !has {
+			return nil
+		}
+		return &schedule.Reading{Value: capability.Float(v), At: in.LastSeen}
+	}
+	vars := e.conditionVars(now, devices)
+	date := time.Date(y, m, d, 0, 0, 0, 0, time.UTC).Format(time.DateOnly)
+	p := &budgetPlan{date: date, end: end, day: schedule.Plan(b.Input(y, m, d, now, e.Location, vars, read))}
+	for _, err := range p.day.Errors {
+		e.Log.Info("Budget planned with an error", "rule", ruleRef(key), "err", err)
+	}
+	if len(p.day.Errors) > 0 {
+		p.failure = p.day.Errors[0].Error()
+	}
+	e.Log.Info("Planned budget", "rule", ruleRef(key), "date", date, "source", p.day.TargetSource,
+		"target", p.day.TargetMinutes, "scheduled", p.day.ScheduledMinutes, "blocks", len(p.day.Blocks))
+	return p
+}
+
+// carry starts p where the day before, prev, ended, with the target as last left it: the time since
+// belongs to p. A stretch offline over the day's end goes on, and its part before it counts in the
+// totals once it settles.
+func (p *budgetPlan) carry(prev *budgetPlan, last budgetPlan) {
+	p.credited, p.on, p.when = prev.end, last.on, last.when
+	if a := last.away; a != nil {
+		p.away = &awayStretch{on: a.on, seen: a.seen}
+		if open := prev.away; open != nil {
+			p.away.earlier = stretch{
+				length: open.earlier.length + open.today.length, planned: open.earlier.planned + open.today.planned,
+			}
+		}
+	}
 }
 
 // compileBudget compiles the budget against its target's control entry, reusing the last one
@@ -357,8 +392,8 @@ func (p *budgetPlan) credit(now time.Time, t target, m budgetMetrics, key ident.
 		}
 		switch {
 		case p.away != nil:
-			p.away.length += d
-			p.away.planned += planned
+			p.away.today.length += d
+			p.away.today.planned += planned
 		case p.on:
 			run = d
 		default:
@@ -370,9 +405,11 @@ func (p *budgetPlan) credit(now time.Time, t target, m budgetMetrics, key ident.
 		p.away = &awayStretch{on: t.on, seen: t.seen}
 	case a != nil && t.online && t.seen.After(a.seen):
 		if a.on && t.on {
-			run += a.length
+			run += a.today.length
+			m.credited(key, a.earlier.length, 0)
 		} else {
-			missed += a.planned
+			missed += a.today.planned
+			m.credited(key, 0, a.earlier.planned)
 		}
 		p.away = nil
 	}
