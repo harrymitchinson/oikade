@@ -381,8 +381,6 @@ func TestAWriteLostWithItsDriverIsNotAnOverride(t *testing.T) {
 	}
 }
 
-// As the pool pump on 24 Nov 2026: the write went out while the device was out of reach, and it
-// came back reporting what the store already held.
 func TestAWriteItsDeviceNeverTookIsMadeAgainWhenItsBack(t *testing.T) {
 	r := railRig(t, holdRule(t, "rail", railHold))
 	r.expect(call{"towel-rail", capability.On, true})
@@ -455,6 +453,59 @@ func TestAWriteThatFinishesOnceItsDeviceHasGoneIsLost(t *testing.T) {
 	r.wrote(1, "the write under way")
 	r.store.Availability(dev, true)
 	r.wrote(2, "the write again")
+}
+
+func TestAWriteUnderWayWhileItsDeviceDropsOutIsMadeAgain(t *testing.T) {
+	r := railRig(t)
+	g := &gate{fakeSetter: r.setter, open: make(chan struct{})}
+	r.e.Setter = g
+	open := sync.OnceFunc(func() { close(g.open) })
+	t.Cleanup(open)
+	dev := ident.ID{Name: "towel-rail"}
+	r.e.Load(holdRule(t, "rail", railHold))
+	r.eventually("the write to start", func() bool {
+		r.e.mu.Lock()
+		defer r.e.mu.Unlock()
+		ar := r.e.arbs[dev][capability.On]
+		return ar != nil && ar.writing
+	})
+	r.store.Availability(dev, false)
+	r.store.Availability(dev, true)
+	open()
+	r.wrote(2, "the write again")
+}
+
+func TestAFailedWriteIsTriedAgainThoughItsDeviceWentMeanwhile(t *testing.T) {
+	r := railRig(t)
+	r.failing("towel-rail")
+	r.e.Load(holdRule(t, "rail", railHold))
+	r.wrote(1, "the write that fails")
+	dev := ident.ID{Name: "towel-rail"}
+	r.store.Availability(dev, false)
+	r.e.ControlChanged(dev)
+	r.settle()
+	r.failing()
+	r.clock.Step(10 * time.Second)
+	r.store.Availability(dev, true)
+	r.settle()
+	r.at("2026-10-21 12:01 BST")
+	r.wrote(2, "the write again at its retry")
+}
+
+func TestAWallSwitchJustBeforeItsDeviceGoesIsStillAnOverride(t *testing.T) {
+	r := railRig(t, holdRule(t, "rail", railHold))
+	r.expect(call{"towel-rail", capability.On, true})
+	r.clock.Step(2 * time.Second)
+	r.change("towel-rail", capability.On, false)
+	dev := ident.ID{Name: "towel-rail"}
+	r.store.Availability(dev, false)
+	r.at("2026-10-21 12:01 BST")
+	r.store.Availability(dev, true)
+	r.settle()
+	r.expect(call{"towel-rail", capability.On, true})
+	if w := winner(r.status("towel-rail", capability.On)); w != "Device Override" {
+		t.Errorf("winner %q, want the wall switch's override", w)
+	}
 }
 
 func TestAReportAfterALostWriteIsNotAnOverride(t *testing.T) {
